@@ -13,36 +13,52 @@ The goal is to understand *why* engines are built the way they are, not just to 
 
 ## Status
 
-Early days. The current code is the course's starter base: a Win32 window, an `Application`/`Module` update loop, input, ImGui and debug drawing. It is Windows-only for now; the cross-platform layer comes next.
+Phase 0 (foundations): CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts. No rendering yet.
 
-## Building (Windows)
+The course's original Windows-only starter code is still in `Source/` as a reference while its pieces are rebuilt cross-platform. It is not part of the CMake build and will be removed once replaced.
 
-Requirements: Visual Studio 2022 (MSVC v143) with the *Desktop development with C++* workload and a Windows 10/11 SDK.
+## Building
 
-1. Open `Source/Arclight.sln`.
-2. Pick `Debug|x64` or `Release|x64`.
-3. Build and run (F5).
+Requirements:
+- **CMake 3.25+**
+- **Windows:** Visual Studio 2022 with the *Desktop development with C++* workload
+- **macOS:** Xcode 15+ on Apple silicon, plus CMake (`brew install cmake`)
 
-Build output goes to `Source/build/`, which is not committed.
+Dependencies (SDL3) are downloaded automatically the first time you configure, so the first configure needs an internet connection.
+
+**Windows**
+```
+cmake --preset windows-vs2022
+```
+Then open `build/windows-vs2022/Arclight.sln`, and build and run (F5). Or from the command line: `cmake --build --preset windows-debug`.
+
+**macOS**
+```
+cmake --preset macos-xcode
+```
+Then open `build/macos-xcode/Arclight.xcodeproj`, pick the `Arclight` scheme and run. Or from the command line: `cmake --build --preset macos-debug`.
+
+Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 
 ## Repository layout
 
 ```
-Game/      Runtime folder: assets and DLLs the executable needs
-Source/    Engine source, solution and project files
-  3rdParty/  External libraries (DirectXTex, Dear ImGui (docking), ImGuizmo, tinygltf, WinPixEventRuntime)
+CMakeLists.txt       Root build script
+CMakePresets.json    Configure/build presets per platform
+cmake/               Build helpers (warnings, dependencies)
+Engine/Source/       ArclightEngine static library
+  Core/                Platform detection, logging, asserts
+  Platform/            OS window (SDL3)
+  Application/         Application, main loop, modules
+Editor/Source/       Arclight editor executable
+Game/                Runtime working directory (assets)
+Source/              Old course starter code (reference only, not built)
 ```
 
 ## Third-party libraries
 
-| Library | Use |
-|---|---|
-| [Dear ImGui](https://github.com/ocornut/imgui) (docking branch) | Editor UI |
-| [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | Transform gizmos |
-| [DirectXTex](https://github.com/microsoft/DirectXTex) | Texture loading |
-| [tinygltf](https://github.com/syoyo/tinygltf) | glTF model loading |
-| [WinPixEventRuntime](https://devblogs.microsoft.com/pix/winpixeventruntime/) | PIX GPU markers |
-| DirectXTK `SimpleMath`, `Keyboard`, `Mouse`, `GamePad` | Math and input (Windows) |
-| [debug-draw](https://github.com/glampert/debug-draw), [par_shapes](https://github.com/prideout/par) | Debug drawing, procedural meshes |
+| Library | Use | How it's included |
+|---|---|---|
+| [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input | Fetched by CMake (pinned release + hash) |
 
-Each library is under its own license; see its folder.
+Libraries from the old base (Dear ImGui, ImGuizmo, DirectXTex, tinygltf, WinPixEventRuntime, DirectXTK) move into the new build as the roadmap reaches them. Each library is under its own license.
