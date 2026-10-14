@@ -8,6 +8,7 @@
 
 namespace arc
 {
+    class ShaderLibrary;
     class Window;
 
     namespace rhi
@@ -67,6 +68,7 @@ namespace arc
         [[nodiscard]] rhi::Device& device() { return *m_device; }
         [[nodiscard]] const rhi::Device& device() const { return *m_device; }
         [[nodiscard]] rhi::Swapchain& swapchain() { return *m_swapchain; }
+        [[nodiscard]] const ShaderLibrary& shaders() const { return *m_shaders; }
 
         void setVSync(bool enabled);
         [[nodiscard]] bool vsync() const;
@@ -76,6 +78,7 @@ namespace arc
     private:
         std::unique_ptr<rhi::Device> m_device;
         std::unique_ptr<rhi::Swapchain> m_swapchain;
+        std::unique_ptr<ShaderLibrary> m_shaders;
         rhi::CommandList* m_commandList = nullptr;
         std::optional<Extent2D> m_pendingSize;
         rhi::ClearColor m_clearColor{0.08f, 0.09f, 0.11f, 1.0f};

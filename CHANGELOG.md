@@ -14,8 +14,12 @@ Phase 1: RHI and first triangle (in progress).
 - Null backend for headless builds and unit tests.
 - Buffers in GPU-only, upload and readback memory; buffer copies; resource-state barriers; immediate submission for load-time work; `uploadBuffer` / `readbackBuffer` helpers and a start-up round-trip self-test in Debug builds.
 - System Info panel shows the graphics API, GPU, memory and driver version.
+- Build-time shader compilation (`cmake/ArclightShaders.cmake`): HLSL → DXIL with DXC on Windows (pinned v1.9.2607); HLSL → SPIR-V → MSL (SPIRV-Cross) → `.metallib` on macOS. Debug shaders keep debug info; Release shaders are optimised. Compiled shaders are copied into the release zip.
+- `rhi::Shader`, `Device::createShader()` and a `ShaderLibrary` that loads compiled shaders from the `Shaders/` folder next to the executable.
 
 ### Changed
+- The editor executable is built into `build/<preset>/bin/<Config>/`, next to its `Shaders/` folder.
+- macOS builds need the Vulkan SDK for DXC; the release workflow installs it.
 - The editor UI renders through the engine's RHI (`imgui_impl_dx12` / `imgui_impl_metal`) instead of SDL_Renderer.
 - Resizing the window resizes the swapchain.
 

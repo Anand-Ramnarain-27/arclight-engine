@@ -4,6 +4,7 @@
 #include "RHI/CommandList.h"
 #include "RHI/D3D12/D3D12Common.h"
 #include "RHI/Device.h"
+#include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
 
@@ -56,6 +57,22 @@ namespace arc::rhi::d3d12
     };
 
     [[nodiscard]] D3D12_RESOURCE_STATES toD3D12State(ResourceState state);
+
+    /// D3D12 has no shader object; the bytecode is passed to pipeline creation, so it is kept here.
+    class D3D12Shader final : public Shader
+    {
+    public:
+        explicit D3D12Shader(const ShaderDesc& desc)
+            : Shader(desc)
+            , m_bytecode(desc.bytecode.begin(), desc.bytecode.end())
+        {
+        }
+
+        [[nodiscard]] D3D12_SHADER_BYTECODE bytecode() const { return {m_bytecode.data(), m_bytecode.size()}; }
+
+    private:
+        std::vector<std::byte> m_bytecode;
+    };
 
     class D3D12CommandList final : public CommandList
     {
@@ -132,6 +149,8 @@ namespace arc::rhi::d3d12
 
         [[nodiscard]] const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
         [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
+        [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::DXIL; }
+        [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;

@@ -17,6 +17,11 @@ target_include_directories(Arclight PRIVATE Source)
 target_link_libraries(Arclight PRIVATE ArclightEngine imgui)
 arclight_set_warnings(Arclight)
 
+# Compiled shaders are loaded from a Shaders/ folder next to the executable, which
+# ArclightShaders writes into bin/ (bin/<Config>/ for multi-config generators).
+add_dependencies(Arclight ArclightShaders)
+set_target_properties(Arclight PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # Release builds use the Windows GUI subsystem so no console window opens next to the editor.
 # main() stays the entry point on every platform, so the CRT is told to call it instead of WinMain().
 set_target_properties(Arclight PROPERTIES WIN32_EXECUTABLE $<CONFIG:Release>)

@@ -6,7 +6,9 @@
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
+#include "Renderer/ShaderLibrary.h"
 
 namespace arc
 {
@@ -36,6 +38,15 @@ namespace arc
             ARC_LOG_ERROR("RHI self-test: buffer upload and readback round-trip FAILED");
 #endif
 
+        m_shaders = std::make_unique<ShaderLibrary>(*m_device);
+        // A missing or broken shader build shows up at start-up, before any pipeline needs it.
+        const auto vertex = m_shaders->load("Triangle", rhi::ShaderStage::Vertex, "VSMain");
+        const auto pixel = m_shaders->load("Triangle", rhi::ShaderStage::Pixel, "PSMain");
+        if (vertex && pixel)
+            ARC_LOG_INFO("Shaders loaded from {}", m_shaders->directory());
+        else
+            ARC_LOG_WARN("Shaders failed to load from {}; check that the ArclightShaders target built", m_shaders->directory());
+
         rhi::SwapchainDesc swapchainDesc;
         swapchainDesc.size = window.pixelSize();
         swapchainDesc.vsync = vsync;
@@ -48,6 +59,7 @@ namespace arc
         ARC_ASSERT(!isFrameActive(), "Renderer shut down in the middle of a frame");
         if (m_device)
             m_device->waitIdle();
+        m_shaders.reset();
         m_swapchain.reset();
         m_device.reset();
     }

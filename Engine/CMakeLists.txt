@@ -23,6 +23,9 @@ add_library(ArclightEngine STATIC
     Source/RHI/RHITypes.h
     Source/RHI/Texture.h
     Source/RHI/Buffer.h
+    Source/RHI/Shader.h
+    Source/RHI/ShaderUtils.h
+    Source/RHI/ShaderUtils.cpp
     Source/RHI/BufferUtils.h
     Source/RHI/BufferUtils.cpp
     Source/RHI/CommandList.h
@@ -34,6 +37,8 @@ add_library(ArclightEngine STATIC
     Source/RHI/Null/NullBackend.cpp
     Source/Renderer/Renderer.h
     Source/Renderer/Renderer.cpp
+    Source/Renderer/ShaderLibrary.h
+    Source/Renderer/ShaderLibrary.cpp
     Source/Application/Module.h
     Source/Application/Application.h
     Source/Application/Application.cpp
@@ -79,6 +84,8 @@ target_compile_definitions(ArclightEngine PUBLIC ARCLIGHT_VERSION="${PROJECT_VER
 target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui)
 
 arclight_set_warnings(ArclightEngine)
+
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Triangle.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

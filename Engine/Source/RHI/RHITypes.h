@@ -99,6 +99,21 @@ namespace arc::rhi
         std::string debugName;
     };
 
+    enum class ShaderStage
+    {
+        Vertex,
+        Pixel,
+    };
+
+    /// The compiled shader format a backend consumes; decides which file the loader reads.
+    enum class ShaderFormat
+    {
+        DXIL,       // D3D12. Also accepted by the Null backend.
+        MetalLib,   // Metal.
+    };
+
+    [[nodiscard]] const char* shaderStageName(ShaderStage stage);
+
     struct ClearColor
     {
         float r = 0.0f;

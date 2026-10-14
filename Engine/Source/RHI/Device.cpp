@@ -32,6 +32,16 @@ namespace arc::rhi
         return "Unknown";
     }
 
+    const char* shaderStageName(ShaderStage stage)
+    {
+        switch (stage)
+        {
+            case ShaderStage::Vertex: return "vertex";
+            case ShaderStage::Pixel:  return "pixel";
+        }
+        return "unknown";
+    }
+
     std::unique_ptr<Device> Device::create(const DeviceDesc& desc)
     {
 #if ARC_PLATFORM_WINDOWS

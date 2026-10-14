@@ -9,6 +9,7 @@
 #include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
 
@@ -54,6 +55,24 @@ namespace arc::rhi::metal
 
     private:
         id<MTLBuffer> m_buffer = nil;
+    };
+
+    class MetalShader final : public Shader
+    {
+    public:
+        MetalShader(const ShaderDesc& desc, id<MTLLibrary> library, id<MTLFunction> function)
+            : Shader(desc)
+            , m_library(library)
+            , m_function(function)
+        {
+        }
+
+        [[nodiscard]] id<MTLLibrary> library() const { return m_library; }
+        [[nodiscard]] id<MTLFunction> function() const { return m_function; }
+
+    private:
+        id<MTLLibrary> m_library = nil;
+        id<MTLFunction> m_function = nil;
     };
 
     class MetalCommandList final : public CommandList
@@ -126,6 +145,8 @@ namespace arc::rhi::metal
 
         [[nodiscard]] const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
         [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
+        [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::MetalLib; }
+        [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;

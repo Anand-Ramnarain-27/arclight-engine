@@ -2,6 +2,8 @@
 #include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Shader.h"
+#include "RHI/ShaderUtils.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
 
@@ -41,6 +43,12 @@ namespace arc::rhi
 
         private:
             std::vector<std::byte> m_storage;
+        };
+
+        class NullShader final : public Shader
+        {
+        public:
+            explicit NullShader(const ShaderDesc& desc) : Shader(desc) {}
         };
 
         class NullSwapchain final : public Swapchain
@@ -140,6 +148,18 @@ namespace arc::rhi
             {
                 ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
                 return std::make_unique<NullBuffer>(desc);
+            }
+
+            ShaderFormat shaderFormat() const override { return ShaderFormat::DXIL; }
+
+            std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override
+            {
+                if (!looksLikeDxil(desc.bytecode))
+                {
+                    ARC_LOG_ERROR("Shader '{}' is not DXIL", desc.debugName);
+                    return nullptr;
+                }
+                return std::make_unique<NullShader>(desc);
             }
 
             void submitImmediate(const std::function<void(CommandList&)>& record) override

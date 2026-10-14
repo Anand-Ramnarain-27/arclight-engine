@@ -3,6 +3,8 @@
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Shader.h"
+#include "RHI/ShaderUtils.h"
 
 #include <doctest/doctest.h>
 
@@ -67,4 +69,21 @@ TEST_CASE("Partial upload writes only the requested range")
     REQUIRE(bytes.size() == 16);
     for (size_t i = 0; i < 16; ++i)
         CHECK(bytes[i] == std::byte{static_cast<unsigned char>(i >= 8 && i < 12 ? 1 : 0)});
+}
+
+TEST_CASE("Shader creation rejects bytes that are not DXIL")
+{
+    auto device = createNullDevice({});
+    REQUIRE(device);
+
+    const std::byte notDxil[8]{std::byte{'M'}, std::byte{'T'}, std::byte{'L'}, std::byte{'B'}};
+    CHECK_FALSE(looksLikeDxil(notDxil));
+    CHECK(device->createShader({.stage = ShaderStage::Vertex, .bytecode = notDxil, .entryPoint = "VSMain", .debugName = "bad"}) == nullptr);
+
+    const std::byte dxilHeader[8]{std::byte{'D'}, std::byte{'X'}, std::byte{'B'}, std::byte{'C'}};
+    CHECK(looksLikeDxil(dxilHeader));
+    auto shader = device->createShader({.stage = ShaderStage::Pixel, .bytecode = dxilHeader, .entryPoint = "PSMain", .debugName = "good"});
+    REQUIRE(shader);
+    CHECK(shader->stage() == ShaderStage::Pixel);
+    CHECK(shader->entryPoint() == "PSMain");
 }

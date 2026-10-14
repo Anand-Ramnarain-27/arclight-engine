@@ -114,6 +114,39 @@ namespace arc::rhi::metal
         return std::make_unique<MetalBuffer>(buffer, desc, state);
     }
 
+    std::unique_ptr<Shader> MetalDevice::createShader(const ShaderDesc& desc)
+    {
+        // newLibraryWithData takes a dispatch_data_t; DEFAULT copies the bytes, so the caller's
+        // buffer may be freed afterwards.
+        dispatch_data_t data = dispatch_data_create(desc.bytecode.data(), desc.bytecode.size(), nullptr,
+                                                    DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+        NSError* error = nil;
+        id<MTLLibrary> library = [m_device newLibraryWithData:data error:&error];
+        if (!library)
+        {
+            ARC_LOG_ERROR("Failed to load Metal library '{}': {}", desc.debugName,
+                          error ? error.localizedDescription.UTF8String : "unknown error");
+            return nullptr;
+        }
+        library.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
+
+        id<MTLFunction> function = [library newFunctionWithName:[NSString stringWithUTF8String:desc.entryPoint.c_str()]];
+        if (!function)
+        {
+            ARC_LOG_ERROR("Metal library '{}' has no function named '{}'", desc.debugName, desc.entryPoint);
+            return nullptr;
+        }
+
+        const MTLFunctionType expected = desc.stage == ShaderStage::Vertex ? MTLFunctionTypeVertex : MTLFunctionTypeFragment;
+        if (function.functionType != expected)
+        {
+            ARC_LOG_ERROR("'{}' in '{}' is not a {} function", desc.entryPoint, desc.debugName, shaderStageName(desc.stage));
+            return nullptr;
+        }
+
+        return std::make_unique<MetalShader>(desc, library, function);
+    }
+
     void MetalDevice::submitImmediate(const std::function<void(CommandList&)>& record)
     {
         @autoreleasepool

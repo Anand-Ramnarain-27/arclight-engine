@@ -18,6 +18,7 @@ Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 wi
 Phase 1 (RHI + first triangle) is in progress. Done so far:
 - The RHI core: device, swapchain, command lists and frames in flight, with a D3D12 backend on Windows and a Metal backend on macOS. The editor UI renders through it (`imgui_impl_dx12` / `imgui_impl_metal`).
 - Buffers in GPU-only, upload and readback memory, buffer copies, resource-state barriers, and one-off "immediate" submissions for load-time uploads. Debug builds run an upload/readback round-trip self-test at start-up.
+- Shaders written once in HLSL and compiled at build time: DXIL with DXC on Windows; SPIR-V → Metal Shading Language (SPIRV-Cross) → `.metallib` on macOS. Debug builds keep shader debug info for PIX, RenderDoc and Xcode.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -28,9 +29,9 @@ The course's original Windows-only starter code is still in `Source/` as a refer
 Requirements:
 - **CMake 3.25+**
 - **Windows:** Visual Studio 2022 with the *Desktop development with C++* workload
-- **macOS:** Xcode 15+ on Apple silicon, plus CMake (`brew install cmake`)
+- **macOS:** Xcode 15+ on Apple silicon, CMake (`brew install cmake`), and the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#mac), which provides the DXC shader compiler (Microsoft publishes no macOS build). Install it to the default `~/VulkanSDK` location, or configure from a terminal where `VULKAN_SDK` is set. If CMake reports that the Metal compiler is missing, run `xcodebuild -downloadComponent MetalToolchain`.
 
-Dependencies (SDL3, Dear ImGui, doctest) are downloaded automatically the first time you configure, so the first configure needs an internet connection and Git.
+Dependencies (SDL3, Dear ImGui, doctest, and the shader tools DXC on Windows and SPIRV-Cross on macOS) are downloaded automatically the first time you configure, so the first configure needs an internet connection and Git.
 
 **Windows**
 ```
@@ -78,6 +79,7 @@ Engine/Source/       ArclightEngine static library
   Renderer/            Device + swapchain ownership, frame bracketing
   Application/         Application, main loop, modules
   UI/                  Dear ImGui integration
+Engine/Shaders/      HLSL shaders, compiled at build time into bin/<Config>/Shaders/
 Editor/Source/       Arclight editor executable
   Panels/              Dockable editor panels
 Tests/Source/        Unit tests (doctest)
@@ -92,6 +94,8 @@ Source/              Old course starter code (reference only, not built)
 | [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input | Fetched by CMake (pinned release + hash) |
 | [Dear ImGui](https://github.com/ocornut/imgui) (docking) | Editor UI | Fetched by CMake (pinned release tag) |
 | [doctest](https://github.com/doctest/doctest) | Unit tests | Fetched by CMake (pinned release tag) |
+| [DXC](https://github.com/microsoft/DirectXShaderCompiler) | HLSL compiler (build tool) | Windows: fetched by CMake (pinned release + hash). macOS: from the Vulkan SDK |
+| [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | SPIR-V → Metal Shading Language (build tool, macOS) | Fetched by CMake (pinned release tag) |
 
 Libraries from the old base (ImGuizmo, DirectXTex, tinygltf, WinPixEventRuntime) move into the new build as the roadmap reaches them. Each library is under its own license.
 

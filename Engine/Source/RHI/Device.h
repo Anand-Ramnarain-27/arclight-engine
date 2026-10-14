@@ -14,6 +14,8 @@ namespace arc::rhi
 {
     class Buffer;
     class CommandList;
+    class Shader;
+    struct ShaderDesc;
     class Swapchain;
 
     /// The GPU, its command queue and the per-frame synchronisation.
@@ -41,6 +43,12 @@ namespace arc::rhi
         /// Upload and Readback buffers are mapped on creation. GPU-only buffers start in the Common
         /// state. Returns nullptr and logs on failure.
         [[nodiscard]] virtual std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) = 0;
+
+        [[nodiscard]] virtual ShaderFormat shaderFormat() const = 0;
+
+        /// Validates the bytecode as far as the backend can before a pipeline exists (Metal
+        /// loads the library and looks up the entry point). Returns nullptr and logs on failure.
+        [[nodiscard]] virtual std::unique_ptr<Shader> createShader(const ShaderDesc& desc) = 0;
 
         /// Records commands into a one-off command list, submits it and blocks until the GPU has
         /// finished it. Meant for load-time work such as filling GPU-only buffers. If called while

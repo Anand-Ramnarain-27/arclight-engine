@@ -3,6 +3,7 @@
 #include "Core/Assert.h"
 #include "Core/Log.h"
 #include "RHI/Backends.h"
+#include "RHI/ShaderUtils.h"
 
 #include <d3d12sdklayers.h>
 
@@ -286,6 +287,18 @@ namespace arc::rhi::d3d12
         }
 
         return std::make_unique<D3D12Buffer>(std::move(resource), desc, mapped, trackedState);
+    }
+
+    std::unique_ptr<Shader> D3D12Device::createShader(const ShaderDesc& desc)
+    {
+        // D3D12 only parses the bytecode when a pipeline is created; checking the container
+        // header here gives an earlier, clearer error for a wrong file.
+        if (!looksLikeDxil(desc.bytecode))
+        {
+            ARC_LOG_ERROR("Shader '{}' is not DXIL", desc.debugName);
+            return nullptr;
+        }
+        return std::make_unique<D3D12Shader>(desc);
     }
 
     void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)
