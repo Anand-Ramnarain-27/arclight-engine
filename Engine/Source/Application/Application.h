@@ -1,8 +1,11 @@
 #pragma once
 
 #include "Application/Module.h"
+#include "Core/Time.h"
+#include "Platform/Input.h"
 #include "Platform/Window.h"
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -12,6 +15,9 @@ namespace arc
     struct ApplicationDesc
     {
         WindowDesc window;
+
+        /// 0 means unlimited.
+        uint32_t maxFrameRate = 60;
     };
 
     /// Owns the platform layer, the window and all modules, and runs the main loop.
@@ -43,20 +49,36 @@ namespace arc
         /// Valid only while run() is executing.
         [[nodiscard]] Window& window() { return *m_window; }
 
+        [[nodiscard]] const Input& input() const { return m_input; }
+        [[nodiscard]] GameClock& gameClock() { return m_gameClock; }
+        [[nodiscard]] const FrameTime& frameTime() const { return m_frameTime; }
+        [[nodiscard]] const FrameStats& frameStats() const { return m_frameStats; }
+
+        /// 0 means unlimited.
+        void setMaxFrameRate(uint32_t fps) { m_desc.maxFrameRate = fps; }
+        [[nodiscard]] uint32_t maxFrameRate() const { return m_desc.maxFrameRate; }
+
     private:
         [[nodiscard]] bool init();
         void shutdown();
         void pumpEvents();
+        void runFrame(Clock::duration realDelta);
+        void waitForFrameBudget(Clock::time_point frameStart) const;
 
         ApplicationDesc m_desc;
         std::unique_ptr<Window> m_window;
         std::vector<std::unique_ptr<Module>> m_modules;
+
+        Input m_input;
+        GameClock m_gameClock;
+        FrameTime m_frameTime;
+        FrameStats m_frameStats;
 
         // Count of modules whose init() succeeded; only these are shut down.
         size_t m_initializedModules = 0;
 
         bool m_platformInitialized = false;
         bool m_quitRequested = false;
-        bool m_paused = false;
+        bool m_minimized = false;
     };
 }

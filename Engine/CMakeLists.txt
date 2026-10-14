@@ -4,8 +4,12 @@ add_library(ArclightEngine STATIC
     Source/Core/Assert.cpp
     Source/Core/Log.h
     Source/Core/Log.cpp
+    Source/Core/Time.h
+    Source/Core/Time.cpp
     Source/Platform/Window.h
     Source/Platform/Window.cpp
+    Source/Platform/Input.h
+    Source/Platform/Input.cpp
     Source/Application/Module.h
     Source/Application/Application.h
     Source/Application/Application.cpp

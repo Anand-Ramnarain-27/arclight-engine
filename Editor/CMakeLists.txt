@@ -1,5 +1,7 @@
 add_executable(Arclight
     Source/Main.cpp
+    Source/EditorModule.h
+    Source/EditorModule.cpp
 )
 
 target_link_libraries(Arclight PRIVATE ArclightEngine)

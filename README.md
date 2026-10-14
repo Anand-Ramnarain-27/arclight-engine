@@ -13,7 +13,7 @@ The goal is to understand *why* engines are built the way they are, not just to 
 
 ## Status
 
-Phase 0 (foundations): CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts. No rendering yet.
+Phase 0 (foundations): CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, and keyboard/mouse/gamepad input. No rendering yet.
 
 The course's original Windows-only starter code is still in `Source/` as a reference while its pieces are rebuilt cross-platform. It is not part of the CMake build and will be removed once replaced.
 
@@ -38,6 +38,8 @@ cmake --preset macos-xcode
 ```
 Then open `build/macos-xcode/Arclight.xcodeproj`, pick the `Arclight` scheme and run. Or from the command line: `cmake --build --preset macos-debug`.
 
+**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it. The window title shows FPS and the game clock.
+
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 
 ## Repository layout
@@ -47,10 +49,10 @@ CMakeLists.txt       Root build script
 CMakePresets.json    Configure/build presets per platform
 cmake/               Build helpers (warnings, dependencies)
 Engine/Source/       ArclightEngine static library
-  Core/                Platform detection, logging, asserts
-  Platform/            OS window (SDL3)
+  Core/                Platform detection, logging, asserts, timing
+  Platform/            OS window and input (SDL3)
   Application/         Application, main loop, modules
-Editor/Source/       Arclight editor executable
+Editor/Source/       Arclight editor executable and editor modules
 Game/                Runtime working directory (assets)
 Source/              Old course starter code (reference only, not built)
 ```

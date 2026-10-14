@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Core/Time.h"
+
 #include <string_view>
 
 namespace arc
@@ -25,7 +27,7 @@ namespace arc
         /// Return false to abort start-up; log the reason before returning.
         [[nodiscard]] virtual bool init() { return true; }
 
-        virtual void update() {}
+        virtual void update(const FrameTime& /*time*/) {}
         virtual void preRender() {}
         virtual void render() {}
         virtual void postRender() {}
