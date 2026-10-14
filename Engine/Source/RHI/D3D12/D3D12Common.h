@@ -28,6 +28,7 @@ namespace arc::rhi::d3d12
                                  const std::source_location& where = std::source_location::current());
 
     [[nodiscard]] DXGI_FORMAT toDxgiFormat(Format format);
+    [[nodiscard]] DXGI_FORMAT toDxgiFormat(VertexFormat format);
 
     [[nodiscard]] std::string narrow(const wchar_t* text);
     [[nodiscard]] std::wstring widen(std::string_view text);

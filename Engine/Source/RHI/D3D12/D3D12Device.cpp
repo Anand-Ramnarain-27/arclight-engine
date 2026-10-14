@@ -49,6 +49,7 @@ namespace arc::rhi::d3d12
         m_commandList.release();
         m_immediateList.release();
         m_immediateAllocator.Reset();
+        m_rootSignature.Reset();
         for (FrameContext& frame : m_frames)
             frame.allocator.Reset();
         m_fence.Reset();
@@ -133,6 +134,9 @@ namespace arc::rhi::d3d12
                 return false;
             setDebugName(m_frames[i].allocator.Get(), std::format("Frame Allocator {}", i));
         }
+
+        if (!createRootSignature())
+            return false;
 
         if (!succeeded(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_immediateAllocator)),
                        "CreateCommandAllocator"))
@@ -299,6 +303,99 @@ namespace arc::rhi::d3d12
             return nullptr;
         }
         return std::make_unique<D3D12Shader>(desc);
+    }
+
+    bool D3D12Device::createRootSignature()
+    {
+        // A root signature is the function signature of a pipeline: which constants, buffers
+        // and descriptor tables its shaders read, and in which root slots. The triangle reads
+        // only vertex attributes, so this one has no parameters.
+        D3D12_ROOT_SIGNATURE_DESC desc{};
+        desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        ComPtr<ID3DBlob> blob;
+        ComPtr<ID3DBlob> error;
+        if (FAILED(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)))
+        {
+            ARC_LOG_ERROR("D3D12SerializeRootSignature failed: {}",
+                          error ? static_cast<const char*>(error->GetBufferPointer()) : "unknown error");
+            return false;
+        }
+        if (!succeeded(m_device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
+                                                     IID_PPV_ARGS(&m_rootSignature)),
+                       "CreateRootSignature"))
+            return false;
+        setDebugName(m_rootSignature.Get(), "Default Root Signature");
+        return true;
+    }
+
+    std::unique_ptr<Pipeline> D3D12Device::createPipeline(const PipelineDesc& desc)
+    {
+        ARC_ASSERT(desc.vertexShader && desc.vertexShader->stage() == ShaderStage::Vertex);
+        ARC_ASSERT(desc.pixelShader && desc.pixelShader->stage() == ShaderStage::Pixel);
+
+        std::vector<D3D12_INPUT_ELEMENT_DESC> inputElements;
+        inputElements.reserve(desc.vertexLayout.attributes.size());
+        for (const VertexAttribute& attribute : desc.vertexLayout.attributes)
+        {
+            D3D12_INPUT_ELEMENT_DESC element{};
+            element.SemanticName = attribute.semantic.c_str();
+            element.SemanticIndex = attribute.semanticIndex;
+            element.Format = toDxgiFormat(attribute.format);
+            element.InputSlot = 0;
+            element.AlignedByteOffset = attribute.offset;
+            element.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+            inputElements.push_back(element);
+        }
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
+        pso.pRootSignature = m_rootSignature.Get();
+        pso.VS = static_cast<const D3D12Shader*>(desc.vertexShader)->bytecode();
+        pso.PS = static_cast<const D3D12Shader*>(desc.pixelShader)->bytecode();
+
+        // Opaque: no blending, all channels written. The blend factors are set to their
+        // pass-through values even though blending is off, because the debug layer validates them.
+        D3D12_RENDER_TARGET_BLEND_DESC& blend = pso.BlendState.RenderTarget[0];
+        blend.SrcBlend = D3D12_BLEND_ONE;
+        blend.DestBlend = D3D12_BLEND_ZERO;
+        blend.BlendOp = D3D12_BLEND_OP_ADD;
+        blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+        blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+        blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        blend.LogicOp = D3D12_LOGIC_OP_NOOP;
+        blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pso.SampleMask = UINT_MAX;
+
+        pso.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        pso.RasterizerState.CullMode = desc.cullMode == CullMode::None  ? D3D12_CULL_MODE_NONE
+                                     : desc.cullMode == CullMode::Front ? D3D12_CULL_MODE_FRONT
+                                                                        : D3D12_CULL_MODE_BACK;
+        pso.RasterizerState.FrontCounterClockwise = desc.frontCounterClockwise ? TRUE : FALSE;
+        pso.RasterizerState.DepthClipEnable = TRUE;
+
+        // No depth buffer yet; depth testing arrives with the 3D camera.
+        pso.DepthStencilState.DepthEnable = FALSE;
+        pso.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        pso.DepthStencilState.StencilEnable = FALSE;
+        const D3D12_DEPTH_STENCILOP_DESC keep{D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP,
+                                              D3D12_COMPARISON_FUNC_ALWAYS};
+        pso.DepthStencilState.FrontFace = keep;
+        pso.DepthStencilState.BackFace = keep;
+
+        pso.InputLayout = {inputElements.data(), static_cast<UINT>(inputElements.size())};
+        pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pso.NumRenderTargets = 1;
+        pso.RTVFormats[0] = toDxgiFormat(desc.colorFormat);
+        pso.DSVFormat = DXGI_FORMAT_UNKNOWN;
+        pso.SampleDesc.Count = 1;
+
+        ComPtr<ID3D12PipelineState> state;
+        if (!succeeded(m_device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&state)),
+                       "CreateGraphicsPipelineState"))
+            return nullptr;
+        setDebugName(state.Get(), desc.debugName);
+
+        return std::make_unique<D3D12Pipeline>(desc, std::move(state), m_rootSignature.Get());
     }
 
     void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)

@@ -3,6 +3,7 @@
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Pipeline.h"
 #include "RHI/Shader.h"
 #include "RHI/ShaderUtils.h"
 
@@ -86,4 +87,35 @@ TEST_CASE("Shader creation rejects bytes that are not DXIL")
     REQUIRE(shader);
     CHECK(shader->stage() == ShaderStage::Pixel);
     CHECK(shader->entryPoint() == "PSMain");
+}
+
+TEST_CASE("A pipeline keeps the description it was created from")
+{
+    auto device = createNullDevice({});
+    REQUIRE(device);
+
+    const std::byte dxilHeader[8]{std::byte{'D'}, std::byte{'X'}, std::byte{'B'}, std::byte{'C'}};
+    auto vertexShader = device->createShader({.stage = ShaderStage::Vertex, .bytecode = dxilHeader, .entryPoint = "VSMain"});
+    auto pixelShader = device->createShader({.stage = ShaderStage::Pixel, .bytecode = dxilHeader, .entryPoint = "PSMain"});
+    REQUIRE(vertexShader);
+    REQUIRE(pixelShader);
+
+    PipelineDesc pipelineDesc;
+    pipelineDesc.vertexShader = vertexShader.get();
+    pipelineDesc.pixelShader = pixelShader.get();
+    pipelineDesc.vertexLayout = {
+        .stride = 24,
+        .attributes = {
+            {.semantic = "POSITION", .format = VertexFormat::Float3, .offset = 0},
+            {.semantic = "COLOR", .format = VertexFormat::Float3, .offset = 12},
+        },
+    };
+    pipelineDesc.debugName = "Test";
+
+    auto pipeline = device->createPipeline(pipelineDesc);
+    REQUIRE(pipeline);
+    CHECK(pipeline->desc().vertexLayout.stride == 24);
+    CHECK(pipeline->desc().vertexLayout.attributes.size() == 2);
+    CHECK(pipeline->desc().vertexLayout.attributes[1].semantic == "COLOR");
+    CHECK(pipeline->desc().frontCounterClockwise);
 }

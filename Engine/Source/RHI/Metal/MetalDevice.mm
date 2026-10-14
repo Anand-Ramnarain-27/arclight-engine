@@ -147,6 +147,42 @@ namespace arc::rhi::metal
         return std::make_unique<MetalShader>(desc, library, function);
     }
 
+    std::unique_ptr<Pipeline> MetalDevice::createPipeline(const PipelineDesc& desc)
+    {
+        ARC_ASSERT(desc.vertexShader && desc.vertexShader->stage() == ShaderStage::Vertex);
+        ARC_ASSERT(desc.pixelShader && desc.pixelShader->stage() == ShaderStage::Pixel);
+
+        MTLVertexDescriptor* vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
+        for (NSUInteger i = 0; i < desc.vertexLayout.attributes.size(); ++i)
+        {
+            const VertexAttribute& attribute = desc.vertexLayout.attributes[i];
+            vertexDescriptor.attributes[i].format = attribute.format == VertexFormat::Float2 ? MTLVertexFormatFloat2
+                                                  : attribute.format == VertexFormat::Float3 ? MTLVertexFormatFloat3
+                                                                                             : MTLVertexFormatFloat4;
+            vertexDescriptor.attributes[i].offset = attribute.offset;
+            vertexDescriptor.attributes[i].bufferIndex = kVertexBufferIndex;
+        }
+        vertexDescriptor.layouts[kVertexBufferIndex].stride = desc.vertexLayout.stride;
+        vertexDescriptor.layouts[kVertexBufferIndex].stepFunction = MTLVertexStepFunctionPerVertex;
+
+        MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+        descriptor.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
+        descriptor.vertexFunction = static_cast<const MetalShader*>(desc.vertexShader)->function();
+        descriptor.fragmentFunction = static_cast<const MetalShader*>(desc.pixelShader)->function();
+        descriptor.vertexDescriptor = vertexDescriptor;
+        descriptor.colorAttachments[0].pixelFormat = toMTLPixelFormat(desc.colorFormat);
+
+        NSError* error = nil;
+        id<MTLRenderPipelineState> state = [m_device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+        if (!state)
+        {
+            ARC_LOG_ERROR("Failed to create Metal pipeline '{}': {}", desc.debugName,
+                          error ? error.localizedDescription.UTF8String : "unknown error");
+            return nullptr;
+        }
+        return std::make_unique<MetalPipeline>(desc, state);
+    }
+
     void MetalDevice::submitImmediate(const std::function<void(CommandList&)>& record)
     {
         @autoreleasepool

@@ -6,7 +6,6 @@
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
-#include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "Renderer/ShaderLibrary.h"
 
@@ -39,13 +38,7 @@ namespace arc
 #endif
 
         m_shaders = std::make_unique<ShaderLibrary>(*m_device);
-        // A missing or broken shader build shows up at start-up, before any pipeline needs it.
-        const auto vertex = m_shaders->load("Triangle", rhi::ShaderStage::Vertex, "VSMain");
-        const auto pixel = m_shaders->load("Triangle", rhi::ShaderStage::Pixel, "PSMain");
-        if (vertex && pixel)
-            ARC_LOG_INFO("Shaders loaded from {}", m_shaders->directory());
-        else
-            ARC_LOG_WARN("Shaders failed to load from {}; check that the ArclightShaders target built", m_shaders->directory());
+        ARC_LOG_INFO("Shaders are loaded from {}", m_shaders->directory());
 
         rhi::SwapchainDesc swapchainDesc;
         swapchainDesc.size = window.pixelSize();

@@ -96,7 +96,7 @@ namespace arc::rhi
         uint64_t size = 0;           // Bytes.
         BufferUsage usage = BufferUsage::None;
         MemoryType memory = MemoryType::GpuOnly;
-        std::string debugName;
+        std::string debugName{};
     };
 
     enum class ShaderStage
@@ -113,6 +113,26 @@ namespace arc::rhi
     };
 
     [[nodiscard]] const char* shaderStageName(ShaderStage stage);
+
+    enum class VertexFormat
+    {
+        Float2,
+        Float3,
+        Float4,
+    };
+
+    enum class IndexFormat
+    {
+        UInt16,
+        UInt32,
+    };
+
+    enum class CullMode
+    {
+        None,
+        Front,
+        Back,
+    };
 
     struct ClearColor
     {

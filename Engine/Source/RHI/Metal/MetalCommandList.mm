@@ -77,6 +77,71 @@ namespace arc::rhi::metal
         [m_renderEncoder endEncoding];
         m_renderEncoder = nil;
         m_renderPassDescriptor = nil;
+        m_indexBuffer = nil;
+        m_hasPipeline = false;
+    }
+
+    void MetalCommandList::setPipeline(Pipeline& pipeline)
+    {
+        ARC_ASSERT(m_renderEncoder != nil, "setPipeline outside a render pass");
+        const auto& metalPipeline = static_cast<const MetalPipeline&>(pipeline);
+        const PipelineDesc& desc = metalPipeline.desc();
+
+        [m_renderEncoder setRenderPipelineState:metalPipeline.state()];
+        // Culling and winding are encoder state on Metal but part of the pipeline in D3D12, so
+        // they are applied together with the pipeline to keep the RHI's meaning.
+        [m_renderEncoder setCullMode:desc.cullMode == CullMode::None  ? MTLCullModeNone
+                                   : desc.cullMode == CullMode::Front ? MTLCullModeFront
+                                                                      : MTLCullModeBack];
+        [m_renderEncoder setFrontFacingWinding:desc.frontCounterClockwise ? MTLWindingCounterClockwise
+                                                                          : MTLWindingClockwise];
+        m_hasPipeline = true;
+    }
+
+    void MetalCommandList::setVertexBuffer(Buffer& buffer, uint64_t offset)
+    {
+        ARC_ASSERT(m_hasPipeline, "setVertexBuffer before setPipeline");
+        ARC_ASSERT(buffer.state() == ResourceState::Common || buffer.state() == ResourceState::VertexBuffer,
+                   "Vertex buffer '{}' is in state {}", buffer.desc().debugName, resourceStateName(buffer.state()));
+        ARC_ASSERT(offset < buffer.desc().size);
+        [m_renderEncoder setVertexBuffer:static_cast<MetalBuffer&>(buffer).native() offset:offset atIndex:kVertexBufferIndex];
+    }
+
+    void MetalCommandList::setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset)
+    {
+        ARC_ASSERT(m_renderEncoder != nil, "setIndexBuffer outside a render pass");
+        ARC_ASSERT(buffer.state() == ResourceState::Common || buffer.state() == ResourceState::IndexBuffer,
+                   "Index buffer '{}' is in state {}", buffer.desc().debugName, resourceStateName(buffer.state()));
+        ARC_ASSERT(offset < buffer.desc().size);
+        m_indexBuffer = static_cast<MetalBuffer&>(buffer).native();
+        m_indexBufferOffset = offset;
+        m_indexType = format == IndexFormat::UInt16 ? MTLIndexTypeUInt16 : MTLIndexTypeUInt32;
+    }
+
+    void MetalCommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
+    {
+        ARC_ASSERT(m_hasPipeline, "Draw without a pipeline");
+        [m_renderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                            vertexStart:firstVertex
+                            vertexCount:vertexCount
+                          instanceCount:instanceCount
+                           baseInstance:firstInstance];
+    }
+
+    void MetalCommandList::drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
+                                       int32_t baseVertex, uint32_t firstInstance)
+    {
+        ARC_ASSERT(m_hasPipeline, "Draw without a pipeline");
+        ARC_ASSERT(m_indexBuffer != nil, "drawIndexed without an index buffer");
+        const NSUInteger indexSize = m_indexType == MTLIndexTypeUInt16 ? 2 : 4;
+        [m_renderEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                                    indexCount:indexCount
+                                     indexType:m_indexType
+                                   indexBuffer:m_indexBuffer
+                             indexBufferOffset:m_indexBufferOffset + firstIndex * indexSize
+                                 instanceCount:instanceCount
+                                    baseVertex:baseVertex
+                                  baseInstance:firstInstance];
     }
 
     id<MTLBlitCommandEncoder> MetalCommandList::blitEncoder()

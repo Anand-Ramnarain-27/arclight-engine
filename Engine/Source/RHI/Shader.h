@@ -17,8 +17,8 @@ namespace arc::rhi
 
         /// The function to run. Kept from the HLSL source through SPIR-V and MSL, so the same
         /// name works on every backend.
-        std::string entryPoint;
-        std::string debugName;
+        std::string entryPoint{};
+        std::string debugName{};
     };
 
     /// One compiled shader stage, ready to be combined into a pipeline. Created by

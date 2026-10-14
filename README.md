@@ -18,6 +18,7 @@ Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 wi
 Phase 1 (RHI + first triangle) is in progress. Done so far:
 - The RHI core: device, swapchain, command lists and frames in flight, with a D3D12 backend on Windows and a Metal backend on macOS. The editor UI renders through it (`imgui_impl_dx12` / `imgui_impl_metal`).
 - Buffers in GPU-only, upload and readback memory, buffer copies, resource-state barriers, and one-off "immediate" submissions for load-time uploads. Debug builds run an upload/readback round-trip self-test at start-up.
+- Pipelines (D3D12 root signature + pipeline state object / Metal render pipeline state), vertex and index buffers, and indexed draws. The editor draws a coloured triangle behind the UI on both backends.
 - Shaders written once in HLSL and compiled at build time: DXIL with DXC on Windows; SPIR-V → Metal Shading Language (SPIRV-Cross) → `.metallib` on macOS. Debug builds keep shader debug info for PIX, RenderDoc and Xcode.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
@@ -82,6 +83,7 @@ Engine/Source/       ArclightEngine static library
 Engine/Shaders/      HLSL shaders, compiled at build time into bin/<Config>/Shaders/
 Editor/Source/       Arclight editor executable
   Panels/              Dockable editor panels
+  Scene/               Placeholder scene (the triangle) until the scene viewport exists
 Tests/Source/        Unit tests (doctest)
 Game/                Runtime working directory (assets, imgui.ini)
 Source/              Old course starter code (reference only, not built)

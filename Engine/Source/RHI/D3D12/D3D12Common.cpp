@@ -33,6 +33,17 @@ namespace arc::rhi::d3d12
         return DXGI_FORMAT_UNKNOWN;
     }
 
+    DXGI_FORMAT toDxgiFormat(VertexFormat format)
+    {
+        switch (format)
+        {
+            case VertexFormat::Float2: return DXGI_FORMAT_R32G32_FLOAT;
+            case VertexFormat::Float3: return DXGI_FORMAT_R32G32B32_FLOAT;
+            case VertexFormat::Float4: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+        }
+        return DXGI_FORMAT_UNKNOWN;
+    }
+
     std::string narrow(const wchar_t* text)
     {
         const int bytes = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);

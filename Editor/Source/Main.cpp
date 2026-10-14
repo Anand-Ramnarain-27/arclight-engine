@@ -1,5 +1,6 @@
 #include "Application/Application.h"
 #include "EditorModule.h"
+#include "Scene/TriangleModule.h"
 #include "UI/ImGuiModule.h"
 
 // SDL_main.h is deliberately not included: a standard main() is the entry point on every platform.
@@ -16,6 +17,7 @@ int main(int /*argc*/, char* /*argv*/[])
     // ImGuiModule must come first: it starts the ImGui frame that EditorModule draws into.
     app.addModule<arc::ImGuiModule>();
     app.addModule<arc::EditorModule>();
+    app.addModule<arc::TriangleModule>();
 
     return app.run();
 }

@@ -14,7 +14,9 @@ namespace arc::rhi
 {
     class Buffer;
     class CommandList;
+    class Pipeline;
     class Shader;
+    struct PipelineDesc;
     struct ShaderDesc;
     class Swapchain;
 
@@ -49,6 +51,10 @@ namespace arc::rhi
         /// Validates the bytecode as far as the backend can before a pipeline exists (Metal
         /// loads the library and looks up the entry point). Returns nullptr and logs on failure.
         [[nodiscard]] virtual std::unique_ptr<Shader> createShader(const ShaderDesc& desc) = 0;
+
+        /// Compiles the pipeline. Can take milliseconds, so pipelines are created at load time,
+        /// never per frame. Returns nullptr and logs on failure.
+        [[nodiscard]] virtual std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) = 0;
 
         /// Records commands into a one-off command list, submits it and blocks until the GPU has
         /// finished it. Meant for load-time work such as filling GPU-only buffers. If called while

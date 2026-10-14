@@ -4,6 +4,7 @@
 #include "RHI/CommandList.h"
 #include "RHI/D3D12/D3D12Common.h"
 #include "RHI/Device.h"
+#include "RHI/Pipeline.h"
 #include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
@@ -74,6 +75,25 @@ namespace arc::rhi::d3d12
         std::vector<std::byte> m_bytecode;
     };
 
+    class D3D12Pipeline final : public Pipeline
+    {
+    public:
+        D3D12Pipeline(const PipelineDesc& desc, ComPtr<ID3D12PipelineState> state, ID3D12RootSignature* rootSignature)
+            : Pipeline(desc)
+            , m_state(std::move(state))
+            , m_rootSignature(rootSignature)
+        {
+        }
+
+        [[nodiscard]] ID3D12PipelineState* state() const { return m_state.Get(); }
+        /// Owned by the device.
+        [[nodiscard]] ID3D12RootSignature* rootSignature() const { return m_rootSignature; }
+
+    private:
+        ComPtr<ID3D12PipelineState> m_state;
+        ID3D12RootSignature* m_rootSignature = nullptr;
+    };
+
     class D3D12CommandList final : public CommandList
     {
     public:
@@ -86,6 +106,12 @@ namespace arc::rhi::d3d12
 
         void beginRenderPass(const RenderPassDesc& desc) override;
         void endRenderPass() override;
+        void setPipeline(Pipeline& pipeline) override;
+        void setVertexBuffer(Buffer& buffer, uint64_t offset) override;
+        void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset) override;
+        void draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
+        void drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex,
+                         uint32_t firstInstance) override;
         void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override;
         void barrier(Buffer& buffer, ResourceState state) override;
         void pushDebugGroup(std::string_view name) override;
@@ -97,6 +123,7 @@ namespace arc::rhi::d3d12
 
     private:
         ComPtr<ID3D12GraphicsCommandList> m_list;
+        D3D12Pipeline* m_pipeline = nullptr;
         bool m_inRenderPass = false;
         bool m_passHasDebugGroup = false;
         int m_debugDepth = 0;
@@ -151,6 +178,7 @@ namespace arc::rhi::d3d12
         [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
         [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::DXIL; }
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
         void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;
@@ -173,6 +201,7 @@ namespace arc::rhi::d3d12
         };
 
         [[nodiscard]] bool createFactory(bool debug);
+        [[nodiscard]] bool createRootSignature();
         [[nodiscard]] bool selectAdapter();
         void configureInfoQueue();
         [[nodiscard]] uint64_t signal();
@@ -188,6 +217,10 @@ namespace arc::rhi::d3d12
 
         std::array<FrameContext, kMaxFramesInFlight> m_frames;
         D3D12CommandList m_commandList;
+
+        // Shared by every pipeline until shaders bind resources. Empty apart from allowing the
+        // input assembler to read vertex buffers.
+        ComPtr<ID3D12RootSignature> m_rootSignature;
 
         // submitImmediate() waits for its work to finish, so one allocator suffices.
         ComPtr<ID3D12CommandAllocator> m_immediateAllocator;

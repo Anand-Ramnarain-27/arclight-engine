@@ -9,6 +9,7 @@
 #include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Pipeline.h"
 #include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
@@ -25,6 +26,10 @@ namespace arc::rhi::metal
     class MetalDevice;
 
     [[nodiscard]] MTLPixelFormat toMTLPixelFormat(Format format);
+
+    // SPIRV-Cross assigns [[buffer(n)]] indices to constant and structured buffers from 0
+    // upwards, so the vertex buffer goes in the last of Metal's 31 buffer slots to stay clear.
+    inline constexpr NSUInteger kVertexBufferIndex = 30;
 
     class MetalTexture final : public Texture
     {
@@ -75,6 +80,17 @@ namespace arc::rhi::metal
         id<MTLFunction> m_function = nil;
     };
 
+    class MetalPipeline final : public Pipeline
+    {
+    public:
+        MetalPipeline(const PipelineDesc& desc, id<MTLRenderPipelineState> state) : Pipeline(desc), m_state(state) {}
+
+        [[nodiscard]] id<MTLRenderPipelineState> state() const { return m_state; }
+
+    private:
+        id<MTLRenderPipelineState> m_state = nil;
+    };
+
     class MetalCommandList final : public CommandList
     {
     public:
@@ -85,6 +101,12 @@ namespace arc::rhi::metal
 
         void beginRenderPass(const RenderPassDesc& desc) override;
         void endRenderPass() override;
+        void setPipeline(Pipeline& pipeline) override;
+        void setVertexBuffer(Buffer& buffer, uint64_t offset) override;
+        void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset) override;
+        void draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
+        void drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex,
+                         uint32_t firstInstance) override;
         void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override;
         void barrier(Buffer& buffer, ResourceState state) override;
         void pushDebugGroup(std::string_view name) override;
@@ -105,6 +127,12 @@ namespace arc::rhi::metal
         id<MTLCommandBuffer> m_commandBuffer = nil;
         id<MTLRenderCommandEncoder> m_renderEncoder = nil;
         id<MTLBlitCommandEncoder> m_blitEncoder = nil;
+
+        // Metal takes the index buffer as a draw argument rather than as bound state.
+        id<MTLBuffer> m_indexBuffer = nil;
+        NSUInteger m_indexBufferOffset = 0;
+        MTLIndexType m_indexType = MTLIndexTypeUInt16;
+        bool m_hasPipeline = false;
         MTLRenderPassDescriptor* m_renderPassDescriptor = nil;
 
         // Debug groups pushed outside a pass go on the command buffer, inside a pass on the
@@ -147,6 +175,7 @@ namespace arc::rhi::metal
         [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
         [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::MetalLib; }
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
         void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;

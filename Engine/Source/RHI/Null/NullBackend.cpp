@@ -2,6 +2,7 @@
 #include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Pipeline.h"
 #include "RHI/Shader.h"
 #include "RHI/ShaderUtils.h"
 #include "RHI/Swapchain.h"
@@ -51,6 +52,12 @@ namespace arc::rhi
             explicit NullShader(const ShaderDesc& desc) : Shader(desc) {}
         };
 
+        class NullPipeline final : public Pipeline
+        {
+        public:
+            explicit NullPipeline(const PipelineDesc& desc) : Pipeline(desc) {}
+        };
+
         class NullSwapchain final : public Swapchain
         {
         public:
@@ -88,6 +95,46 @@ namespace arc::rhi
             {
                 ARC_ASSERT(m_inRenderPass);
                 m_inRenderPass = false;
+                m_pipeline = nullptr;
+                m_hasVertexBuffer = false;
+                m_hasIndexBuffer = false;
+            }
+
+            void setPipeline(Pipeline& pipeline) override
+            {
+                ARC_ASSERT(m_inRenderPass, "setPipeline outside a render pass");
+                m_pipeline = &pipeline;
+            }
+
+            void setVertexBuffer(Buffer& buffer, uint64_t offset) override
+            {
+                ARC_ASSERT(m_pipeline, "setVertexBuffer before setPipeline");
+                ARC_ASSERT(buffer.state() == ResourceState::Common || buffer.state() == ResourceState::VertexBuffer,
+                           "Vertex buffer '{}' is in state {}", buffer.desc().debugName, resourceStateName(buffer.state()));
+                ARC_ASSERT(offset < buffer.desc().size);
+                m_hasVertexBuffer = true;
+            }
+
+            void setIndexBuffer(Buffer& buffer, IndexFormat /*format*/, uint64_t offset) override
+            {
+                ARC_ASSERT(m_inRenderPass, "setIndexBuffer outside a render pass");
+                ARC_ASSERT(buffer.state() == ResourceState::Common || buffer.state() == ResourceState::IndexBuffer,
+                           "Index buffer '{}' is in state {}", buffer.desc().debugName, resourceStateName(buffer.state()));
+                ARC_ASSERT(offset < buffer.desc().size);
+                m_hasIndexBuffer = true;
+            }
+
+            void draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstVertex*/,
+                      uint32_t /*firstInstance*/) override
+            {
+                checkDrawState();
+            }
+
+            void drawIndexed(uint32_t /*indexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstIndex*/,
+                             int32_t /*baseVertex*/, uint32_t /*firstInstance*/) override
+            {
+                checkDrawState();
+                ARC_ASSERT(m_hasIndexBuffer, "drawIndexed without an index buffer");
             }
 
             void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override
@@ -124,6 +171,17 @@ namespace arc::rhi
             }
 
         private:
+            void checkDrawState() const
+            {
+                ARC_ASSERT(m_inRenderPass, "Draw outside a render pass");
+                ARC_ASSERT(m_pipeline, "Draw without a pipeline");
+                ARC_ASSERT(m_hasVertexBuffer || m_pipeline->desc().vertexLayout.attributes.empty(),
+                           "Pipeline '{}' reads vertices but no vertex buffer is set", m_pipeline->desc().debugName);
+            }
+
+            Pipeline* m_pipeline = nullptr;
+            bool m_hasVertexBuffer = false;
+            bool m_hasIndexBuffer = false;
             bool m_inRenderPass = false;
             int m_debugDepth = 0;
         };
@@ -160,6 +218,13 @@ namespace arc::rhi
                     return nullptr;
                 }
                 return std::make_unique<NullShader>(desc);
+            }
+
+            std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override
+            {
+                ARC_ASSERT(desc.vertexShader && desc.vertexShader->stage() == ShaderStage::Vertex);
+                ARC_ASSERT(desc.pixelShader && desc.pixelShader->stage() == ShaderStage::Pixel);
+                return std::make_unique<NullPipeline>(desc);
             }
 
             void submitImmediate(const std::function<void(CommandList&)>& record) override

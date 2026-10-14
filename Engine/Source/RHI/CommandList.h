@@ -8,6 +8,7 @@
 namespace arc::rhi
 {
     class Buffer;
+    class Pipeline;
     class Texture;
 
     struct ColorAttachment
@@ -15,7 +16,7 @@ namespace arc::rhi
         Texture* texture = nullptr;
         LoadOp load = LoadOp::Clear;
         StoreOp store = StoreOp::Store;
-        ClearColor clearColor;
+        ClearColor clearColor{};
     };
 
     struct RenderPassDesc
@@ -23,7 +24,7 @@ namespace arc::rhi
         ColorAttachment color;
 
         /// Shown as the pass's name in GPU debuggers. May be empty.
-        std::string_view debugName;
+        std::string_view debugName{};
     };
 
     /// Records GPU work for one frame. Obtained from Device::beginFrame() and valid until
@@ -42,6 +43,22 @@ namespace arc::rhi
 
         virtual void beginRenderPass(const RenderPassDesc& desc) = 0;
         virtual void endRenderPass() = 0;
+
+        /// The draw state below is only valid inside a render pass and is reset by each new pass.
+        virtual void setPipeline(Pipeline& pipeline) = 0;
+
+        /// The buffer must be in the VertexBuffer or Common state. A buffer in Common is promoted
+        /// on first use (D3D12 implicit promotion), so a freshly uploaded buffer needs no barrier.
+        /// Must be called after setPipeline(), which supplies the vertex stride.
+        virtual void setVertexBuffer(Buffer& buffer, uint64_t offset = 0) = 0;
+
+        /// Same state rule as setVertexBuffer(), with IndexBuffer instead of VertexBuffer.
+        virtual void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset = 0) = 0;
+
+        virtual void draw(uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t firstVertex = 0,
+                          uint32_t firstInstance = 0) = 0;
+        virtual void drawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0,
+                                 int32_t baseVertex = 0, uint32_t firstInstance = 0) = 0;
 
         /// Copies bytes between buffers. Not allowed inside a render pass. The source must be in
         /// CopySource state (Upload buffers always are) and the destination in CopyDest state
