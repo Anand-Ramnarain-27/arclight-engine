@@ -33,4 +33,8 @@ set_target_properties(Arclight PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/Game"
     XCODE_GENERATE_SCHEME ON
     XCODE_SCHEME_WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/Game"
+    # Metal API validation, the equivalent of the D3D12 debug layer, and GPU frame capture
+    # from the Xcode debug bar.
+    XCODE_SCHEME_ENABLE_GPU_API_VALIDATION ON
+    XCODE_SCHEME_ENABLE_GPU_FRAME_CAPTURE_MODE Metal
 )

@@ -1,7 +1,7 @@
 #include "Panels/SystemInfoPanel.h"
 
 #include "Application/Application.h"
-#include "UI/ImGuiModule.h"
+#include "RHI/Device.h"
 
 #include <imgui.h>
 
@@ -68,8 +68,15 @@ namespace arc
                                           info.display.refreshRate));
             row("UI scale", std::format("{:.0f}%", info.display.contentScale * 100.0f));
             row("Video driver", info.videoDriver);
-            // TODO: Show the GPU adapter name and driver version once the RHI device exists.
-            row("UI renderer", m_imgui.rendererName() + " (SDL_Renderer, temporary)");
+
+            const rhi::AdapterInfo& adapter = m_app.renderer().device().adapterInfo();
+            section("Graphics");
+            row("API", rhi::backendName(adapter.backend));
+            row("GPU", adapter.name);
+            row(adapter.unifiedMemory ? "Memory (unified)" : "Video memory", std::format("{} MB", adapter.videoMemoryMB));
+            if (!adapter.driver.empty())
+                row("Driver", adapter.driver);
+            row("Frames in flight", std::format("{}", rhi::kMaxFramesInFlight));
 
             ImGui::EndTable();
         }

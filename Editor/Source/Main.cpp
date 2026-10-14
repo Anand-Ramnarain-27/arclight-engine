@@ -14,8 +14,8 @@ int main(int /*argc*/, char* /*argv*/[])
     });
 
     // ImGuiModule must come first: it starts the ImGui frame that EditorModule draws into.
-    auto& imgui = app.addModule<arc::ImGuiModule>();
-    app.addModule<arc::EditorModule>(imgui);
+    app.addModule<arc::ImGuiModule>();
+    app.addModule<arc::EditorModule>();
 
     return app.run();
 }

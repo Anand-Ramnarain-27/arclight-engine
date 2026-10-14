@@ -6,21 +6,19 @@
 #include "Panels/PerformancePanel.h"
 #include "Panels/PlaybackPanel.h"
 #include "Panels/SystemInfoPanel.h"
-#include "UI/ImGuiModule.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 
 namespace arc
 {
-    EditorModule::EditorModule(Application& app, ImGuiModule& imgui)
+    EditorModule::EditorModule(Application& app)
         : Module(app)
-        , m_imgui(imgui)
     {
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
-        m_panels.push_back(std::make_unique<PerformancePanel>(app, imgui));
-        m_panels.push_back(std::make_unique<SystemInfoPanel>(app, imgui));
+        m_panels.push_back(std::make_unique<PerformancePanel>(app));
+        m_panels.push_back(std::make_unique<SystemInfoPanel>(app));
     }
 
     // Defined here, where Panel's derived types are complete, for the unique_ptr destructors.

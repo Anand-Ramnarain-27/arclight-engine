@@ -39,11 +39,21 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp
 )
 # SYSTEM: our strict warning flags must not fire on third-party headers we include.
 target_include_directories(imgui SYSTEM PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui PUBLIC SDL3::SDL3-static)
+
+# The renderer backend matching the platform's RHI backend.
+if(WIN32)
+    target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp)
+    # d3dcompiler: the DX12 backend compiles its two small shaders at start-up.
+    target_link_libraries(imgui PUBLIC d3d12 dxgi d3dcompiler)
+elseif(APPLE)
+    target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm)
+    target_compile_options(imgui PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_link_libraries(imgui PUBLIC "-framework Metal" "-framework QuartzCore" "-framework Cocoa")
+endif()
 target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 set_target_properties(imgui PROPERTIES FOLDER "ThirdParty")
 

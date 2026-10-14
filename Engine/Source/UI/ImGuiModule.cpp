@@ -2,27 +2,38 @@
 
 #include "Application/Application.h"
 #include "Core/Log.h"
+#include "RHI/Device.h"
+#include "UI/ImGuiRenderBackend.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
-#include <imgui_impl_sdlrenderer3.h>
 
 namespace arc
 {
+    namespace
+    {
+        bool initPlatformBackend(SDL_Window* window, rhi::Backend backend)
+        {
+            switch (backend)
+            {
+                case rhi::Backend::D3D12: return ImGui_ImplSDL3_InitForD3D(window);
+                case rhi::Backend::Metal: return ImGui_ImplSDL3_InitForMetal(window);
+                case rhi::Backend::Null:  return ImGui_ImplSDL3_InitForOther(window);
+            }
+            return false;
+        }
+    }
+
+    ImGuiModule::ImGuiModule(Application& app) : Module(app) {}
+
+    // Defined here, where ImGuiRenderBackend is complete, for the unique_ptr destructor.
+    ImGuiModule::~ImGuiModule() = default;
+
     bool ImGuiModule::init()
     {
         SDL_Window* window = app().window().sdlWindow();
-
-        m_renderer = SDL_CreateRenderer(window, nullptr);
-        if (!m_renderer)
-        {
-            ARC_LOG_ERROR("SDL_CreateRenderer failed: {}", SDL_GetError());
-            return false;
-        }
-        const char* rendererName = SDL_GetRendererName(m_renderer);
-        m_rendererName = rendererName ? rendererName : "unknown";
-        setVSync(m_vsync);
+        Renderer& renderer = app().renderer();
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -45,23 +56,28 @@ namespace arc
         // The vector font stays sharp at any scale; the default bitmap font is designed for 13 px only.
         io.Fonts->AddFontDefaultVector();
 
-        m_platformBackendReady = ImGui_ImplSDL3_InitForSDLRenderer(window, m_renderer);
-        m_rendererBackendReady = m_platformBackendReady && ImGui_ImplSDLRenderer3_Init(m_renderer);
+        m_platformBackendReady = initPlatformBackend(window, renderer.device().adapterInfo().backend);
+        if (m_platformBackendReady)
+        {
+            m_renderBackend = createImGuiRenderBackend(renderer);
+            m_rendererBackendReady = m_renderBackend->init();
+        }
         if (!m_rendererBackendReady)
         {
-            ARC_LOG_ERROR("Failed to initialise the ImGui SDL3 backends");
+            ARC_LOG_ERROR("Failed to initialise the ImGui backends");
             shutdown();
             return false;
         }
 
         app().addEventListener(*this);
-        ARC_LOG_INFO("ImGui {} initialised (renderer: {}, scale {:.2f})", IMGUI_VERSION, m_rendererName, scale);
+        ARC_LOG_INFO("ImGui {} initialised (renderer backend: {}, scale {:.2f})", IMGUI_VERSION,
+                     io.BackendRendererName ? io.BackendRendererName : "unknown", scale);
         return true;
     }
 
     void ImGuiModule::update(const FrameTime& /*time*/)
     {
-        ImGui_ImplSDLRenderer3_NewFrame();
+        m_renderBackend->newFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         m_frameStarted = true;
@@ -76,14 +92,15 @@ namespace arc
             return;
         m_frameStarted = false;
 
+        // Always called, even without a frame to draw into, so every NewFrame() is matched.
         ImGui::Render();
 
-        const ImGuiIO& io = ImGui::GetIO();
-        SDL_SetRenderScale(m_renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-        SDL_SetRenderDrawColorFloat(m_renderer, 0.08f, 0.09f, 0.11f, 1.0f);
-        SDL_RenderClear(m_renderer);
-        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), m_renderer);
-        SDL_RenderPresent(m_renderer);
+        Renderer& renderer = app().renderer();
+        if (!renderer.isFrameActive() || !renderer.beginBackbufferPass("ImGui"))
+            return;
+
+        m_renderBackend->render(renderer.commandList(), ImGui::GetDrawData());
+        renderer.endBackbufferPass();
     }
 
     void ImGuiModule::shutdown()
@@ -92,7 +109,8 @@ namespace arc
         app().input().setCaptured(false, false);
 
         if (m_rendererBackendReady)
-            ImGui_ImplSDLRenderer3_Shutdown();
+            m_renderBackend->shutdown();
+        m_renderBackend.reset();
         if (m_platformBackendReady)
             ImGui_ImplSDL3_Shutdown();
         m_rendererBackendReady = false;
@@ -100,23 +118,10 @@ namespace arc
 
         if (ImGui::GetCurrentContext())
             ImGui::DestroyContext();
-
-        if (m_renderer)
-        {
-            SDL_DestroyRenderer(m_renderer);
-            m_renderer = nullptr;
-        }
     }
 
     void ImGuiModule::onPlatformEvent(const SDL_Event& event)
     {
         ImGui_ImplSDL3_ProcessEvent(&event);
-    }
-
-    void ImGuiModule::setVSync(bool enabled)
-    {
-        m_vsync = enabled;
-        if (m_renderer && !SDL_SetRenderVSync(m_renderer, enabled ? 1 : SDL_RENDERER_VSYNC_DISABLED))
-            ARC_LOG_WARN("SDL_SetRenderVSync failed: {}", SDL_GetError());
     }
 }

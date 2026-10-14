@@ -5,6 +5,8 @@
 #include "Platform/Input.h"
 #include "Platform/PlatformEvents.h"
 #include "Platform/Window.h"
+#include "RHI/RHITypes.h"
+#include "Renderer/Renderer.h"
 
 #include <cstdint>
 #include <memory>
@@ -16,6 +18,9 @@ namespace arc
     struct ApplicationDesc
     {
         WindowDesc window;
+
+        rhi::DeviceDesc device{};
+        bool vsync = true;
 
         /// 0 means unlimited (or paced by vsync).
         uint32_t maxFrameRate = 0;
@@ -50,6 +55,9 @@ namespace arc
         /// Valid only while run() is executing.
         [[nodiscard]] Window& window() { return *m_window; }
 
+        /// Valid only while run() is executing.
+        [[nodiscard]] Renderer& renderer() { return *m_renderer; }
+
         [[nodiscard]] const Input& input() const { return m_input; }
         [[nodiscard]] Input& input() { return m_input; }
         [[nodiscard]] GameClock& gameClock() { return m_gameClock; }
@@ -73,6 +81,7 @@ namespace arc
 
         ApplicationDesc m_desc;
         std::unique_ptr<Window> m_window;
+        std::unique_ptr<Renderer> m_renderer;
         std::vector<std::unique_ptr<Module>> m_modules;
         std::vector<PlatformEventListener*> m_eventListeners;
 

@@ -8,8 +8,6 @@
 
 namespace arc
 {
-    class ImGuiModule;
-
     /// The editor: main menu, dockable panels and global shortcuts.
     ///
     ///   F5          Play / Pause
@@ -20,7 +18,7 @@ namespace arc
     class EditorModule final : public Module
     {
     public:
-        EditorModule(Application& app, ImGuiModule& imgui);
+        explicit EditorModule(Application& app);
         ~EditorModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Editor"; }
@@ -35,7 +33,6 @@ namespace arc
         void drawMainMenu();
         void drawAboutPopup();
 
-        ImGuiModule& m_imgui;
         std::vector<std::unique_ptr<Panel>> m_panels;
         bool m_showImGuiDemo = false;
         bool m_layoutChecked = false;
