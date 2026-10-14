@@ -32,5 +32,9 @@
     { "name": "windows-release", "configurePreset": "windows-vs2022", "configuration": "Release" },
     { "name": "macos-debug",     "configurePreset": "macos-xcode",    "configuration": "Debug" },
     { "name": "macos-release",   "configurePreset": "macos-xcode",    "configuration": "Release" }
+  ],
+  "testPresets": [
+    { "name": "windows-debug", "configurePreset": "windows-vs2022", "configuration": "Debug", "output": { "outputOnFailure": true } },
+    { "name": "macos-debug",   "configurePreset": "macos-xcode",    "configuration": "Debug", "output": { "outputOnFailure": true } }
   ]
 }

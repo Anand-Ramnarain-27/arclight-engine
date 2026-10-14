@@ -2,7 +2,9 @@
 
 #include "Core/Platform.h"
 
+#include <cstdint>
 #include <format>
+#include <functional>
 #include <source_location>
 #include <string_view>
 
@@ -23,6 +25,26 @@ namespace arc::log
 
     /// Writes a fully formatted message. Thread-safe. Prefer the ARC_LOG_* macros.
     void write(Level level, const std::source_location& where, std::string_view message);
+
+    /// One log message as delivered to sinks. The views are valid only during the sink call.
+    struct Record
+    {
+        Level level;
+        double seconds;              // Since start-up.
+        std::string_view message;
+        std::string_view file;       // File name only, without the directory.
+        uint32_t line;
+    };
+
+    /// Called for every message that passes the level filter, on the thread that logged it,
+    /// while the log lock is held: a sink must not log, or it will deadlock.
+    using Sink = std::function<void(const Record& record)>;
+    using SinkId = uint32_t;
+
+    [[nodiscard]] SinkId addSink(Sink sink);
+    void removeSink(SinkId id);
+
+    [[nodiscard]] const char* levelName(Level level);
 }
 
 // The level is checked before std::format runs, so a filtered-out message costs no formatting.

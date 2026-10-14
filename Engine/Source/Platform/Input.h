@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Math/Vector.h"
+
 #include <array>
 #include <bitset>
 #include <cstdint>
@@ -97,13 +99,6 @@ namespace arc
         Count,
     };
 
-    // TODO: Replace with the engine math type once the math library exists.
-    struct Float2
-    {
-        float x = 0.0f;
-        float y = 0.0f;
-    };
-
     /// Keyboard, mouse and gamepad state for the current frame.
     ///
     /// "Pressed" and "Released" are true only on the frame the transition happened.
@@ -133,11 +128,11 @@ namespace arc
         [[nodiscard]] bool wasReleased(MouseButton button) const;
 
         /// Pixels from the window's top-left corner.
-        [[nodiscard]] Float2 mousePosition() const { return m_mousePosition; }
+        [[nodiscard]] Vec2 mousePosition() const { return m_mousePosition; }
         /// Pixels moved this frame.
-        [[nodiscard]] Float2 mouseDelta() const { return m_mouseDelta; }
+        [[nodiscard]] Vec2 mouseDelta() const { return m_mouseCaptured ? Vec2{} : m_mouseDelta; }
         /// Positive y scrolls away from the user. Notches this frame; may be fractional on trackpads.
-        [[nodiscard]] Float2 mouseWheel() const { return m_mouseWheel; }
+        [[nodiscard]] Vec2 mouseWheel() const { return m_mouseCaptured ? Vec2{} : m_mouseWheel; }
 
         [[nodiscard]] bool hasGamepad() const { return m_gamepad != nullptr; }
         [[nodiscard]] const std::string& gamepadName() const { return m_gamepadName; }
@@ -146,11 +141,17 @@ namespace arc
         [[nodiscard]] bool wasReleased(GamepadButton button) const;
 
         /// Each axis in [-1, 1] after the radial deadzone; +y is up.
-        [[nodiscard]] Float2 leftStick() const;
-        [[nodiscard]] Float2 rightStick() const;
+        [[nodiscard]] Vec2 leftStick() const;
+        [[nodiscard]] Vec2 rightStick() const;
         /// [0, 1] after the deadzone.
         [[nodiscard]] float leftTrigger() const;
         [[nodiscard]] float rightTrigger() const;
+
+        /// While captured (e.g. an ImGui text field has focus), keyboard or mouse queries report
+        /// nothing pressed or held. State keeps updating underneath, so nothing is stuck on release.
+        void setCaptured(bool keyboard, bool mouse);
+        [[nodiscard]] bool isKeyboardCaptured() const { return m_keyboardCaptured; }
+        [[nodiscard]] bool isMouseCaptured() const { return m_mouseCaptured; }
 
         /// Engine-internal. Called by the Application before events are pumped each frame.
         void beginFrame();
@@ -175,9 +176,11 @@ namespace arc
         std::bitset<kMouseButtonCount> m_mouseDown;
         std::bitset<kMouseButtonCount> m_mousePressed;
         std::bitset<kMouseButtonCount> m_mouseReleased;
-        Float2 m_mousePosition;
-        Float2 m_mouseDelta;
-        Float2 m_mouseWheel;
+        Vec2 m_mousePosition;
+        Vec2 m_mouseDelta;
+        Vec2 m_mouseWheel;
+        bool m_keyboardCaptured = false;
+        bool m_mouseCaptured = false;
 
         SDL_Gamepad* m_gamepad = nullptr;
         uint32_t m_gamepadId = 0;

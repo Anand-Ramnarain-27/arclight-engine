@@ -1,10 +1,16 @@
 #pragma once
 
 #include "Application/Module.h"
+#include "Panels/Panel.h"
+
+#include <memory>
+#include <vector>
 
 namespace arc
 {
-    /// Editor controls. Until the ImGui shell exists, state is shown in the window title.
+    class ImGuiModule;
+
+    /// The editor: main menu, dockable panels and global shortcuts.
     ///
     ///   F5          Play / Pause
     ///   Shift+F5    Stop
@@ -14,18 +20,26 @@ namespace arc
     class EditorModule final : public Module
     {
     public:
-        using Module::Module;
+        EditorModule(Application& app, ImGuiModule& imgui);
+        ~EditorModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Editor"; }
 
         void update(const FrameTime& time) override;
 
     private:
-        void handlePlayControls();
+        void handleShortcuts();
         void logInputActivity();
-        void refreshTitle(const FrameTime& time);
+        void drawDockSpace();
+        void buildDefaultLayout(unsigned int dockspaceId);
+        void drawMainMenu();
+        void drawAboutPopup();
 
-        static constexpr double kTitleRefreshSeconds = 0.25;
-        double m_nextTitleRefresh = 0.0;
+        ImGuiModule& m_imgui;
+        std::vector<std::unique_ptr<Panel>> m_panels;
+        bool m_showImGuiDemo = false;
+        bool m_layoutChecked = false;
+        bool m_resetLayout = false;
+        bool m_openAbout = false;
     };
 }

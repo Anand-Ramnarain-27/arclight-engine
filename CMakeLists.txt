@@ -10,6 +10,8 @@ if(APPLE)
     enable_language(OBJCXX)
 endif()
 
+option(ARCLIGHT_BUILD_TESTS "Build the Arclight unit tests" ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -25,5 +27,10 @@ include(ArclightDependencies)
 
 add_subdirectory(Engine)
 add_subdirectory(Editor)
+
+if(ARCLIGHT_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(Tests)
+endif()
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Arclight)

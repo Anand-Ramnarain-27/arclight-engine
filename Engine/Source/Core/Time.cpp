@@ -104,7 +104,7 @@ namespace arc
         return ms > 0.0f ? 1000.0f / ms : 0.0f;
     }
 
-    const char* toString(GameClock::State state)
+    const char* GameClock::stateName(State state)
     {
         switch (state)
         {

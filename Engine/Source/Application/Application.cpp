@@ -5,6 +5,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+
 namespace arc
 {
     Application::Application(ApplicationDesc desc)
@@ -140,6 +142,17 @@ namespace arc
         m_platformInitialized = false;
     }
 
+    void Application::addEventListener(PlatformEventListener& listener)
+    {
+        ARC_ASSERT(std::find(m_eventListeners.begin(), m_eventListeners.end(), &listener) == m_eventListeners.end());
+        m_eventListeners.push_back(&listener);
+    }
+
+    void Application::removeEventListener(PlatformEventListener& listener)
+    {
+        std::erase(m_eventListeners, &listener);
+    }
+
     void Application::pumpEvents()
     {
         SDL_Window* sdlWindow = m_window ? m_window->sdlWindow() : nullptr;
@@ -147,7 +160,8 @@ namespace arc
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
-            // TODO: Let the ImGui backend see events first and skip game input when it wants capture.
+            for (PlatformEventListener* listener : m_eventListeners)
+                listener->onPlatformEvent(event);
             m_input.handleEvent(event, sdlWindow);
 
             switch (event.type)

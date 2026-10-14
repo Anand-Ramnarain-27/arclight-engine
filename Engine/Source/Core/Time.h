@@ -83,6 +83,7 @@ namespace arc
         void setTimeScale(float scale);
 
         [[nodiscard]] State state() const { return m_state; }
+        [[nodiscard]] static const char* stateName(State state);
         [[nodiscard]] float timeScale() const { return m_timeScale; }
 
         /// Called once per frame by the Application with the real time since the previous frame.
@@ -120,6 +121,4 @@ namespace arc
         size_t m_count = 0;
         double m_sum = 0.0;
     };
-
-    [[nodiscard]] const char* toString(GameClock::State state);
 }

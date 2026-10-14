@@ -3,6 +3,7 @@
 #include "Application/Module.h"
 #include "Core/Time.h"
 #include "Platform/Input.h"
+#include "Platform/PlatformEvents.h"
 #include "Platform/Window.h"
 
 #include <cstdint>
@@ -16,8 +17,8 @@ namespace arc
     {
         WindowDesc window;
 
-        /// 0 means unlimited.
-        uint32_t maxFrameRate = 60;
+        /// 0 means unlimited (or paced by vsync).
+        uint32_t maxFrameRate = 0;
     };
 
     /// Owns the platform layer, the window and all modules, and runs the main loop.
@@ -50,6 +51,7 @@ namespace arc
         [[nodiscard]] Window& window() { return *m_window; }
 
         [[nodiscard]] const Input& input() const { return m_input; }
+        [[nodiscard]] Input& input() { return m_input; }
         [[nodiscard]] GameClock& gameClock() { return m_gameClock; }
         [[nodiscard]] const FrameTime& frameTime() const { return m_frameTime; }
         [[nodiscard]] const FrameStats& frameStats() const { return m_frameStats; }
@@ -57,6 +59,10 @@ namespace arc
         /// 0 means unlimited.
         void setMaxFrameRate(uint32_t fps) { m_desc.maxFrameRate = fps; }
         [[nodiscard]] uint32_t maxFrameRate() const { return m_desc.maxFrameRate; }
+
+        /// The listener must stay alive until it is removed.
+        void addEventListener(PlatformEventListener& listener);
+        void removeEventListener(PlatformEventListener& listener);
 
     private:
         [[nodiscard]] bool init();
@@ -68,6 +74,7 @@ namespace arc
         ApplicationDesc m_desc;
         std::unique_ptr<Window> m_window;
         std::vector<std::unique_ptr<Module>> m_modules;
+        std::vector<PlatformEventListener*> m_eventListeners;
 
         Input m_input;
         GameClock m_gameClock;

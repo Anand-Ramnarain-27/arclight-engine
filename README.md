@@ -13,7 +13,7 @@ The goal is to understand *why* engines are built the way they are, not just to 
 
 ## Status
 
-Phase 0 (foundations): CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, and keyboard/mouse/gamepad input. No rendering yet.
+Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, keyboard/mouse/gamepad input, a math library with unit tests, and a dockable ImGui editor shell. There is no 3D rendering yet; the editor UI is drawn through SDL_Renderer until the engine's own renderer exists (Phase 1).
 
 The course's original Windows-only starter code is still in `Source/` as a reference while its pieces are rebuilt cross-platform. It is not part of the CMake build and will be removed once replaced.
 
@@ -24,7 +24,7 @@ Requirements:
 - **Windows:** Visual Studio 2022 with the *Desktop development with C++* workload
 - **macOS:** Xcode 15+ on Apple silicon, plus CMake (`brew install cmake`)
 
-Dependencies (SDL3) are downloaded automatically the first time you configure, so the first configure needs an internet connection.
+Dependencies (SDL3, Dear ImGui, doctest) are downloaded automatically the first time you configure, so the first configure needs an internet connection and Git.
 
 **Windows**
 ```
@@ -38,7 +38,9 @@ cmake --preset macos-xcode
 ```
 Then open `build/macos-xcode/Arclight.xcodeproj`, pick the `Arclight` scheme and run. Or from the command line: `cmake --build --preset macos-debug`.
 
-**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it. The window title shows FPS and the game clock.
+**Tests:** build and run the `ArclightTests` target, or `ctest --preset windows-debug` / `ctest --preset macos-debug` after building. Set `-DARCLIGHT_BUILD_TESTS=OFF` to skip them.
+
+**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it. Panels are listed under View; View > Reset Layout restores the default docking layout.
 
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 
@@ -50,10 +52,14 @@ CMakePresets.json    Configure/build presets per platform
 cmake/               Build helpers (warnings, dependencies)
 Engine/Source/       ArclightEngine static library
   Core/                Platform detection, logging, asserts, timing
-  Platform/            OS window and input (SDL3)
+  Math/                Vectors, quaternions, matrices (conventions in Math/Math.h)
+  Platform/            OS window, input and system info (SDL3)
   Application/         Application, main loop, modules
-Editor/Source/       Arclight editor executable and editor modules
-Game/                Runtime working directory (assets)
+  UI/                  Dear ImGui integration
+Editor/Source/       Arclight editor executable
+  Panels/              Dockable editor panels
+Tests/Source/        Unit tests (doctest)
+Game/                Runtime working directory (assets, imgui.ini)
 Source/              Old course starter code (reference only, not built)
 ```
 
@@ -62,5 +68,7 @@ Source/              Old course starter code (reference only, not built)
 | Library | Use | How it's included |
 |---|---|---|
 | [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input | Fetched by CMake (pinned release + hash) |
+| [Dear ImGui](https://github.com/ocornut/imgui) (docking) | Editor UI | Fetched by CMake (pinned release tag) |
+| [doctest](https://github.com/doctest/doctest) | Unit tests | Fetched by CMake (pinned release tag) |
 
-Libraries from the old base (Dear ImGui, ImGuizmo, DirectXTex, tinygltf, WinPixEventRuntime, DirectXTK) move into the new build as the roadmap reaches them. Each library is under its own license.
+Libraries from the old base (ImGuizmo, DirectXTex, tinygltf, WinPixEventRuntime) move into the new build as the roadmap reaches them. Each library is under its own license.

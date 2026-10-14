@@ -6,19 +6,32 @@ add_library(ArclightEngine STATIC
     Source/Core/Log.cpp
     Source/Core/Time.h
     Source/Core/Time.cpp
+    Source/Math/Math.h
+    Source/Math/MathUtils.h
+    Source/Math/Vector.h
+    Source/Math/Quaternion.h
+    Source/Math/Quaternion.cpp
+    Source/Math/Matrix.h
+    Source/Math/Matrix.cpp
     Source/Platform/Window.h
     Source/Platform/Window.cpp
     Source/Platform/Input.h
     Source/Platform/Input.cpp
+    Source/Platform/PlatformEvents.h
+    Source/Platform/SystemInfo.h
+    Source/Platform/SystemInfo.cpp
     Source/Application/Module.h
     Source/Application/Application.h
     Source/Application/Application.cpp
+    Source/UI/ImGuiModule.h
+    Source/UI/ImGuiModule.cpp
 )
 
 target_include_directories(ArclightEngine PUBLIC Source)
+target_compile_definitions(ArclightEngine PUBLIC ARCLIGHT_VERSION="${PROJECT_VERSION}")
 
-# PRIVATE: no engine header includes SDL, so SDL types never reach engine users.
-target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static)
+# PRIVATE: no engine header includes SDL or ImGui, so neither leaks to engine users through the engine.
+target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui)
 
 arclight_set_warnings(ArclightEngine)
 

@@ -45,7 +45,7 @@ namespace arc
 
         // Radial rather than per-axis, so diagonals near the centre are not snapped to an axis.
         // The remaining range is rescaled so output still starts at 0 and reaches 1.
-        Float2 applyRadialDeadzone(float x, float y, float deadzone)
+        Vec2 applyRadialDeadzone(float x, float y, float deadzone)
         {
             const float length = std::sqrt(x * x + y * y);
             if (length <= deadzone)
@@ -56,29 +56,35 @@ namespace arc
         }
     }
 
-    bool Input::isDown(Key key) const { return index(key) < kKeyCount && m_keysDown[index(key)]; }
-    bool Input::wasPressed(Key key) const { return index(key) < kKeyCount && m_keysPressed[index(key)]; }
-    bool Input::wasReleased(Key key) const { return index(key) < kKeyCount && m_keysReleased[index(key)]; }
+    bool Input::isDown(Key key) const { return !m_keyboardCaptured && index(key) < kKeyCount && m_keysDown[index(key)]; }
+    bool Input::wasPressed(Key key) const { return !m_keyboardCaptured && index(key) < kKeyCount && m_keysPressed[index(key)]; }
+    bool Input::wasReleased(Key key) const { return !m_keyboardCaptured && index(key) < kKeyCount && m_keysReleased[index(key)]; }
 
     bool Input::isShiftDown() const { return isDown(Key::LeftShift) || isDown(Key::RightShift); }
     bool Input::isCtrlDown() const { return isDown(Key::LeftCtrl) || isDown(Key::RightCtrl); }
     bool Input::isAltDown() const { return isDown(Key::LeftAlt) || isDown(Key::RightAlt); }
 
-    bool Input::isDown(MouseButton button) const { return index(button) < kMouseButtonCount && m_mouseDown[index(button)]; }
-    bool Input::wasPressed(MouseButton button) const { return index(button) < kMouseButtonCount && m_mousePressed[index(button)]; }
-    bool Input::wasReleased(MouseButton button) const { return index(button) < kMouseButtonCount && m_mouseReleased[index(button)]; }
+    bool Input::isDown(MouseButton button) const { return !m_mouseCaptured && index(button) < kMouseButtonCount && m_mouseDown[index(button)]; }
+    bool Input::wasPressed(MouseButton button) const { return !m_mouseCaptured && index(button) < kMouseButtonCount && m_mousePressed[index(button)]; }
+    bool Input::wasReleased(MouseButton button) const { return !m_mouseCaptured && index(button) < kMouseButtonCount && m_mouseReleased[index(button)]; }
+
+    void Input::setCaptured(bool keyboard, bool mouse)
+    {
+        m_keyboardCaptured = keyboard;
+        m_mouseCaptured = mouse;
+    }
 
     bool Input::isDown(GamepadButton button) const { return index(button) < kGamepadButtonCount && m_padDown[index(button)]; }
     bool Input::wasPressed(GamepadButton button) const { return index(button) < kGamepadButtonCount && m_padPressed[index(button)]; }
     bool Input::wasReleased(GamepadButton button) const { return index(button) < kGamepadButtonCount && m_padReleased[index(button)]; }
 
-    Float2 Input::leftStick() const
+    Vec2 Input::leftStick() const
     {
         // SDL reports +y as down; the engine uses +y up.
         return applyRadialDeadzone(m_padAxes[SDL_GAMEPAD_AXIS_LEFTX], -m_padAxes[SDL_GAMEPAD_AXIS_LEFTY], kStickDeadzone);
     }
 
-    Float2 Input::rightStick() const
+    Vec2 Input::rightStick() const
     {
         return applyRadialDeadzone(m_padAxes[SDL_GAMEPAD_AXIS_RIGHTX], -m_padAxes[SDL_GAMEPAD_AXIS_RIGHTY], kStickDeadzone);
     }
