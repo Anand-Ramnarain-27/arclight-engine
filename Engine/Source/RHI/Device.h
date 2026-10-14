@@ -2,6 +2,7 @@
 
 #include "RHI/RHITypes.h"
 
+#include <functional>
 #include <memory>
 
 namespace arc
@@ -11,6 +12,7 @@ namespace arc
 
 namespace arc::rhi
 {
+    class Buffer;
     class CommandList;
     class Swapchain;
 
@@ -35,6 +37,15 @@ namespace arc::rhi
         Device& operator=(const Device&) = delete;
 
         [[nodiscard]] virtual const AdapterInfo& adapterInfo() const = 0;
+
+        /// Upload and Readback buffers are mapped on creation. GPU-only buffers start in the Common
+        /// state. Returns nullptr and logs on failure.
+        [[nodiscard]] virtual std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) = 0;
+
+        /// Records commands into a one-off command list, submits it and blocks until the GPU has
+        /// finished it. Meant for load-time work such as filling GPU-only buffers. If called while
+        /// a frame is being recorded, this work runs before that frame's commands.
+        virtual void submitImmediate(const std::function<void(CommandList&)>& record) = 0;
 
         /// One swapchain per window. Returns nullptr and logs on failure.
         [[nodiscard]] virtual std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) = 0;

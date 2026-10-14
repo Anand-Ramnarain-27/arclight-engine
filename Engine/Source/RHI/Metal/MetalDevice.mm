@@ -80,6 +80,61 @@ namespace arc::rhi::metal
         return true;
     }
 
+    std::unique_ptr<Buffer> MetalDevice::createBuffer(const BufferDesc& desc)
+    {
+        ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
+
+        MTLResourceOptions options = MTLResourceHazardTrackingModeDefault;
+        ResourceState state = ResourceState::Common;
+        switch (desc.memory)
+        {
+            case MemoryType::GpuOnly:
+                options |= MTLResourceStorageModePrivate;
+                break;
+            case MemoryType::Upload:
+                // Write-combined: CPU writes skip the cache, so CPU reads from it are very slow.
+                options |= MTLResourceStorageModeShared | MTLResourceCPUCacheModeWriteCombined;
+                state = ResourceState::CopySource;
+                break;
+            case MemoryType::Readback:
+                options |= MTLResourceStorageModeShared;
+                state = ResourceState::CopyDest;
+                break;
+        }
+
+        id<MTLBuffer> buffer = [m_device newBufferWithLength:desc.size options:options];
+        if (!buffer)
+        {
+            ARC_LOG_ERROR("Failed to create Metal buffer '{}' ({} bytes)", desc.debugName, desc.size);
+            return nullptr;
+        }
+        if (!desc.debugName.empty())
+            buffer.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
+
+        return std::make_unique<MetalBuffer>(buffer, desc, state);
+    }
+
+    void MetalDevice::submitImmediate(const std::function<void(CommandList&)>& record)
+    {
+        @autoreleasepool
+        {
+            MetalCommandList commandList;
+            id<MTLCommandBuffer> commandBuffer = [m_queue commandBuffer];
+            commandBuffer.label = @"Immediate";
+            commandList.begin(commandBuffer);
+            record(commandList);
+
+            commandBuffer = commandList.finish();
+            [commandBuffer commit];
+            commandList.decayBufferStates();
+            [commandBuffer waitUntilCompleted];
+
+            if (commandBuffer.status == MTLCommandBufferStatusError)
+                ARC_LOG_ERROR("Immediate Metal command buffer failed: {}",
+                              commandBuffer.error.localizedDescription.UTF8String);
+        }
+    }
+
     std::unique_ptr<Swapchain> MetalDevice::createSwapchain(Window& window, const SwapchainDesc& desc)
     {
         auto swapchain = std::make_unique<MetalSwapchain>(*this);
@@ -102,6 +157,7 @@ namespace arc::rhi::metal
     void MetalDevice::endFrame(Swapchain& swapchain)
     {
         id<MTLCommandBuffer> commandBuffer = m_commandList.finish();
+        m_commandList.decayBufferStates();
 
         if (id<CAMetalDrawable> drawable = static_cast<MetalSwapchain&>(swapchain).takeDrawable())
             [commandBuffer presentDrawable:drawable];

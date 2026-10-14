@@ -22,11 +22,16 @@ add_library(ArclightEngine STATIC
     Source/Platform/SystemInfo.cpp
     Source/RHI/RHITypes.h
     Source/RHI/Texture.h
+    Source/RHI/Buffer.h
+    Source/RHI/BufferUtils.h
+    Source/RHI/BufferUtils.cpp
     Source/RHI/CommandList.h
+    Source/RHI/CommandList.cpp
     Source/RHI/Swapchain.h
     Source/RHI/Device.h
     Source/RHI/Device.cpp
     Source/RHI/Backends.h
+    Source/RHI/Null/NullBackend.cpp
     Source/Renderer/Renderer.h
     Source/Renderer/Renderer.cpp
     Source/Application/Module.h
@@ -37,8 +42,8 @@ add_library(ArclightEngine STATIC
     Source/UI/ImGuiRenderBackend.h
 )
 
-# One RHI backend per platform. The Null backend lets the engine build and run headless
-# elsewhere (Linux compile checks); it is not a shipping target.
+# One GPU backend per platform. The Null backend is always built: it is the device on
+# platforms without a GPU backend (Linux compile checks) and is used by the unit tests.
 if(WIN32)
     target_sources(ArclightEngine PRIVATE
         Source/RHI/D3D12/D3D12Common.h
@@ -62,7 +67,6 @@ elseif(APPLE)
     target_compile_options(ArclightEngine PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 else()
     target_sources(ArclightEngine PRIVATE
-        Source/RHI/Null/NullBackend.cpp
         Source/UI/ImGuiRenderBackend_Null.cpp
     )
 endif()

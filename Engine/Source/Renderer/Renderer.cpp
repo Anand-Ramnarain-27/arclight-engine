@@ -3,6 +3,7 @@
 #include "Core/Assert.h"
 #include "Core/Log.h"
 #include "Platform/Window.h"
+#include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Swapchain.h"
@@ -25,6 +26,15 @@ namespace arc
         const rhi::AdapterInfo& adapter = m_device->adapterInfo();
         ARC_LOG_INFO("GPU: {} ({}, {} MB{})", adapter.name, rhi::backendName(adapter.backend),
                      adapter.videoMemoryMB, adapter.unifiedMemory ? ", unified" : "");
+
+#if ARC_DEBUG
+        // A failure here means buffer creation, copies or barriers are broken on this backend;
+        // the editor still starts so the log can be read.
+        if (rhi::verifyBufferRoundTrip(*m_device))
+            ARC_LOG_INFO("RHI self-test: buffer upload and readback round-trip passed");
+        else
+            ARC_LOG_ERROR("RHI self-test: buffer upload and readback round-trip FAILED");
+#endif
 
         rhi::SwapchainDesc swapchainDesc;
         swapchainDesc.size = window.pixelSize();

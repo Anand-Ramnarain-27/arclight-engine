@@ -15,6 +15,23 @@ namespace arc::rhi
         return "Unknown";
     }
 
+    const char* resourceStateName(ResourceState state)
+    {
+        switch (state)
+        {
+            case ResourceState::Common:         return "Common";
+            case ResourceState::CopySource:     return "CopySource";
+            case ResourceState::CopyDest:       return "CopyDest";
+            case ResourceState::VertexBuffer:   return "VertexBuffer";
+            case ResourceState::IndexBuffer:    return "IndexBuffer";
+            case ResourceState::ConstantBuffer: return "ConstantBuffer";
+            case ResourceState::ShaderRead:     return "ShaderRead";
+            case ResourceState::RenderTarget:   return "RenderTarget";
+            case ResourceState::Present:        return "Present";
+        }
+        return "Unknown";
+    }
+
     std::unique_ptr<Device> Device::create(const DeviceDesc& desc)
     {
 #if ARC_PLATFORM_WINDOWS

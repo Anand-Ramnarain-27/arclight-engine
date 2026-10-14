@@ -38,6 +38,7 @@ namespace arc::rhi::metal
 
     id<MTLCommandBuffer> MetalCommandList::finish()
     {
+        endBlitEncoder();
         ARC_ASSERT(m_renderEncoder == nil, "Frame ended inside a render pass");
         ARC_ASSERT(m_debugGroupOnEncoder.empty(), "Frame ended with {} open debug group(s)", m_debugGroupOnEncoder.size());
 
@@ -50,6 +51,7 @@ namespace arc::rhi::metal
     {
         ARC_ASSERT(m_renderEncoder == nil, "Render passes do not nest");
         ARC_ASSERT(desc.color.texture != nullptr);
+        endBlitEncoder();
 
         const auto& target = static_cast<const MetalTexture&>(*desc.color.texture);
         const ClearColor& c = desc.color.clearColor;
@@ -77,8 +79,50 @@ namespace arc::rhi::metal
         m_renderPassDescriptor = nil;
     }
 
+    id<MTLBlitCommandEncoder> MetalCommandList::blitEncoder()
+    {
+        if (!m_blitEncoder)
+            m_blitEncoder = [m_commandBuffer blitCommandEncoder];
+        return m_blitEncoder;
+    }
+
+    void MetalCommandList::endBlitEncoder()
+    {
+        if (!m_blitEncoder)
+            return;
+        [m_blitEncoder endEncoding];
+        m_blitEncoder = nil;
+    }
+
+    void MetalCommandList::copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size)
+    {
+        ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
+        ARC_ASSERT(dst.state() == ResourceState::CopyDest, "Copy destination '{}' is in state {}",
+                   dst.desc().debugName, resourceStateName(dst.state()));
+        ARC_ASSERT(src.state() == ResourceState::CopySource, "Copy source '{}' is in state {}",
+                   src.desc().debugName, resourceStateName(src.state()));
+        ARC_ASSERT(dstOffset + size <= dst.desc().size && srcOffset + size <= src.desc().size);
+
+        [blitEncoder() copyFromBuffer:static_cast<MetalBuffer&>(src).native()
+                         sourceOffset:srcOffset
+                             toBuffer:static_cast<MetalBuffer&>(dst).native()
+                    destinationOffset:dstOffset
+                                 size:size];
+    }
+
+    void MetalCommandList::barrier(Buffer& buffer, ResourceState state)
+    {
+        ARC_ASSERT(m_renderEncoder == nil, "Barriers are not allowed inside a render pass");
+        ARC_ASSERT(buffer.desc().memory == MemoryType::GpuOnly, "'{}' has a fixed state", buffer.desc().debugName);
+        // Buffers are created with Metal's default hazard tracking, so Metal inserts the
+        // synchronisation itself. Only the tracked state changes, which keeps the asserts in
+        // copyBuffer() meaningful on both backends.
+        trackBufferState(buffer, state);
+    }
+
     void MetalCommandList::pushDebugGroup(std::string_view name)
     {
+        endBlitEncoder();
         NSString* label = toNSString(name);
         const bool onEncoder = m_renderEncoder != nil;
         if (onEncoder)
@@ -91,6 +135,7 @@ namespace arc::rhi::metal
     void MetalCommandList::popDebugGroup()
     {
         ARC_ASSERT(!m_debugGroupOnEncoder.empty(), "Unbalanced popDebugGroup");
+        endBlitEncoder();
         if (m_debugGroupOnEncoder.back())
             [m_renderEncoder popDebugGroup];
         else

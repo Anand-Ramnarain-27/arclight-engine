@@ -46,6 +46,8 @@ namespace arc::rhi::d3d12
         }
 
         m_commandList.release();
+        m_immediateList.release();
+        m_immediateAllocator.Reset();
         for (FrameContext& frame : m_frames)
             frame.allocator.Reset();
         m_fence.Reset();
@@ -131,7 +133,13 @@ namespace arc::rhi::d3d12
             setDebugName(m_frames[i].allocator.Get(), std::format("Frame Allocator {}", i));
         }
 
-        return m_commandList.init(m_device.Get(), m_frames[0].allocator.Get());
+        if (!succeeded(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_immediateAllocator)),
+                       "CreateCommandAllocator"))
+            return false;
+        setDebugName(m_immediateAllocator.Get(), "Immediate Allocator");
+
+        return m_commandList.init(m_device.Get(), m_frames[0].allocator.Get(), "Frame Command List") &&
+               m_immediateList.init(m_device.Get(), m_immediateAllocator.Get(), "Immediate Command List");
     }
 
     bool D3D12Device::createFactory(bool debug)
@@ -221,6 +229,80 @@ namespace arc::rhi::d3d12
         ARC_LOG_INFO("D3D12 debug messages go to the debugger output only (ID3D12InfoQueue1 unavailable)");
     }
 
+    std::unique_ptr<Buffer> D3D12Device::createBuffer(const BufferDesc& desc)
+    {
+        ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
+
+        D3D12_HEAP_PROPERTIES heap{};
+        D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON;
+        ResourceState trackedState = ResourceState::Common;
+        switch (desc.memory)
+        {
+            case MemoryType::GpuOnly:
+                heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                break;
+            case MemoryType::Upload:
+                // GENERIC_READ is the only state an upload heap resource may be in.
+                heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+                initialState = D3D12_RESOURCE_STATE_GENERIC_READ;
+                trackedState = ResourceState::CopySource;
+                break;
+            case MemoryType::Readback:
+                heap.Type = D3D12_HEAP_TYPE_READBACK;
+                initialState = D3D12_RESOURCE_STATE_COPY_DEST;
+                trackedState = ResourceState::CopyDest;
+                break;
+        }
+
+        D3D12_RESOURCE_DESC resourceDesc{};
+        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resourceDesc.Width = desc.size;
+        resourceDesc.Height = 1;
+        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.MipLevels = 1;
+        resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resourceDesc.SampleDesc.Count = 1;
+        // Required for buffers.
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        // A committed resource gets its own implicit heap. Simple, at the cost of a 64 KB
+        // minimum allocation per buffer; suballocating from shared heaps comes later.
+        ComPtr<ID3D12Resource> resource;
+        if (!succeeded(m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &resourceDesc, initialState,
+                                                         nullptr, IID_PPV_ARGS(&resource)),
+                       "CreateCommittedResource(buffer)"))
+            return nullptr;
+        setDebugName(resource.Get(), desc.debugName);
+
+        // CPU-visible heaps stay mapped for the buffer's lifetime, which D3D12 allows. The empty
+        // read range tells the driver the CPU will not read an upload buffer.
+        void* mapped = nullptr;
+        if (desc.memory != MemoryType::GpuOnly)
+        {
+            const D3D12_RANGE noRead{0, 0};
+            const D3D12_RANGE* readRange = desc.memory == MemoryType::Upload ? &noRead : nullptr;
+            if (!succeeded(resource->Map(0, readRange, &mapped), "ID3D12Resource::Map"))
+                return nullptr;
+        }
+
+        return std::make_unique<D3D12Buffer>(std::move(resource), desc, mapped, trackedState);
+    }
+
+    void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)
+    {
+        ARC_VERIFY(SUCCEEDED(m_immediateAllocator->Reset()));
+        m_immediateList.begin(m_immediateAllocator.Get());
+        record(m_immediateList);
+
+        if (m_immediateList.close())
+        {
+            ID3D12CommandList* lists[] = {m_immediateList.native()};
+            m_queue->ExecuteCommandLists(1, lists);
+        }
+        m_immediateList.decayBufferStates();
+        waitForFence(signal());
+    }
+
     std::unique_ptr<Swapchain> D3D12Device::createSwapchain(Window& window, const SwapchainDesc& desc)
     {
         auto swapchain = std::make_unique<D3D12Swapchain>(*this);
@@ -252,6 +334,7 @@ namespace arc::rhi::d3d12
             ID3D12CommandList* lists[] = {m_commandList.native()};
             m_queue->ExecuteCommandLists(1, lists);
         }
+        m_commandList.decayBufferStates();
 
         if (d3dSwapchain.acquiredBackbuffer() && !d3dSwapchain.present())
             reportDeviceRemoved();

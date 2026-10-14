@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/D3D12/D3D12Common.h"
 #include "RHI/Device.h"
@@ -36,10 +37,30 @@ namespace arc::rhi::d3d12
         ComPtr<ID3D12Resource> m_resource;
     };
 
+    class D3D12Buffer final : public Buffer
+    {
+    public:
+        D3D12Buffer(ComPtr<ID3D12Resource> resource, const BufferDesc& desc, void* mapped, ResourceState state)
+            : m_resource(std::move(resource))
+        {
+            m_desc = desc;
+            m_mapped = mapped;
+            m_state = state;
+        }
+
+        [[nodiscard]] ID3D12Resource* resource() const { return m_resource.Get(); }
+        [[nodiscard]] D3D12_GPU_VIRTUAL_ADDRESS gpuAddress() const { return m_resource->GetGPUVirtualAddress(); }
+
+    private:
+        ComPtr<ID3D12Resource> m_resource;
+    };
+
+    [[nodiscard]] D3D12_RESOURCE_STATES toD3D12State(ResourceState state);
+
     class D3D12CommandList final : public CommandList
     {
     public:
-        [[nodiscard]] bool init(ID3D12Device* device, ID3D12CommandAllocator* allocator);
+        [[nodiscard]] bool init(ID3D12Device* device, ID3D12CommandAllocator* allocator, std::string_view name);
 
         /// The allocator must not be in use by the GPU.
         void begin(ID3D12CommandAllocator* allocator);
@@ -48,6 +69,8 @@ namespace arc::rhi::d3d12
 
         void beginRenderPass(const RenderPassDesc& desc) override;
         void endRenderPass() override;
+        void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override;
+        void barrier(Buffer& buffer, ResourceState state) override;
         void pushDebugGroup(std::string_view name) override;
         void popDebugGroup() override;
 
@@ -108,6 +131,8 @@ namespace arc::rhi::d3d12
         [[nodiscard]] bool init(const DeviceDesc& desc);
 
         [[nodiscard]] const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
+        [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
+        void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;
         void endFrame(Swapchain& swapchain) override;
@@ -144,6 +169,10 @@ namespace arc::rhi::d3d12
 
         std::array<FrameContext, kMaxFramesInFlight> m_frames;
         D3D12CommandList m_commandList;
+
+        // submitImmediate() waits for its work to finish, so one allocator suffices.
+        ComPtr<ID3D12CommandAllocator> m_immediateAllocator;
+        D3D12CommandList m_immediateList;
 
         AdapterInfo m_adapterInfo;
         bool m_debugLayer = false;

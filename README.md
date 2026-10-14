@@ -13,7 +13,11 @@ The goal is to understand *why* engines are built the way they are, not just to 
 
 ## Status
 
-Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, keyboard/mouse/gamepad input, a math library with unit tests, and a dockable ImGui editor shell. There is no 3D rendering yet; the editor UI is drawn through SDL_Renderer until the engine's own renderer exists (Phase 1).
+Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, keyboard/mouse/gamepad input, a math library with unit tests, and a dockable ImGui editor shell.
+
+Phase 1 (RHI + first triangle) is in progress. Done so far:
+- The RHI core: device, swapchain, command lists and frames in flight, with a D3D12 backend on Windows and a Metal backend on macOS. The editor UI renders through it (`imgui_impl_dx12` / `imgui_impl_metal`).
+- Buffers in GPU-only, upload and readback memory, buffer copies, resource-state barriers, and one-off "immediate" submissions for load-time uploads. Debug builds run an upload/readback round-trip self-test at start-up.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -49,6 +53,8 @@ cmake --workflow --preset macos-release
 ```
 The zip goes to `build/packages/` (for example `Arclight-0.1.0-windows-x64.zip`). The Windows Release build has no console window; log output is in the editor's Console panel. Pushing a `v*` tag runs the same workflow on GitHub Actions for both platforms and creates a draft release; see `.github/workflows/release.yml`.
 
+**GPU debugging:** Debug builds enable the D3D12 debug layer (needs the Windows *Graphics Tools* optional feature); on Windows 11 its messages appear in the Console panel. On macOS the generated Xcode scheme enables Metal API validation and GPU frame capture.
+
 **Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it. Panels are listed under View; View > Reset Layout restores the default docking layout.
 
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
@@ -65,6 +71,11 @@ Engine/Source/       ArclightEngine static library
   Core/                Platform detection, logging, asserts, timing
   Math/                Vectors, quaternions, matrices (conventions in Math/Math.h)
   Platform/            OS window, input and system info (SDL3)
+  RHI/                 Rendering hardware interface
+    D3D12/               Direct3D 12 backend (Windows)
+    Metal/               Metal backend (macOS, Objective-C++)
+    Null/                No-GPU backend (headless builds and unit tests)
+  Renderer/            Device + swapchain ownership, frame bracketing
   Application/         Application, main loop, modules
   UI/                  Dear ImGui integration
 Editor/Source/       Arclight editor executable

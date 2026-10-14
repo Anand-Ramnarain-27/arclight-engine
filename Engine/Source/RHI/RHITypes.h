@@ -41,6 +41,64 @@ namespace arc::rhi
         DontCare,
     };
 
+    /// Where a buffer lives, which decides who can read and write it.
+    enum class MemoryType
+    {
+        /// GPU memory the CPU cannot access. Fastest for the GPU; filled by copying from an
+        /// Upload buffer. D3D12 default heap, Metal private storage.
+        GpuOnly,
+        /// CPU-writable, GPU-readable, mapped for the buffer's lifetime. Write-combined: the CPU
+        /// should only write it sequentially, never read it. D3D12 upload heap, Metal shared storage.
+        Upload,
+        /// GPU-writable, CPU-readable, mapped for the buffer's lifetime. The CPU may read it once
+        /// the GPU work that wrote it has completed. D3D12 readback heap, Metal shared storage.
+        Readback,
+    };
+
+    enum class BufferUsage : uint32_t
+    {
+        None     = 0,
+        Vertex   = 1 << 0,
+        Index    = 1 << 1,
+        Constant = 1 << 2,
+    };
+
+    [[nodiscard]] constexpr BufferUsage operator|(BufferUsage a, BufferUsage b)
+    {
+        return static_cast<BufferUsage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+    }
+
+    [[nodiscard]] constexpr bool hasFlag(BufferUsage flags, BufferUsage flag)
+    {
+        return (static_cast<uint32_t>(flags) & static_cast<uint32_t>(flag)) != 0;
+    }
+
+    /// How the GPU is about to use a resource. A barrier moves a resource between states; on
+    /// D3D12 this is a transition barrier, on Metal (which tracks hazards itself) it only
+    /// updates the tracked state.
+    enum class ResourceState
+    {
+        Common,
+        CopySource,
+        CopyDest,
+        VertexBuffer,
+        IndexBuffer,
+        ConstantBuffer,
+        ShaderRead,
+        RenderTarget,
+        Present,
+    };
+
+    [[nodiscard]] const char* resourceStateName(ResourceState state);
+
+    struct BufferDesc
+    {
+        uint64_t size = 0;           // Bytes.
+        BufferUsage usage = BufferUsage::None;
+        MemoryType memory = MemoryType::GpuOnly;
+        std::string debugName;
+    };
+
     struct ClearColor
     {
         float r = 0.0f;

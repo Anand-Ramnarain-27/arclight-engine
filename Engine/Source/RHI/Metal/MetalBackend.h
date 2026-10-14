@@ -6,6 +6,7 @@
     #error "MetalBackend.h can only be included from Objective-C++ (.mm) files."
 #endif
 
+#include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Swapchain.h"
@@ -39,6 +40,22 @@ namespace arc::rhi::metal
         id<MTLTexture> m_texture = nil;
     };
 
+    class MetalBuffer final : public Buffer
+    {
+    public:
+        MetalBuffer(id<MTLBuffer> buffer, const BufferDesc& desc, ResourceState state) : m_buffer(buffer)
+        {
+            m_desc = desc;
+            m_mapped = desc.memory == MemoryType::GpuOnly ? nullptr : buffer.contents;
+            m_state = state;
+        }
+
+        [[nodiscard]] id<MTLBuffer> native() const { return m_buffer; }
+
+    private:
+        id<MTLBuffer> m_buffer = nil;
+    };
+
     class MetalCommandList final : public CommandList
     {
     public:
@@ -49,6 +66,8 @@ namespace arc::rhi::metal
 
         void beginRenderPass(const RenderPassDesc& desc) override;
         void endRenderPass() override;
+        void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override;
+        void barrier(Buffer& buffer, ResourceState state) override;
         void pushDebugGroup(std::string_view name) override;
         void popDebugGroup() override;
 
@@ -59,8 +78,14 @@ namespace arc::rhi::metal
         [[nodiscard]] MTLRenderPassDescriptor* renderPassDescriptor() const { return m_renderPassDescriptor; }
 
     private:
+        // Copies need a blit encoder. Consecutive copies share one; it is ended before a render
+        // pass, a debug group change, or the end of the command buffer.
+        id<MTLBlitCommandEncoder> blitEncoder();
+        void endBlitEncoder();
+
         id<MTLCommandBuffer> m_commandBuffer = nil;
         id<MTLRenderCommandEncoder> m_renderEncoder = nil;
+        id<MTLBlitCommandEncoder> m_blitEncoder = nil;
         MTLRenderPassDescriptor* m_renderPassDescriptor = nil;
 
         // Debug groups pushed outside a pass go on the command buffer, inside a pass on the
@@ -100,6 +125,8 @@ namespace arc::rhi::metal
         [[nodiscard]] bool init(const DeviceDesc& desc);
 
         [[nodiscard]] const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
+        [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
+        void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;
         void endFrame(Swapchain& swapchain) override;
