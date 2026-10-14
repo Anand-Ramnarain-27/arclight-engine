@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <memory>
+#include <string_view>
 
 namespace arc
 {
@@ -73,6 +74,13 @@ namespace arc::rhi
         /// Blocks until all submitted GPU work has completed. Required before destroying
         /// resources the GPU may still be using.
         virtual void waitIdle() = 0;
+
+        /// The GPU capture tool that captureNextFrame() will use, such as "RenderDoc", "PIX" or
+        /// "Xcode", or empty if no tool is attached.
+        [[nodiscard]] virtual std::string_view gpuCaptureTool() const { return {}; }
+
+        /// Captures the next whole frame with gpuCaptureTool(). Does nothing if there is none.
+        virtual void captureNextFrame() {}
 
         /// Index of the current frame slot, in [0, kMaxFramesInFlight).
         [[nodiscard]] uint32_t frameSlot() const { return m_frameSlot; }

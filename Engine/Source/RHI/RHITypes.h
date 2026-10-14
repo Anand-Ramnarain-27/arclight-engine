@@ -151,6 +151,11 @@ namespace arc::rhi
         /// D3D12 GPU-based validation. Catches errors the debug layer cannot see (descriptor
         /// contents, resource states inside shaders), at a large GPU cost.
         bool gpuValidation = false;
+
+        /// D3D12: load PIX's GPU capturer before the device is created, so PIX can attach to the
+        /// running editor and captures can be triggered from inside it. Needs PIX installed.
+        /// The debug layer is left off in this mode so it cannot interfere with captures.
+        bool pixCapture = false;
     };
 
     struct AdapterInfo

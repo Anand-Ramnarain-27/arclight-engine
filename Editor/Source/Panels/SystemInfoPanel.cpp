@@ -77,6 +77,8 @@ namespace arc
             if (!adapter.driver.empty())
                 row("Driver", adapter.driver);
             row("Frames in flight", std::format("{}", rhi::kMaxFramesInFlight));
+            const std::string_view captureTool = m_app.renderer().device().gpuCaptureTool();
+            row("GPU capture", captureTool.empty() ? std::string("none attached") : std::string(captureTool));
 
             ImGui::EndTable();
         }

@@ -50,3 +50,9 @@ xcuserdata/
 # --- Runtime output ---
 *.log
 imgui.ini
+
+# --- GPU captures (PIX, RenderDoc, Xcode) ---
+Captures/
+*.wpix
+*.rdc
+*.gputrace

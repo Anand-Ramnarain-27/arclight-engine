@@ -6,6 +6,10 @@
 #include "RHI/ShaderUtils.h"
 
 #include <d3d12sdklayers.h>
+#include <renderdoc_app.h>
+
+#include <filesystem>
+#include <system_error>
 
 namespace arc::rhi::d3d12
 {
@@ -67,7 +71,11 @@ namespace arc::rhi::d3d12
 
     bool D3D12Device::init(const DeviceDesc& desc)
     {
-        m_debugLayer = desc.debugLayer;
+        // Must happen before any D3D12 or DXGI object exists, so PIX can hook their creation.
+        if (desc.pixCapture)
+            loadPixCapturer();
+
+        m_debugLayer = desc.debugLayer && !desc.pixCapture;
 
         // The debug layer must be enabled before the device is created.
         if (desc.debugLayer)
@@ -109,6 +117,8 @@ namespace arc::rhi::d3d12
         if (m_debugLayer)
             configureInfoQueue();
 
+        connectRenderDoc();
+
         D3D12_COMMAND_QUEUE_DESC queueDesc{};
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         if (!succeeded(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_queue)), "CreateCommandQueue"))
@@ -145,6 +155,84 @@ namespace arc::rhi::d3d12
 
         return m_commandList.init(m_device.Get(), m_frames[0].allocator.Get(), "Frame Command List") &&
                m_immediateList.init(m_device.Get(), m_immediateAllocator.Get(), "Immediate Command List");
+    }
+
+    void D3D12Device::loadPixCapturer()
+    {
+        // Already present if the editor was launched from PIX.
+        HMODULE capturer = GetModuleHandleW(L"WinPixGpuCapturer.dll");
+        if (!capturer)
+        {
+            // PIX installs one folder per version under Program Files\Microsoft PIX; use the newest.
+            wchar_t programFiles[MAX_PATH] = {};
+            if (GetEnvironmentVariableW(L"ProgramW6432", programFiles, MAX_PATH) == 0)
+                GetEnvironmentVariableW(L"ProgramFiles", programFiles, MAX_PATH);
+
+            std::error_code error;
+            std::filesystem::path newest;
+            for (const auto& entry : std::filesystem::directory_iterator(
+                     std::filesystem::path(programFiles) / L"Microsoft PIX", error))
+            {
+                const std::filesystem::path dll = entry.path() / L"WinPixGpuCapturer.dll";
+                if (std::filesystem::exists(dll, error) && (newest.empty() || entry.path().filename() > newest.parent_path().filename()))
+                    newest = dll;
+            }
+            if (!newest.empty())
+                capturer = LoadLibraryW(newest.c_str());
+        }
+
+        if (!capturer)
+        {
+            ARC_LOG_WARN("--pix: WinPixGpuCapturer.dll not found; install PIX from https://devblogs.microsoft.com/pix/download/");
+            return;
+        }
+
+        // The same export the PIX headers (pix3_win.h) resolve for PIXGpuCaptureNextFrames.
+        m_pixCaptureNextFrames = reinterpret_cast<PixGpuCaptureNextFrames>(
+            reinterpret_cast<void*>(GetProcAddress(capturer, "PIXGpuCaptureNextFrames")));
+        ARC_LOG_INFO("PIX GPU capturer loaded; the D3D12 debug layer is off while PIX is attached");
+    }
+
+    void D3D12Device::connectRenderDoc()
+    {
+        // renderdoc.dll is only present when RenderDoc launched or injected into this process.
+        HMODULE renderDoc = GetModuleHandleW(L"renderdoc.dll");
+        if (!renderDoc)
+            return;
+
+        auto getApi = reinterpret_cast<pRENDERDOC_GetAPI>(
+            reinterpret_cast<void*>(GetProcAddress(renderDoc, "RENDERDOC_GetAPI")));
+        if (getApi && getApi(eRENDERDOC_API_Version_1_1_2, &m_renderDoc) == 1)
+            ARC_LOG_INFO("RenderDoc detected; F11 captures a frame");
+        else
+            m_renderDoc = nullptr;
+    }
+
+    std::string_view D3D12Device::gpuCaptureTool() const
+    {
+        if (m_renderDoc)
+            return "RenderDoc";
+        if (m_pixCaptureNextFrames)
+            return "PIX";
+        return {};
+    }
+
+    void D3D12Device::captureNextFrame()
+    {
+        if (m_renderDoc)
+        {
+            // Captures the next frame presented; it appears in the RenderDoc window.
+            static_cast<RENDERDOC_API_1_1_2*>(m_renderDoc)->TriggerCapture();
+            ARC_LOG_INFO("RenderDoc will capture the next frame");
+        }
+        else if (m_pixCaptureNextFrames)
+        {
+            std::error_code ignored;
+            std::filesystem::create_directories("Captures", ignored);
+            const std::wstring path = L"Captures\\Arclight-frame-" + std::to_wstring(frameNumber()) + L".wpix";
+            if (succeeded(m_pixCaptureNextFrames(path.c_str(), 1), "PIXGpuCaptureNextFrames"))
+                ARC_LOG_INFO("PIX is capturing the next frame to {}", narrow(path.c_str()));
+        }
     }
 
     bool D3D12Device::createFactory(bool debug)

@@ -13,7 +13,8 @@ Phase 1: RHI and first triangle (in progress).
 - Metal backend: command buffers with semaphore-based frames in flight, `CAMetalLayer` swapchain, Metal API validation and GPU frame capture enabled in the Xcode scheme.
 - Null backend for headless builds and unit tests.
 - Buffers in GPU-only, upload and readback memory; buffer copies; resource-state barriers; immediate submission for load-time work; `uploadBuffer` / `readbackBuffer` helpers and a start-up round-trip self-test in Debug builds.
-- System Info panel shows the graphics API, GPU, memory and driver version.
+- System Info panel shows the graphics API, GPU, memory, driver version and the attached GPU capture tool.
+- In-app GPU frame capture (*Debug → Capture GPU Frame*, F11): RenderDoc in-app API when launched from RenderDoc, PIX's GPU capturer with `--pix`, and `MTLCaptureManager` under Xcode. Command-line options `--pix` and `--gpu-validation`.
 - Build-time shader compilation (`cmake/ArclightShaders.cmake`): HLSL → DXIL with DXC on Windows (pinned v1.9.2607); HLSL → SPIR-V → MSL (SPIRV-Cross) → `.metallib` on macOS. Debug shaders keep debug info; Release shaders are optimised. Compiled shaders are copied into the release zip.
 - Graphics pipelines: `rhi::Pipeline` with vertex layout, cull mode and front-face winding; D3D12 root signature and pipeline state object, Metal render pipeline state with a vertex descriptor.
 - Draw commands: `setPipeline`, `setVertexBuffer`, `setIndexBuffer`, `draw`, `drawIndexed`.

@@ -57,7 +57,14 @@ The zip goes to `build/packages/` (for example `Arclight-0.1.0-windows-x64.zip`)
 
 **GPU debugging:** Debug builds enable the D3D12 debug layer (needs the Windows *Graphics Tools* optional feature); on Windows 11 its messages appear in the Console panel. On macOS the generated Xcode scheme enables Metal API validation and GPU frame capture.
 
-**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it. Panels are listed under View; View > Reset Layout restores the default docking layout.
+**GPU captures:** *Debug → Capture GPU Frame* (F11) captures the next frame with whichever tool is attached:
+- **RenderDoc** (Windows): launch the editor from RenderDoc; the capture appears in RenderDoc's window.
+- **PIX** (Windows): start the editor with `--pix` (Visual Studio: project *Properties → Debugging → Command Arguments*). Captures are saved to `Game/Captures/*.wpix`; open them in PIX. Or launch it from PIX directly.
+- **Xcode** (macOS): run from Xcode and use the menu item, or Xcode's own camera button in the debug bar.
+
+Passes, buffers and pipelines carry debug names, so captures show "Triangle", "ImGui", "Triangle Vertices" and so on instead of anonymous objects.
+
+**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it, F11 captures a GPU frame. Panels are listed under View; View > Reset Layout restores the default docking layout.
 
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 

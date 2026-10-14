@@ -182,10 +182,14 @@ namespace arc::rhi::metal
         void endFrame(Swapchain& swapchain) override;
         void waitIdle() override;
 
+        [[nodiscard]] std::string_view gpuCaptureTool() const override;
+        void captureNextFrame() override { m_captureRequested = true; }
+
         [[nodiscard]] id<MTLDevice> native() const { return m_device; }
         [[nodiscard]] id<MTLCommandQueue> queue() const { return m_queue; }
 
     private:
+        void startCapture();
         id<MTLDevice> m_device = nil;
         id<MTLCommandQueue> m_queue = nil;
 
@@ -195,6 +199,8 @@ namespace arc::rhi::metal
 
         id<MTLCommandBuffer> m_lastSubmitted = nil;
         void* m_frameAutoreleasePool = nullptr;
+        bool m_captureRequested = false;
+        bool m_capturing = false;
         MetalCommandList m_commandList;
         AdapterInfo m_adapterInfo;
     };

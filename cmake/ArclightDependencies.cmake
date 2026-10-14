@@ -25,6 +25,17 @@ FetchContent_Declare(imgui
 
 FetchContent_MakeAvailable(SDL3 imgui)
 
+# RenderDoc's in-app API is a single MIT-licensed header; the library itself is injected by
+# RenderDoc at launch, so nothing is linked. Windows only: RenderDoc does not support Metal.
+if(WIN32)
+    FetchContent_Declare(renderdoc_api
+        URL      https://raw.githubusercontent.com/baldurk/renderdoc/v1.46/renderdoc/api/app/renderdoc_app.h
+        URL_HASH SHA256=b7005e7dc34c3635046868bbd76d81b9b055aede0f56daa0bd39fedee0639ffb
+        DOWNLOAD_NO_EXTRACT TRUE
+    )
+    FetchContent_MakeAvailable(renderdoc_api)
+endif()
+
 foreach(sdl_target IN ITEMS SDL3-static SDL_uclibc)
     if(TARGET ${sdl_target})
         set_target_properties(${sdl_target} PROPERTIES FOLDER "ThirdParty")

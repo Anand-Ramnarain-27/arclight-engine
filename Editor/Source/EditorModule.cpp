@@ -7,8 +7,14 @@
 #include "Panels/PlaybackPanel.h"
 #include "Panels/SystemInfoPanel.h"
 
+#include "RHI/Device.h"
+
 #include <imgui.h>
 #include <imgui_internal.h>
+
+#include <format>
+#include <string>
+#include <string_view>
 
 namespace arc
 {
@@ -41,6 +47,17 @@ namespace arc
         drawAboutPopup();
     }
 
+    void EditorModule::requestGpuCapture()
+    {
+        rhi::Device& device = app().renderer().device();
+        if (device.gpuCaptureTool().empty())
+        {
+            ARC_LOG_WARN("No GPU capture tool attached; start the editor from RenderDoc, with --pix, or from Xcode");
+            return;
+        }
+        device.captureNextFrame();
+    }
+
     void EditorModule::handleShortcuts()
     {
         const Input& input = app().input();
@@ -59,6 +76,9 @@ namespace arc
 
         if (input.wasPressed(Key::F6))
             clock.step();
+
+        if (input.wasPressed(Key::F11))
+            requestGpuCapture();
 
         // Equals is the unshifted '+' key on US and most European layouts.
         if (input.wasPressed(Key::Equals))
@@ -152,6 +172,19 @@ namespace arc
             ImGui::Separator();
             if (ImGui::MenuItem("Reset Layout"))
                 m_resetLayout = true;
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Debug"))
+        {
+            const std::string_view tool = app().renderer().device().gpuCaptureTool();
+            const std::string label = tool.empty() ? std::string("Capture GPU Frame")
+                                                   : std::format("Capture GPU Frame ({})", tool);
+            if (ImGui::MenuItem(label.c_str(), "F11", false, !tool.empty()))
+                requestGpuCapture();
+            if (tool.empty())
+                ImGui::SetItemTooltip("No capture tool attached. Start the editor from RenderDoc, with --pix "
+                                      "(PIX), or from Xcode.");
             ImGui::EndMenu();
         }
 

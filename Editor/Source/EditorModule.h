@@ -15,6 +15,7 @@ namespace arc
     ///   F6          Step one frame
     ///   + / -       Double / halve the time scale
     ///   0           Reset the time scale to 1
+    ///   F11         Capture a GPU frame (RenderDoc, PIX or Xcode, when attached)
     class EditorModule final : public Module
     {
     public:
@@ -27,6 +28,7 @@ namespace arc
 
     private:
         void handleShortcuts();
+        void requestGpuCapture();
         void logInputActivity();
         void drawDockSpace();
         void buildDefaultLayout(unsigned int dockspaceId);

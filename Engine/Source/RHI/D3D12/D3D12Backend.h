@@ -185,6 +185,9 @@ namespace arc::rhi::d3d12
         void endFrame(Swapchain& swapchain) override;
         void waitIdle() override;
 
+        [[nodiscard]] std::string_view gpuCaptureTool() const override;
+        void captureNextFrame() override;
+
         [[nodiscard]] ID3D12Device* native() const { return m_device.Get(); }
         [[nodiscard]] ID3D12CommandQueue* queue() const { return m_queue.Get(); }
         [[nodiscard]] IDXGIFactory6* factory() const { return m_factory.Get(); }
@@ -200,6 +203,8 @@ namespace arc::rhi::d3d12
             uint64_t fenceValue = 0;   // Signalled when the GPU finishes this slot's last frame.
         };
 
+        void loadPixCapturer();
+        void connectRenderDoc();
         [[nodiscard]] bool createFactory(bool debug);
         [[nodiscard]] bool createRootSignature();
         [[nodiscard]] bool selectAdapter();
@@ -225,6 +230,12 @@ namespace arc::rhi::d3d12
         // submitImmediate() waits for its work to finish, so one allocator suffices.
         ComPtr<ID3D12CommandAllocator> m_immediateAllocator;
         D3D12CommandList m_immediateList;
+
+        // In-app capture triggers, resolved at run time from DLLs the tools load. Both are null
+        // unless the editor was started from RenderDoc, or with --pix and PIX installed.
+        void* m_renderDoc = nullptr;   // RENDERDOC_API_1_1_2*
+        using PixGpuCaptureNextFrames = HRESULT(WINAPI*)(PCWSTR fileName, UINT32 numFrames);
+        PixGpuCaptureNextFrames m_pixCaptureNextFrames = nullptr;
 
         AdapterInfo m_adapterInfo;
         bool m_debugLayer = false;

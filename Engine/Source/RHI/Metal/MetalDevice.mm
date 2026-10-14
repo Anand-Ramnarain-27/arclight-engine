@@ -6,6 +6,9 @@
 
 #import <Foundation/Foundation.h>
 
+#include <filesystem>
+#include <system_error>
+
 // The Objective-C runtime functions behind @autoreleasepool. A frame spans beginFrame() and
 // endFrame(), which a lexical @autoreleasepool block cannot, so the pool is pushed and popped
 // explicitly. Declared in <objc/objc-internal.h>, which is not a public header.
@@ -212,10 +215,61 @@ namespace arc::rhi::metal
         return swapchain;
     }
 
+    std::string_view MetalDevice::gpuCaptureTool() const
+    {
+        // Capturing is only allowed when the app runs under Xcode with GPU frame capture enabled
+        // in the scheme, or with MTL_CAPTURE_ENABLED=1 set, in which case it writes a file.
+        MTLCaptureManager* manager = [MTLCaptureManager sharedCaptureManager];
+        if ([manager supportsDestination:MTLCaptureDestinationDeveloperTools])
+            return "Xcode";
+        if ([manager supportsDestination:MTLCaptureDestinationGPUTraceDocument])
+            return "Xcode (.gputrace file)";
+        return {};
+    }
+
+    void MetalDevice::startCapture()
+    {
+        MTLCaptureManager* manager = [MTLCaptureManager sharedCaptureManager];
+        MTLCaptureDescriptor* descriptor = [[MTLCaptureDescriptor alloc] init];
+        descriptor.captureObject = m_queue;
+
+        if ([manager supportsDestination:MTLCaptureDestinationDeveloperTools])
+        {
+            descriptor.destination = MTLCaptureDestinationDeveloperTools;
+        }
+        else
+        {
+            // Outside Xcode the trace goes to Captures/ in the working directory; open it in Xcode.
+            std::error_code ignored;
+            std::filesystem::create_directories("Captures", ignored);
+            NSString* name = [NSString stringWithFormat:@"Captures/Arclight-frame-%llu.gputrace",
+                                                        static_cast<unsigned long long>(frameNumber())];
+            descriptor.destination = MTLCaptureDestinationGPUTraceDocument;
+            descriptor.outputURL = [NSURL fileURLWithPath:name];
+        }
+
+        NSError* error = nil;
+        if (![manager startCaptureWithDescriptor:descriptor error:&error])
+        {
+            ARC_LOG_ERROR("Metal GPU capture failed to start: {}",
+                          error ? error.localizedDescription.UTF8String : "unknown error");
+            return;
+        }
+        m_capturing = true;
+        ARC_LOG_INFO("Capturing GPU frame {} with Xcode", frameNumber());
+    }
+
     CommandList& MetalDevice::beginFrame(Swapchain& /*swapchain*/)
     {
         dispatch_semaphore_wait(m_frameSemaphore, DISPATCH_TIME_FOREVER);
         m_frameAutoreleasePool = objc_autoreleasePoolPush();
+
+        if (m_captureRequested)
+        {
+            m_captureRequested = false;
+            if (!gpuCaptureTool().empty())
+                startCapture();
+        }
 
         id<MTLCommandBuffer> commandBuffer = [m_queue commandBuffer];
         commandBuffer.label = [NSString stringWithFormat:@"Frame %llu", static_cast<unsigned long long>(frameNumber())];
@@ -242,6 +296,14 @@ namespace arc::rhi::metal
         }];
         [commandBuffer commit];
         m_lastSubmitted = commandBuffer;
+
+        // The capture covers every command buffer the queue receives between start and stop,
+        // which is exactly this frame (immediate submissions included).
+        if (m_capturing)
+        {
+            [[MTLCaptureManager sharedCaptureManager] stopCapture];
+            m_capturing = false;
+        }
 
         objc_autoreleasePoolPop(m_frameAutoreleasePool);
         m_frameAutoreleasePool = nullptr;

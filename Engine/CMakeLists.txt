@@ -60,6 +60,7 @@ if(WIN32)
         Source/UI/ImGuiRenderBackend_D3D12.cpp
     )
     target_link_libraries(ArclightEngine PRIVATE d3d12 dxgi dxguid)
+    target_include_directories(ArclightEngine SYSTEM PRIVATE ${renderdoc_api_SOURCE_DIR})
 elseif(APPLE)
     target_sources(ArclightEngine PRIVATE
         Source/RHI/Metal/MetalBackend.h
