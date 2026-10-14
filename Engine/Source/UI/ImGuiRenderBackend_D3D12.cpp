@@ -80,8 +80,12 @@ namespace arc
 
             void render(rhi::CommandList& commandList, ImDrawData* drawData) override
             {
-                auto& d3dCommandList = static_cast<rhi::d3d12::D3D12CommandList&>(commandList);
-                ImGui_ImplDX12_RenderDrawData(drawData, d3dCommandList.native());
+                // The backend binds its descriptor table but not the heap it lives in; for the main
+                // viewport that is the caller's job (its examples call SetDescriptorHeaps first).
+                ID3D12GraphicsCommandList* native = static_cast<rhi::d3d12::D3D12CommandList&>(commandList).native();
+                ID3D12DescriptorHeap* heaps[] = {m_srvHeap.Get()};
+                native->SetDescriptorHeaps(1, heaps);
+                ImGui_ImplDX12_RenderDrawData(drawData, native);
             }
 
         private:

@@ -184,6 +184,9 @@ function(arclight_compile_shader)
         endif()
     endforeach()
 
+    # Listed as sources so they show in the IDE. Visual Studio would otherwise compile .hlsl files
+    # itself with its built-in FXC rule (entry point "main"), which fails and is not our pipeline.
+    set_source_files_properties("${ARG_SOURCE}" ${includes} PROPERTIES VS_TOOL_OVERRIDE "None")
     add_custom_target(ArclightShader_${name} DEPENDS ${outputs} SOURCES "${ARG_SOURCE}" ${includes})
     set_target_properties(ArclightShader_${name} PROPERTIES FOLDER "Arclight/Shaders")
     add_dependencies(ArclightShaders ArclightShader_${name})
