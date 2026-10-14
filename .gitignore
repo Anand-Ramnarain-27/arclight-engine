@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------
+# Arclight .gitignore
+# Rule of thumb: commit source and inputs, never build output or
+# per-user IDE state. Third-party binaries we *depend on* (e.g.
+# WinPixEventRuntime .lib/.dll) are kept, so we never blanket-ignore
+# *.lib / *.dll / bin/.
+# ---------------------------------------------------------------
+
+# --- Our build output (OutDir/IntDir in the .vcxproj) ---
+Source/build/
+/build/
+/out/
+
+# --- Visual Studio ---
+.vs/
+*.user
+*.suo
+*.aps
+*.VC.db
+*.VC.opendb
+ipch/
+*.ipch
+*.tlog
+*.ilk
+*.idb
+*.iobj
+*.ipdb
+*.exp
+
+# DirectXTex builds its own .lib into this folder
+Source/3rdParty/DirectXTex/Bin/
+
+# --- CMake (for when we move to CMake for Windows + Mac) ---
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+
+# --- Xcode / macOS ---
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.DS_Store
+
+# --- Editors / tools ---
+.vscode/
+.idea/
+*.swp
+
+# --- Runtime output ---
+*.log
+imgui.ini
