@@ -1,0 +1,70 @@
+name: Release
+
+# A new v* tag builds both platforms and attaches the zips to that tag's release, creating a draft release if none exists.
+# Running it by hand (Actions > Release > Run workflow) only builds; the zips are kept as workflow artifacts.
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.preset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Pinned because the presets use the Visual Studio 2022 generator; windows-latest ships VS 2026.
+          - os: windows-2022
+            preset: windows-release
+          # Apple silicon runner, matching CMAKE_OSX_ARCHITECTURES=arm64 in the preset.
+          - os: macos-15
+            preset: macos-release
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure, build, test and package
+        run: cmake --workflow --preset ${{ matrix.preset }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.preset }}
+          path: build/packages/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach zips to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A release published from the GitHub website creates the tag itself, so the release already exists.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip --clobber
+            exit 0
+          fi
+          notes="docs/releases/${TAG}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::Missing $notes. Add release notes for $TAG before tagging."
+            exit 1
+          fi
+          gh release create "$TAG" dist/*.zip \
+            --draft \
+            --title "Arclight ${TAG#v}" \
+            --notes-file "$notes"
