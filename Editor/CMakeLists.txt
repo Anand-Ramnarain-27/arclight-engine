@@ -17,7 +17,12 @@ target_include_directories(Arclight PRIVATE Source)
 target_link_libraries(Arclight PRIVATE ArclightEngine imgui)
 arclight_set_warnings(Arclight)
 
-# TODO: Build Release as a WIN32 (no console) executable with /ENTRY:mainCRTStartup.
+# Release builds use the Windows GUI subsystem so no console window opens next to the editor.
+# main() stays the entry point on every platform, so the CRT is told to call it instead of WinMain().
+set_target_properties(Arclight PROPERTIES WIN32_EXECUTABLE $<CONFIG:Release>)
+if(MSVC)
+    target_link_options(Arclight PRIVATE $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>)
+endif()
 
 get_target_property(editor_sources Arclight SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${editor_sources})

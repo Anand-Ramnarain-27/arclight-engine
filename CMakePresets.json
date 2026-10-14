@@ -34,7 +34,33 @@
     { "name": "macos-release",   "configurePreset": "macos-xcode",    "configuration": "Release" }
   ],
   "testPresets": [
-    { "name": "windows-debug", "configurePreset": "windows-vs2022", "configuration": "Debug", "output": { "outputOnFailure": true } },
-    { "name": "macos-debug",   "configurePreset": "macos-xcode",    "configuration": "Debug", "output": { "outputOnFailure": true } }
+    { "name": "windows-debug",   "configurePreset": "windows-vs2022", "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "windows-release", "configurePreset": "windows-vs2022", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "macos-debug",     "configurePreset": "macos-xcode",    "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "macos-release",   "configurePreset": "macos-xcode",    "configuration": "Release", "output": { "outputOnFailure": true } }
+  ],
+  "packagePresets": [
+    { "name": "windows-release", "configurePreset": "windows-vs2022", "configurations": [ "Release" ], "generators": [ "ZIP" ], "packageDirectory": "${sourceDir}/build/packages" },
+    { "name": "macos-release",   "configurePreset": "macos-xcode",    "configurations": [ "Release" ], "generators": [ "ZIP" ], "packageDirectory": "${sourceDir}/build/packages" }
+  ],
+  "workflowPresets": [
+    {
+      "name": "windows-release",
+      "steps": [
+        { "type": "configure", "name": "windows-vs2022" },
+        { "type": "build",     "name": "windows-release" },
+        { "type": "test",      "name": "windows-release" },
+        { "type": "package",   "name": "windows-release" }
+      ]
+    },
+    {
+      "name": "macos-release",
+      "steps": [
+        { "type": "configure", "name": "macos-xcode" },
+        { "type": "build",     "name": "macos-release" },
+        { "type": "test",      "name": "macos-release" },
+        { "type": "package",   "name": "macos-release" }
+      ]
+    }
   ]
 }

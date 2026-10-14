@@ -7,6 +7,8 @@ set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON  CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+# Keeps SDL's headers and static library out of the Arclight release package.
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(SDL3
     URL      https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz

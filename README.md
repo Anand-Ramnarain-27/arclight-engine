@@ -15,6 +15,8 @@ The goal is to understand *why* engines are built the way they are, not just to 
 
 Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, keyboard/mouse/gamepad input, a math library with unit tests, and a dockable ImGui editor shell. There is no 3D rendering yet; the editor UI is drawn through SDL_Renderer until the engine's own renderer exists (Phase 1).
 
+Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
+
 The course's original Windows-only starter code is still in `Source/` as a reference while its pieces are rebuilt cross-platform. It is not part of the CMake build and will be removed once replaced.
 
 ## Building
@@ -40,6 +42,13 @@ Then open `build/macos-xcode/Arclight.xcodeproj`, pick the `Arclight` scheme and
 
 **Tests:** build and run the `ArclightTests` target, or `ctest --preset windows-debug` / `ctest --preset macos-debug` after building. Set `-DARCLIGHT_BUILD_TESTS=OFF` to skip them.
 
+**Release build and zip:** one command configures, builds, runs the tests and packages the editor:
+```
+cmake --workflow --preset windows-release
+cmake --workflow --preset macos-release
+```
+The zip goes to `build/packages/` (for example `Arclight-0.1.0-windows-x64.zip`). The Windows Release build has no console window; log output is in the editor's Console panel. Pushing a `v*` tag runs the same workflow on GitHub Actions for both platforms and creates a draft release; see `.github/workflows/release.yml`.
+
 **Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it. Panels are listed under View; View > Reset Layout restores the default docking layout.
 
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
@@ -49,7 +58,9 @@ Everything generated goes into `build/`, which is not committed. The project fil
 ```
 CMakeLists.txt       Root build script
 CMakePresets.json    Configure/build presets per platform
-cmake/               Build helpers (warnings, dependencies)
+cmake/               Build helpers (warnings, dependencies, packaging)
+.github/workflows/   Release workflow (GitHub Actions)
+docs/releases/       Release notes, one file per tag
 Engine/Source/       ArclightEngine static library
   Core/                Platform detection, logging, asserts, timing
   Math/                Vectors, quaternions, matrices (conventions in Math/Math.h)
@@ -72,3 +83,9 @@ Source/              Old course starter code (reference only, not built)
 | [doctest](https://github.com/doctest/doctest) | Unit tests | Fetched by CMake (pinned release tag) |
 
 Libraries from the old base (ImGuizmo, DirectXTex, tinygltf, WinPixEventRuntime) move into the new build as the roadmap reaches them. Each library is under its own license.
+
+## License
+
+Arclight's own code (`Engine/`, `Editor/`, `Tests/`, `cmake/` and the build files) is released under the [MIT License](LICENSE).
+
+`Source/` contains the course's starter code. It is kept as a reference only, is not part of the build, and is **not** covered by the MIT License.
