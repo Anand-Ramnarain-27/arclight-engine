@@ -95,13 +95,13 @@ namespace arc
 
         if (input.wasPressed(MouseButton::Left))
         {
-            const Vec2 position = input.mousePosition();
+            [[maybe_unused]] const Vec2 position = input.mousePosition();
             ARC_LOG_TRACE("Left click at ({:.0f}, {:.0f}) px", position.x, position.y);
         }
 
         if (input.wasPressed(GamepadButton::South))
         {
-            const Vec2 stick = input.leftStick();
+            [[maybe_unused]] const Vec2 stick = input.leftStick();
             ARC_LOG_TRACE("Gamepad South pressed; left stick ({:+.2f}, {:+.2f})", stick.x, stick.y);
         }
     }
@@ -140,11 +140,14 @@ namespace arc
         const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
         const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
         const ImGuiID top = ImGui::DockBuilderSplitNode(center, ImGuiDir_Up, 0.08f, nullptr, &center);
+        ImGuiID rightTop = right;
+        const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(rightTop, ImGuiDir_Down, 0.45f, nullptr, &rightTop);
 
         ImGui::DockBuilderDockWindow("Playback", top);
         ImGui::DockBuilderDockWindow("Console", bottom);
-        ImGui::DockBuilderDockWindow("Performance", right);
-        ImGui::DockBuilderDockWindow("System Info", right);
+        ImGui::DockBuilderDockWindow("Texture Demo", rightTop);
+        ImGui::DockBuilderDockWindow("Performance", rightBottom);
+        ImGui::DockBuilderDockWindow("System Info", rightBottom);
         ImGui::DockBuilderFinish(dockspaceId);
 
         for (auto& panel : m_panels)

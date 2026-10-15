@@ -8,19 +8,6 @@
 
 namespace arc::rhi::d3d12
 {
-    void D3D12Texture::reset(ComPtr<ID3D12Resource> resource, const TextureDesc& desc, D3D12_RESOURCE_STATES initialState)
-    {
-        m_resource = std::move(resource);
-        m_desc = desc;
-        state = initialState;
-    }
-
-    void D3D12Texture::release()
-    {
-        m_resource.Reset();
-        state = D3D12_RESOURCE_STATE_COMMON;
-    }
-
     D3D12Swapchain::D3D12Swapchain(D3D12Device& device) : m_device(device) {}
 
     D3D12Swapchain::~D3D12Swapchain()
@@ -115,7 +102,10 @@ namespace arc::rhi::d3d12
             device->CreateRenderTargetView(buffer.Get(), nullptr, rtv);
 
             D3D12Texture& texture = m_backbuffers[i];
-            texture.reset(std::move(buffer), {m_desc.size, m_desc.format}, D3D12_RESOURCE_STATE_PRESENT);
+            texture.reset(std::move(buffer),
+                          {.size = m_desc.size, .format = m_desc.format, .usage = TextureUsage::RenderTarget,
+                           .debugName = std::format("Backbuffer {}", i)},
+                          ResourceState::Present);
             texture.rtv = rtv;
             rtv.ptr += rtvStride;
         }

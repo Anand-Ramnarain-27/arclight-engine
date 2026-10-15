@@ -36,6 +36,26 @@ if(WIN32)
     FetchContent_MakeAvailable(renderdoc_api)
 endif()
 
+# stb_image: a single public-domain header (MIT as an alternative), pinned to a commit.
+FetchContent_Declare(stb_image
+    URL      https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_image.h
+    URL_HASH SHA256=594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3
+    DOWNLOAD_NO_EXTRACT TRUE
+)
+FetchContent_MakeAvailable(stb_image)
+
+# The implementation goes in its own target so Arclight's warning flags never see it.
+set(stb_image_impl "${CMAKE_BINARY_DIR}/Generated/stb_image.c")
+file(CONFIGURE OUTPUT "${stb_image_impl}" CONTENT "#define STB_IMAGE_IMPLEMENTATION\n#include <stb_image.h>\n")
+add_library(stb_image STATIC "${stb_image_impl}")
+target_include_directories(stb_image SYSTEM PUBLIC ${stb_image_SOURCE_DIR})
+# Files are read with SDL_LoadFile (UTF-8 paths on every platform), so stb's own file I/O is left out.
+target_compile_definitions(stb_image
+    PUBLIC  STBI_NO_STDIO
+    PRIVATE STBI_ONLY_PNG STBI_ONLY_JPEG STBI_ONLY_TGA STBI_ONLY_BMP
+)
+set_target_properties(stb_image PROPERTIES FOLDER "ThirdParty")
+
 foreach(sdl_target IN ITEMS SDL3-static SDL_uclibc)
     if(TARGET ${sdl_target})
         set_target_properties(${sdl_target} PROPERTIES FOLDER "ThirdParty")

@@ -1,6 +1,6 @@
 #include "Application/Application.h"
 #include "EditorModule.h"
-#include "Scene/TriangleModule.h"
+#include "Scene/TextureDemoModule.h"
 #include "UI/ImGuiModule.h"
 
 #include <string_view>
@@ -34,7 +34,7 @@ int main(int argc, char* argv[])
     // ImGuiModule must come first: it starts the ImGui frame that EditorModule draws into.
     app.addModule<arc::ImGuiModule>();
     app.addModule<arc::EditorModule>();
-    app.addModule<arc::TriangleModule>();
+    app.addModule<arc::TextureDemoModule>();
 
     return app.run();
 }

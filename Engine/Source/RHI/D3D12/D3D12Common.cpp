@@ -26,9 +26,10 @@ namespace arc::rhi::d3d12
     {
         switch (format)
         {
-            case Format::Unknown:     return DXGI_FORMAT_UNKNOWN;
-            case Format::RGBA8_UNORM: return DXGI_FORMAT_R8G8B8A8_UNORM;
-            case Format::BGRA8_UNORM: return DXGI_FORMAT_B8G8R8A8_UNORM;
+            case Format::Unknown:          return DXGI_FORMAT_UNKNOWN;
+            case Format::RGBA8_UNORM:      return DXGI_FORMAT_R8G8B8A8_UNORM;
+            case Format::RGBA8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+            case Format::BGRA8_UNORM:      return DXGI_FORMAT_B8G8R8A8_UNORM;
         }
         return DXGI_FORMAT_UNKNOWN;
     }

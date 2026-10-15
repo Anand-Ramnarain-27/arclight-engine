@@ -37,10 +37,11 @@ namespace arc::rhi::d3d12
         return D3D12_RESOURCE_STATE_COMMON;
     }
 
-    bool D3D12CommandList::init(ID3D12Device* device, ID3D12CommandAllocator* allocator, std::string_view name)
+    bool D3D12CommandList::init(D3D12Device& device, ID3D12CommandAllocator* allocator, std::string_view name)
     {
-        if (!succeeded(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
-                                                 IID_PPV_ARGS(&m_list)),
+        m_device = &device;
+        if (!succeeded(device.native()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+                                                          IID_PPV_ARGS(&m_list)),
                        "CreateCommandList"))
             return false;
         setDebugName(m_list.Get(), name);
@@ -49,9 +50,34 @@ namespace arc::rhi::d3d12
         return close();
     }
 
-    void D3D12CommandList::begin(ID3D12CommandAllocator* allocator)
+    void D3D12CommandList::begin(ID3D12CommandAllocator* allocator, uint32_t transientRegion)
     {
         ARC_VERIFY(SUCCEEDED(m_list->Reset(allocator, nullptr)));
+        m_transientRegion = transientRegion;
+
+        // Set once per command list: changing heaps mid-list can stall the GPU on some hardware,
+        // which is why everything shaders read lives in these two heaps.
+        ID3D12DescriptorHeap* heaps[] = {m_device->shaderVisibleSrvHeap().native(),
+                                         m_device->shaderVisibleSamplerHeap().native()};
+        m_list->SetDescriptorHeaps(2, heaps);
+        m_rootSignature = nullptr;
+        resetBindings();
+    }
+
+    void D3D12CommandList::resetBindings()
+    {
+        m_textures.fill(m_device->nullSrv());
+        m_samplers.fill(m_device->defaultSampler());
+        m_texturesDirty = true;
+        m_samplersDirty = true;
+    }
+
+    void D3D12CommandList::invalidateBindings()
+    {
+        m_rootSignature = nullptr;
+        m_pipeline = nullptr;
+        m_texturesDirty = true;
+        m_samplersDirty = true;
     }
 
     bool D3D12CommandList::close()
@@ -61,28 +87,22 @@ namespace arc::rhi::d3d12
         return succeeded(m_list->Close(), "ID3D12GraphicsCommandList::Close");
     }
 
-    void D3D12CommandList::transition(D3D12Texture& texture, D3D12_RESOURCE_STATES state)
-    {
-        if (texture.state == state)
-            return;
-
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource = texture.resource();
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = texture.state;
-        barrier.Transition.StateAfter = state;
-        m_list->ResourceBarrier(1, &barrier);
-
-        texture.state = state;
-    }
-
     void D3D12CommandList::setPipeline(Pipeline& pipeline)
     {
         ARC_ASSERT(m_inRenderPass, "setPipeline outside a render pass");
         m_pipeline = &static_cast<D3D12Pipeline&>(pipeline);
         m_list->SetPipelineState(m_pipeline->state());
-        m_list->SetGraphicsRootSignature(m_pipeline->rootSignature());
+
+        // Setting a different root signature invalidates every root argument, so the tables
+        // are rebuilt at the next draw. Every pipeline currently shares one, so this happens once
+        // per list, or after ImGui has drawn with its own.
+        if (m_rootSignature != m_pipeline->rootSignature())
+        {
+            m_rootSignature = m_pipeline->rootSignature();
+            m_list->SetGraphicsRootSignature(m_rootSignature);
+            m_texturesDirty = true;
+            m_samplersDirty = true;
+        }
         // The PSO only fixes the topology type (triangles); the exact topology is command list state.
         m_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     }
@@ -115,17 +135,83 @@ namespace arc::rhi::d3d12
         m_list->IASetIndexBuffer(&view);
     }
 
+    void D3D12CommandList::setTexture(uint32_t slot, Texture& texture)
+    {
+        ARC_ASSERT(m_inRenderPass, "setTexture outside a render pass");
+        validateTextureBinding(slot, texture);
+        const D3D12_CPU_DESCRIPTOR_HANDLE srv = static_cast<D3D12Texture&>(texture).srv;
+        if (m_textures[slot].ptr != srv.ptr)
+        {
+            m_textures[slot] = srv;
+            m_texturesDirty = true;
+        }
+    }
+
+    void D3D12CommandList::setSampler(uint32_t slot, Sampler& sampler)
+    {
+        ARC_ASSERT(m_inRenderPass, "setSampler outside a render pass");
+        validateSamplerBinding(slot);
+        const D3D12_CPU_DESCRIPTOR_HANDLE descriptor = static_cast<D3D12Sampler&>(sampler).descriptor();
+        if (m_samplers[slot].ptr != descriptor.ptr)
+        {
+            m_samplers[slot] = descriptor;
+            m_samplersDirty = true;
+        }
+    }
+
+    bool D3D12CommandList::flushBindings()
+    {
+        // Root descriptor tables point into a shader-visible heap, but views are created in CPU-only
+        // heaps: CopyDescriptors may only read from those, since shader-visible heaps can live in
+        // memory the CPU cannot read efficiently. Each change of bindings copies the bound views
+        // into a fresh contiguous run of the frame's transient region, so a table the GPU may still
+        // be reading is never overwritten.
+        ID3D12Device* device = m_device->native();
+
+        if (m_texturesDirty)
+        {
+            const D3D12Descriptor table = m_device->shaderVisibleSrvHeap().allocateTransient(m_transientRegion, kMaxTextureSlots);
+            if (!table.valid())
+                return false;
+            std::array<UINT, kMaxTextureSlots> sourceSizes;
+            sourceSizes.fill(1);
+            const UINT tableSize = kMaxTextureSlots;
+            device->CopyDescriptors(1, &table.cpu, &tableSize, kMaxTextureSlots, m_textures.data(), sourceSizes.data(),
+                                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            m_list->SetGraphicsRootDescriptorTable(kRootTextureTable, table.gpu);
+            m_texturesDirty = false;
+        }
+
+        if (m_samplersDirty)
+        {
+            const D3D12Descriptor table =
+                m_device->shaderVisibleSamplerHeap().allocateTransient(m_transientRegion, kMaxSamplerSlots);
+            if (!table.valid())
+                return false;
+            std::array<UINT, kMaxSamplerSlots> sourceSizes;
+            sourceSizes.fill(1);
+            const UINT tableSize = kMaxSamplerSlots;
+            device->CopyDescriptors(1, &table.cpu, &tableSize, kMaxSamplerSlots, m_samplers.data(), sourceSizes.data(),
+                                    D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+            m_list->SetGraphicsRootDescriptorTable(kRootSamplerTable, table.gpu);
+            m_samplersDirty = false;
+        }
+        return true;
+    }
+
     void D3D12CommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
     {
         ARC_ASSERT(m_pipeline, "Draw without a pipeline");
-        m_list->DrawInstanced(vertexCount, instanceCount, firstVertex, firstInstance);
+        if (flushBindings())
+            m_list->DrawInstanced(vertexCount, instanceCount, firstVertex, firstInstance);
     }
 
     void D3D12CommandList::drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                        int32_t baseVertex, uint32_t firstInstance)
     {
         ARC_ASSERT(m_pipeline, "Draw without a pipeline");
-        m_list->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+        if (flushBindings())
+            m_list->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
     }
 
     void D3D12CommandList::copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size)
@@ -139,6 +225,48 @@ namespace arc::rhi::d3d12
 
         m_list->CopyBufferRegion(static_cast<D3D12Buffer&>(dst).resource(), dstOffset,
                                  static_cast<D3D12Buffer&>(src).resource(), srcOffset, size);
+    }
+
+    void D3D12CommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
+                                               uint32_t srcRowPitch)
+    {
+        ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+        validateTextureCopy(dst, mipLevel, ResourceState::CopyDest, src, srcOffset, srcRowPitch, ResourceState::CopySource);
+
+        const Extent2D size = mipSize(dst.desc().size, mipLevel);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = static_cast<D3D12Texture&>(dst).resource();
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        destination.SubresourceIndex = mipLevel;
+
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = static_cast<D3D12Buffer&>(src).resource();
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint.Offset = srcOffset;
+        source.PlacedFootprint.Footprint = {toDxgiFormat(dst.desc().format), size.width, size.height, 1, srcRowPitch};
+
+        m_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+    }
+
+    void D3D12CommandList::copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
+                                               uint32_t mipLevel)
+    {
+        ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+        validateTextureCopy(src, mipLevel, ResourceState::CopySource, dst, dstOffset, dstRowPitch, ResourceState::CopyDest);
+
+        const Extent2D size = mipSize(src.desc().size, mipLevel);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = static_cast<D3D12Buffer&>(dst).resource();
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint.Offset = dstOffset;
+        destination.PlacedFootprint.Footprint = {toDxgiFormat(src.desc().format), size.width, size.height, 1, dstRowPitch};
+
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = static_cast<D3D12Texture&>(src).resource();
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        source.SubresourceIndex = mipLevel;
+
+        m_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
     }
 
     void D3D12CommandList::barrier(Buffer& buffer, ResourceState state)
@@ -163,19 +291,36 @@ namespace arc::rhi::d3d12
         m_list->ResourceBarrier(1, &barrier);
     }
 
+    void D3D12CommandList::barrier(Texture& texture, ResourceState state)
+    {
+        ARC_ASSERT(!m_inRenderPass, "Barriers are not allowed inside a render pass");
+        if (texture.state() == state)
+            return;
+
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = static_cast<D3D12Texture&>(texture).resource();
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = toD3D12State(texture.state());
+        barrier.Transition.StateAfter = toD3D12State(state);
+        m_list->ResourceBarrier(1, &barrier);
+
+        texture.setState(state);
+    }
+
     void D3D12CommandList::beginRenderPass(const RenderPassDesc& desc)
     {
         ARC_ASSERT(!m_inRenderPass, "Render passes do not nest");
         ARC_ASSERT(desc.color.texture != nullptr);
+
+        auto& target = static_cast<D3D12Texture&>(*desc.color.texture);
+        ARC_ASSERT(target.rtv.ptr != 0, "'{}' is not a render target", target.desc().debugName);
+        barrier(target, ResourceState::RenderTarget);
         m_inRenderPass = true;
 
         m_passHasDebugGroup = !desc.debugName.empty();
         if (m_passHasDebugGroup)
             beginEvent(m_list.Get(), desc.debugName);
-
-        auto& target = static_cast<D3D12Texture&>(*desc.color.texture);
-        ARC_ASSERT(target.rtv.ptr != 0, "Texture is not a render target");
-        transition(target, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         m_list->OMSetRenderTargets(1, &target.rtv, FALSE, nullptr);
 
@@ -194,6 +339,8 @@ namespace arc::rhi::d3d12
         const D3D12_RECT scissor{0, 0, static_cast<LONG>(size.width), static_cast<LONG>(size.height)};
         m_list->RSSetViewports(1, &viewport);
         m_list->RSSetScissorRects(1, &scissor);
+
+        resetBindings();
     }
 
     void D3D12CommandList::endRenderPass()

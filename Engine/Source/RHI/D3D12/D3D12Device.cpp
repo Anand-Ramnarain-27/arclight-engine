@@ -19,6 +19,13 @@ namespace arc::rhi::d3d12
         // (NVIDIA Maxwell 2, AMD GCN 2, Intel Gen9 and newer).
         constexpr D3D_FEATURE_LEVEL kMinFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 
+        D3D12_FILTER toD3D12Filter(const SamplerDesc& desc)
+        {
+            // D3D12_FILTER packs min, mag and mip as point (0) or linear (1) into bits 4, 2 and 0.
+            const auto bit = [](Filter filter) { return filter == Filter::Linear ? 1u : 0u; };
+            return static_cast<D3D12_FILTER>((bit(desc.minFilter) << 4) | (bit(desc.magFilter) << 2) | bit(desc.mipFilter));
+        }
+
         void CALLBACK onDebugMessage(D3D12_MESSAGE_CATEGORY /*category*/, D3D12_MESSAGE_SEVERITY severity,
                                      D3D12_MESSAGE_ID id, LPCSTR description, void* /*context*/)
         {
@@ -54,6 +61,11 @@ namespace arc::rhi::d3d12
         m_immediateList.release();
         m_immediateAllocator.Reset();
         m_rootSignature.Reset();
+        m_shaderVisibleSamplerHeap.release();
+        m_shaderVisibleSrvHeap.release();
+        m_rtvHeap.release();
+        m_cpuSamplerHeap.release();
+        m_cpuSrvHeap.release();
         for (FrameContext& frame : m_frames)
             frame.allocator.Reset();
         m_fence.Reset();
@@ -145,7 +157,7 @@ namespace arc::rhi::d3d12
             setDebugName(m_frames[i].allocator.Get(), std::format("Frame Allocator {}", i));
         }
 
-        if (!createRootSignature())
+        if (!createDescriptorHeaps() || !createRootSignature())
             return false;
 
         if (!succeeded(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_immediateAllocator)),
@@ -153,8 +165,8 @@ namespace arc::rhi::d3d12
             return false;
         setDebugName(m_immediateAllocator.Get(), "Immediate Allocator");
 
-        return m_commandList.init(m_device.Get(), m_frames[0].allocator.Get(), "Frame Command List") &&
-               m_immediateList.init(m_device.Get(), m_immediateAllocator.Get(), "Immediate Command List");
+        return m_commandList.init(*this, m_frames[0].allocator.Get(), "Frame Command List") &&
+               m_immediateList.init(*this, m_immediateAllocator.Get(), "Immediate Command List");
     }
 
     void D3D12Device::loadPixCapturer()
@@ -381,6 +393,98 @@ namespace arc::rhi::d3d12
         return std::make_unique<D3D12Buffer>(std::move(resource), desc, mapped, trackedState);
     }
 
+    std::unique_ptr<Texture> D3D12Device::createTexture(const TextureDesc& desc)
+    {
+        validateTextureDesc(desc);
+
+        D3D12_RESOURCE_DESC resourceDesc{};
+        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resourceDesc.Width = desc.size.width;
+        resourceDesc.Height = desc.size.height;
+        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.MipLevels = static_cast<UINT16>(desc.mipLevels);
+        resourceDesc.Format = toDxgiFormat(desc.format);
+        resourceDesc.SampleDesc.Count = 1;
+        // The driver picks the GPU's own tiled layout, which is why texture copies go through
+        // footprints rather than plain byte offsets.
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        if (hasFlag(desc.usage, TextureUsage::RenderTarget))
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        ComPtr<ID3D12Resource> resource;
+        if (!succeeded(m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+                                                         D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)),
+                       "CreateCommittedResource(texture)"))
+            return nullptr;
+        setDebugName(resource.Get(), desc.debugName);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE srv{};
+        if (hasFlag(desc.usage, TextureUsage::Sampled))
+        {
+            srv = m_cpuSrvHeap.allocate().cpu;
+            if (srv.ptr == 0)
+                return nullptr;
+            // A null description views every mip level in the resource's own format.
+            m_device->CreateShaderResourceView(resource.Get(), nullptr, srv);
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
+        if (hasFlag(desc.usage, TextureUsage::RenderTarget))
+        {
+            rtv = m_rtvHeap.allocate().cpu;
+            if (rtv.ptr == 0)
+            {
+                m_cpuSrvHeap.free(srv);
+                return nullptr;
+            }
+            m_device->CreateRenderTargetView(resource.Get(), nullptr, rtv);
+        }
+
+        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, rtv);
+    }
+
+    std::unique_ptr<Sampler> D3D12Device::createSampler(const SamplerDesc& desc)
+    {
+        validateSamplerDesc(desc);
+
+        const D3D12Descriptor descriptor = m_cpuSamplerHeap.allocate();
+        if (!descriptor.valid())
+            return nullptr;
+
+        const auto address = [](AddressMode mode) {
+            switch (mode)
+            {
+                case AddressMode::Repeat:         return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+                case AddressMode::MirroredRepeat: return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+                case AddressMode::ClampToEdge:    return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+                case AddressMode::ClampToBorder:  return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            }
+            return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        };
+
+        D3D12_SAMPLER_DESC samplerDesc{};
+        samplerDesc.Filter = desc.maxAnisotropy > 1 ? D3D12_FILTER_ANISOTROPIC : toD3D12Filter(desc);
+        samplerDesc.AddressU = address(desc.addressU);
+        samplerDesc.AddressV = address(desc.addressV);
+        samplerDesc.AddressW = address(desc.addressW);
+        samplerDesc.MaxAnisotropy = desc.maxAnisotropy;
+        samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        const float white = desc.borderColor == BorderColor::OpaqueWhite ? 1.0f : 0.0f;
+        const float alpha = desc.borderColor == BorderColor::TransparentBlack ? 0.0f : 1.0f;
+        samplerDesc.BorderColor[0] = white;
+        samplerDesc.BorderColor[1] = white;
+        samplerDesc.BorderColor[2] = white;
+        samplerDesc.BorderColor[3] = alpha;
+        samplerDesc.MinLOD = desc.minLod;
+        samplerDesc.MaxLOD = desc.maxLod;
+        m_device->CreateSampler(&samplerDesc, descriptor.cpu);
+
+        return std::make_unique<D3D12Sampler>(*this, desc, descriptor.cpu);
+    }
+
     std::unique_ptr<Shader> D3D12Device::createShader(const ShaderDesc& desc)
     {
         // D3D12 only parses the bytecode when a pipeline is created; checking the container
@@ -393,12 +497,86 @@ namespace arc::rhi::d3d12
         return std::make_unique<D3D12Shader>(desc);
     }
 
+    bool D3D12Device::createDescriptorHeaps()
+    {
+        // Transient regions: one per frame slot, plus one for submitImmediate().
+        constexpr uint32_t kTransientRegions = kMaxFramesInFlight + 1;
+
+        // 8192 descriptors a frame is 1024 texture-binding changes. A shader-visible sampler heap
+        // holds at most 2048 samplers (D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE), shared by every region.
+        // TODO: Reuse sampler tables with identical contents once a frame changes samplers more than 128 times.
+        return m_cpuSrvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+                                                  .persistentCount = 4096,
+                                                  .debugName = "CPU SRV Heap"}) &&
+               m_cpuSamplerHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
+                                                      .persistentCount = 256,
+                                                      .debugName = "CPU Sampler Heap"}) &&
+               m_rtvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+                                               .persistentCount = 256,
+                                               .debugName = "RTV Heap"}) &&
+               m_shaderVisibleSrvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+                                                            .persistentCount = 1024,
+                                                            .transientCountPerRegion = 8192,
+                                                            .transientRegions = kTransientRegions,
+                                                            .shaderVisible = true,
+                                                            .debugName = "Shader-Visible SRV Heap"}) &&
+               m_shaderVisibleSamplerHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
+                                                                .transientCountPerRegion = 512,
+                                                                .transientRegions = kTransientRegions,
+                                                                .shaderVisible = true,
+                                                                .debugName = "Shader-Visible Sampler Heap"}) &&
+               createDefaultDescriptors();
+    }
+
+    bool D3D12Device::createDefaultDescriptors()
+    {
+        m_nullSrv = m_cpuSrvHeap.allocate();
+        m_defaultSampler = m_cpuSamplerHeap.allocate();
+        if (!m_nullSrv.valid() || !m_defaultSampler.valid())
+            return false;
+
+        // A null resource with a full description is a valid SRV that reads as zero.
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Texture2D.MipLevels = 1;
+        m_device->CreateShaderResourceView(nullptr, &srvDesc, m_nullSrv.cpu);
+
+        D3D12_SAMPLER_DESC samplerDesc{};
+        samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        samplerDesc.MaxAnisotropy = 1;
+        samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+        m_device->CreateSampler(&samplerDesc, m_defaultSampler.cpu);
+        return true;
+    }
+
     bool D3D12Device::createRootSignature()
     {
-        // A root signature is the function signature of a pipeline: which constants, buffers
-        // and descriptor tables its shaders read, and in which root slots. The triangle reads
-        // only vertex attributes, so this one has no parameters.
+        // A root signature is the function signature of a pipeline: which constants, buffers and
+        // descriptor tables its shaders read, and in which root slots. This one gives every shader
+        // the same slots: a table of kMaxTextureSlots SRVs (t0..) and one of kMaxSamplerSlots
+        // samplers (s0..), visible to all stages.
+        const D3D12_DESCRIPTOR_RANGE textureRange{D3D12_DESCRIPTOR_RANGE_TYPE_SRV, kMaxTextureSlots, 0, 0,
+                                                  D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
+        const D3D12_DESCRIPTOR_RANGE samplerRange{D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, kMaxSamplerSlots, 0, 0,
+                                                  D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
+
+        std::array<D3D12_ROOT_PARAMETER, kRootParameterCount> parameters{};
+        parameters[kRootTextureTable].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[kRootTextureTable].DescriptorTable = {1, &textureRange};
+        parameters[kRootTextureTable].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        parameters[kRootSamplerTable].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[kRootSamplerTable].DescriptorTable = {1, &samplerRange};
+        parameters[kRootSamplerTable].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
         D3D12_ROOT_SIGNATURE_DESC desc{};
+        desc.NumParameters = static_cast<UINT>(parameters.size());
+        desc.pParameters = parameters.data();
         desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         ComPtr<ID3DBlob> blob;
@@ -488,8 +666,13 @@ namespace arc::rhi::d3d12
 
     void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)
     {
+        // The previous immediate submission was waited for, so its transient descriptors are free.
+        constexpr uint32_t kImmediateRegion = kMaxFramesInFlight;
+        m_shaderVisibleSrvHeap.resetTransient(kImmediateRegion);
+        m_shaderVisibleSamplerHeap.resetTransient(kImmediateRegion);
+
         ARC_VERIFY(SUCCEEDED(m_immediateAllocator->Reset()));
-        m_immediateList.begin(m_immediateAllocator.Get());
+        m_immediateList.begin(m_immediateAllocator.Get(), kImmediateRegion);
         record(m_immediateList);
 
         if (m_immediateList.close())
@@ -515,8 +698,11 @@ namespace arc::rhi::d3d12
         FrameContext& frame = m_frames[frameSlot()];
         waitForFence(frame.fenceValue);
 
+        m_shaderVisibleSrvHeap.resetTransient(frameSlot());
+        m_shaderVisibleSamplerHeap.resetTransient(frameSlot());
+
         ARC_VERIFY(SUCCEEDED(frame.allocator->Reset()));
-        m_commandList.begin(frame.allocator.Get());
+        m_commandList.begin(frame.allocator.Get(), frameSlot());
         return m_commandList;
     }
 
@@ -525,7 +711,7 @@ namespace arc::rhi::d3d12
         auto& d3dSwapchain = static_cast<D3D12Swapchain&>(swapchain);
 
         if (D3D12Texture* backbuffer = d3dSwapchain.acquiredBackbuffer())
-            m_commandList.transition(*backbuffer, D3D12_RESOURCE_STATE_PRESENT);
+            m_commandList.barrier(*backbuffer, ResourceState::Present);
 
         if (m_commandList.close())
         {

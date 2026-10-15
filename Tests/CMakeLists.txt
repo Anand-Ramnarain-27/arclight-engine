@@ -3,6 +3,8 @@ add_executable(ArclightTests
     Source/MathTests.cpp
     Source/TimeTests.cpp
     Source/RHITests.cpp
+    Source/TextureTests.cpp
+    Source/ImageTests.cpp
 )
 
 target_link_libraries(ArclightTests PRIVATE ArclightEngine doctest::doctest)

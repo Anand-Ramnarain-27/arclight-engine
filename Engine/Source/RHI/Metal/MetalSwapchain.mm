@@ -72,8 +72,11 @@ namespace arc::rhi::metal
             }
 
             id<MTLTexture> texture = m_drawable.texture;
-            m_backbuffer.reset(texture, {{static_cast<uint32_t>(texture.width), static_cast<uint32_t>(texture.height)},
-                                         m_desc.format});
+            m_backbuffer.reset(texture, {.size = {static_cast<uint32_t>(texture.width), static_cast<uint32_t>(texture.height)},
+                                         .format = m_desc.format,
+                                         .usage = TextureUsage::RenderTarget,
+                                         .debugName = "Backbuffer"});
+            m_backbuffer.setState(ResourceState::Present);
         }
         return &m_backbuffer;
     }

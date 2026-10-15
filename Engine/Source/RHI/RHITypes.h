@@ -12,6 +12,20 @@ namespace arc::rhi
     /// allocators, upload memory) are created this many times and reused round-robin.
     inline constexpr uint32_t kMaxFramesInFlight = 2;
 
+    /// Texture slots t0..t7 and sampler slots s0..s3 that every pipeline can read, in both the
+    /// vertex and the pixel stage. The HLSL register number is the slot: register(t2) reads
+    /// whatever setTexture(2, ...) bound. On Metal the slot is the [[texture(n)]] / [[sampler(n)]]
+    /// index, which the shader build keeps equal to the register number.
+    inline constexpr uint32_t kMaxTextureSlots = 8;
+    inline constexpr uint32_t kMaxSamplerSlots = 4;
+
+    /// Layout rules for the buffer side of buffer/texture copies: every row starts at a multiple
+    /// of kTextureCopyRowAlignment bytes and every mip level at a multiple of
+    /// kTextureCopyOffsetAlignment. These are D3D12's requirements (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT
+    /// and D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT); Metal's are looser, so one layout serves both.
+    inline constexpr uint32_t kTextureCopyRowAlignment = 256;
+    inline constexpr uint32_t kTextureCopyOffsetAlignment = 512;
+
     enum class Backend
     {
         D3D12,
@@ -25,8 +39,13 @@ namespace arc::rhi
     {
         Unknown,
         RGBA8_UNORM,
+        /// Stored sRGB-encoded; the GPU decodes to linear when sampling (before filtering) and
+        /// encodes when rendering. For colour textures such as albedo, never for data such as normals.
+        RGBA8_UNORM_SRGB,
         BGRA8_UNORM,
     };
+
+    [[nodiscard]] uint32_t bytesPerPixel(Format format);
 
     enum class LoadOp
     {
@@ -73,9 +92,27 @@ namespace arc::rhi
         return (static_cast<uint32_t>(flags) & static_cast<uint32_t>(flag)) != 0;
     }
 
+    /// Every texture can also be the source or destination of a copy.
+    enum class TextureUsage : uint32_t
+    {
+        None         = 0,
+        Sampled      = 1 << 0,
+        RenderTarget = 1 << 1,
+    };
+
+    [[nodiscard]] constexpr TextureUsage operator|(TextureUsage a, TextureUsage b)
+    {
+        return static_cast<TextureUsage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+    }
+
+    [[nodiscard]] constexpr bool hasFlag(TextureUsage flags, TextureUsage flag)
+    {
+        return (static_cast<uint32_t>(flags) & static_cast<uint32_t>(flag)) != 0;
+    }
+
     /// How the GPU is about to use a resource. A barrier moves a resource between states; on
     /// D3D12 this is a transition barrier, on Metal (which tracks hazards itself) it only
-    /// updates the tracked state.
+    /// updates the tracked state. ShaderRead is the state for sampled textures.
     enum class ResourceState
     {
         Common,
@@ -176,7 +213,58 @@ namespace arc::rhi
 
     struct TextureDesc
     {
-        Extent2D size;               // Pixels.
+        Extent2D size;               // Pixels, of mip level 0.
         Format format = Format::Unknown;
+        /// 1 for no mipmaps; at most fullMipCount(size).
+        uint32_t mipLevels = 1;
+        TextureUsage usage = TextureUsage::Sampled;
+        std::string debugName{};
+    };
+
+    /// Number of levels in a complete mip chain down to 1x1: floor(log2(max(width, height))) + 1.
+    [[nodiscard]] uint32_t fullMipCount(Extent2D size);
+
+    /// Size of a mip level. Each level halves the previous one, rounding down, and never goes below 1.
+    [[nodiscard]] Extent2D mipSize(Extent2D size, uint32_t mipLevel);
+
+    enum class Filter
+    {
+        Nearest,
+        Linear,
+    };
+
+    /// What a sampler returns for texture coordinates outside [0, 1].
+    enum class AddressMode
+    {
+        Repeat,
+        MirroredRepeat,
+        ClampToEdge,
+        ClampToBorder,
+    };
+
+    /// The three colours both D3D12 static samplers and Metal support for ClampToBorder.
+    enum class BorderColor
+    {
+        TransparentBlack,
+        OpaqueBlack,
+        OpaqueWhite,
+    };
+
+    struct SamplerDesc
+    {
+        Filter minFilter = Filter::Linear;    // Texture minified: more texels than pixels.
+        Filter magFilter = Filter::Linear;    // Texture magnified: more pixels than texels.
+        Filter mipFilter = Filter::Linear;    // Between mip levels. Linear is trilinear filtering.
+        AddressMode addressU = AddressMode::Repeat;
+        AddressMode addressV = AddressMode::Repeat;
+        AddressMode addressW = AddressMode::Repeat;
+        BorderColor borderColor = BorderColor::TransparentBlack;
+        /// 1 disables anisotropic filtering; at most 16. Above 1, the three filters above are
+        /// ignored and treated as Linear, because D3D12 has a single anisotropic filter mode.
+        uint32_t maxAnisotropy = 1;
+        /// The mip levels the sampler may choose from. maxLod = 0 forces the most detailed level.
+        float minLod = 0.0f;
+        float maxLod = 1000.0f;
+        std::string debugName{};
     };
 }

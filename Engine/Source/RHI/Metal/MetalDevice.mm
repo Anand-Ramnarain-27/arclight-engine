@@ -21,9 +21,10 @@ namespace arc::rhi::metal
     {
         switch (format)
         {
-            case Format::Unknown:     return MTLPixelFormatInvalid;
-            case Format::RGBA8_UNORM: return MTLPixelFormatRGBA8Unorm;
-            case Format::BGRA8_UNORM: return MTLPixelFormatBGRA8Unorm;
+            case Format::Unknown:          return MTLPixelFormatInvalid;
+            case Format::RGBA8_UNORM:      return MTLPixelFormatRGBA8Unorm;
+            case Format::RGBA8_UNORM_SRGB: return MTLPixelFormatRGBA8Unorm_sRGB;
+            case Format::BGRA8_UNORM:      return MTLPixelFormatBGRA8Unorm;
         }
         return MTLPixelFormatInvalid;
     }
@@ -115,6 +116,83 @@ namespace arc::rhi::metal
             buffer.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
 
         return std::make_unique<MetalBuffer>(buffer, desc, state);
+    }
+
+    std::unique_ptr<Texture> MetalDevice::createTexture(const TextureDesc& desc)
+    {
+        validateTextureDesc(desc);
+
+        MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
+                                                                                              width:desc.size.width
+                                                                                             height:desc.size.height
+                                                                                          mipmapped:NO];
+        descriptor.mipmapLevelCount = desc.mipLevels;
+        // GPU-only, like D3D12's default heap; filled with blit copies from shared buffers.
+        descriptor.storageMode = MTLStorageModePrivate;
+        MTLTextureUsage usage = MTLTextureUsageUnknown;
+        if (hasFlag(desc.usage, TextureUsage::Sampled))
+            usage |= MTLTextureUsageShaderRead;
+        if (hasFlag(desc.usage, TextureUsage::RenderTarget))
+            usage |= MTLTextureUsageRenderTarget;
+        descriptor.usage = usage;
+
+        id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor];
+        if (!texture)
+        {
+            ARC_LOG_ERROR("Failed to create Metal texture '{}' ({}x{})", desc.debugName, desc.size.width, desc.size.height);
+            return nullptr;
+        }
+        if (!desc.debugName.empty())
+            texture.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
+
+        return std::make_unique<MetalTexture>(texture, desc);
+    }
+
+    std::unique_ptr<Sampler> MetalDevice::createSampler(const SamplerDesc& desc)
+    {
+        validateSamplerDesc(desc);
+
+        const auto address = [](AddressMode mode) {
+            switch (mode)
+            {
+                case AddressMode::Repeat:         return MTLSamplerAddressModeRepeat;
+                case AddressMode::MirroredRepeat: return MTLSamplerAddressModeMirrorRepeat;
+                case AddressMode::ClampToEdge:    return MTLSamplerAddressModeClampToEdge;
+                case AddressMode::ClampToBorder:  return MTLSamplerAddressModeClampToBorderColor;
+            }
+            return MTLSamplerAddressModeRepeat;
+        };
+
+        // Anisotropic filtering overrides the filters, matching D3D12's single anisotropic mode.
+        const bool anisotropic = desc.maxAnisotropy > 1;
+        const auto minMag = [anisotropic](Filter filter) {
+            return anisotropic || filter == Filter::Linear ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
+        };
+
+        MTLSamplerDescriptor* descriptor = [[MTLSamplerDescriptor alloc] init];
+        descriptor.minFilter = minMag(desc.minFilter);
+        descriptor.magFilter = minMag(desc.magFilter);
+        descriptor.mipFilter = anisotropic || desc.mipFilter == Filter::Linear ? MTLSamplerMipFilterLinear
+                                                                               : MTLSamplerMipFilterNearest;
+        descriptor.sAddressMode = address(desc.addressU);
+        descriptor.tAddressMode = address(desc.addressV);
+        descriptor.rAddressMode = address(desc.addressW);
+        descriptor.borderColor = desc.borderColor == BorderColor::OpaqueWhite ? MTLSamplerBorderColorOpaqueWhite
+                               : desc.borderColor == BorderColor::OpaqueBlack ? MTLSamplerBorderColorOpaqueBlack
+                                                                              : MTLSamplerBorderColorTransparentBlack;
+        descriptor.maxAnisotropy = desc.maxAnisotropy;
+        descriptor.lodMinClamp = desc.minLod;
+        descriptor.lodMaxClamp = desc.maxLod;
+        if (!desc.debugName.empty())
+            descriptor.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
+
+        id<MTLSamplerState> state = [m_device newSamplerStateWithDescriptor:descriptor];
+        if (!state)
+        {
+            ARC_LOG_ERROR("Failed to create Metal sampler '{}'", desc.debugName);
+            return nullptr;
+        }
+        return std::make_unique<MetalSampler>(desc, state);
     }
 
     std::unique_ptr<Shader> MetalDevice::createShader(const ShaderDesc& desc)

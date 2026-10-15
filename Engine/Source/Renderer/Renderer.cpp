@@ -7,6 +7,7 @@
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Swapchain.h"
+#include "RHI/TextureUtils.h"
 #include "Renderer/ShaderLibrary.h"
 
 namespace arc
@@ -29,12 +30,17 @@ namespace arc
                      adapter.videoMemoryMB, adapter.unifiedMemory ? ", unified" : "");
 
 #if ARC_DEBUG
-        // A failure here means buffer creation, copies or barriers are broken on this backend;
+        // A failure here means resource creation, copies or barriers are broken on this backend;
         // the editor still starts so the log can be read.
         if (rhi::verifyBufferRoundTrip(*m_device))
             ARC_LOG_INFO("RHI self-test: buffer upload and readback round-trip passed");
         else
             ARC_LOG_ERROR("RHI self-test: buffer upload and readback round-trip FAILED");
+
+        if (rhi::verifyTextureRoundTrip(*m_device))
+            ARC_LOG_INFO("RHI self-test: texture upload and readback round-trip passed");
+        else
+            ARC_LOG_ERROR("RHI self-test: texture upload and readback round-trip FAILED");
 #endif
 
         m_shaders = std::make_unique<ShaderLibrary>(*m_device);

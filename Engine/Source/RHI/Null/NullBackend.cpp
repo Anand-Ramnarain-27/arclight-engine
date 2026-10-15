@@ -3,6 +3,7 @@
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Pipeline.h"
+#include "RHI/Sampler.h"
 #include "RHI/Shader.h"
 #include "RHI/ShaderUtils.h"
 #include "RHI/Swapchain.h"
@@ -19,10 +20,36 @@ namespace arc::rhi
 {
     namespace
     {
+        // Backed by CPU memory like NullBuffer, one tightly packed array per mip level, so texture
+        // copies really happen and the copy layout can be tested without a GPU.
         class NullTexture final : public Texture
         {
         public:
+            NullTexture() = default;
+
+            explicit NullTexture(const TextureDesc& desc)
+            {
+                m_desc = desc;
+                m_levels.resize(desc.mipLevels);
+                for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+                {
+                    const Extent2D size = mipSize(desc.size, mip);
+                    m_levels[mip].resize(uint64_t{size.width} * size.height * bytesPerPixel(desc.format));
+                }
+            }
+
             void setDesc(const TextureDesc& desc) { m_desc = desc; }
+
+            [[nodiscard]] std::byte* level(uint32_t mip) { return m_levels[mip].data(); }
+
+        private:
+            std::vector<std::vector<std::byte>> m_levels;
+        };
+
+        class NullSampler final : public Sampler
+        {
+        public:
+            explicit NullSampler(const SamplerDesc& desc) : Sampler(desc) {}
         };
 
         // Backed by CPU memory, so copies really happen and upload/readback code can be
@@ -64,13 +91,13 @@ namespace arc::rhi
             explicit NullSwapchain(const SwapchainDesc& desc)
             {
                 m_desc = desc;
-                m_backbuffer.setDesc({desc.size, desc.format});
+                m_backbuffer.setDesc(backbufferDesc());
             }
 
             bool resize(Extent2D size) override
             {
                 m_desc.size = size;
-                m_backbuffer.setDesc({size, m_desc.format});
+                m_backbuffer.setDesc(backbufferDesc());
                 return true;
             }
 
@@ -78,6 +105,12 @@ namespace arc::rhi
             void setVSync(bool enabled) override { m_desc.vsync = enabled; }
 
         private:
+            [[nodiscard]] TextureDesc backbufferDesc() const
+            {
+                return {.size = m_desc.size, .format = m_desc.format, .usage = TextureUsage::RenderTarget,
+                        .debugName = "Backbuffer"};
+            }
+
             NullTexture m_backbuffer;
         };
 
@@ -88,6 +121,9 @@ namespace arc::rhi
             {
                 ARC_ASSERT(!m_inRenderPass, "Render passes do not nest");
                 ARC_ASSERT(desc.color.texture != nullptr);
+                ARC_ASSERT(hasFlag(desc.color.texture->desc().usage, TextureUsage::RenderTarget),
+                           "'{}' is not a render target", desc.color.texture->desc().debugName);
+                desc.color.texture->setState(ResourceState::RenderTarget);
                 m_inRenderPass = true;
             }
 
@@ -124,6 +160,18 @@ namespace arc::rhi
                 m_hasIndexBuffer = true;
             }
 
+            void setTexture(uint32_t slot, Texture& texture) override
+            {
+                ARC_ASSERT(m_inRenderPass, "setTexture outside a render pass");
+                validateTextureBinding(slot, texture);
+            }
+
+            void setSampler(uint32_t slot, Sampler& /*sampler*/) override
+            {
+                ARC_ASSERT(m_inRenderPass, "setSampler outside a render pass");
+                validateSamplerBinding(slot);
+            }
+
             void draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstVertex*/,
                       uint32_t /*firstInstance*/) override
             {
@@ -149,11 +197,41 @@ namespace arc::rhi
                             static_cast<NullBuffer&>(src).bytes() + srcOffset, size);
             }
 
+            void copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
+                                     uint32_t srcRowPitch) override
+            {
+                ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+                validateTextureCopy(dst, mipLevel, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
+                                    ResourceState::CopySource);
+                copyRows(static_cast<NullTexture&>(dst).level(mipLevel), rowBytes(dst, mipLevel),
+                         static_cast<NullBuffer&>(src).bytes() + srcOffset, srcRowPitch, mipSize(dst.desc().size, mipLevel).height);
+            }
+
+            void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
+                                     uint32_t mipLevel) override
+            {
+                ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+                validateTextureCopy(src, mipLevel, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
+                                    ResourceState::CopyDest);
+                const uint32_t bytes = rowBytes(src, mipLevel);
+                const uint32_t height = mipSize(src.desc().size, mipLevel).height;
+                std::byte* out = static_cast<NullBuffer&>(dst).bytes() + dstOffset;
+                const std::byte* in = static_cast<NullTexture&>(src).level(mipLevel);
+                for (uint32_t row = 0; row < height; ++row)
+                    std::memcpy(out + uint64_t{row} * dstRowPitch, in + uint64_t{row} * bytes, bytes);
+            }
+
             void barrier(Buffer& buffer, ResourceState state) override
             {
                 ARC_ASSERT(!m_inRenderPass, "Barriers are not allowed inside a render pass");
                 ARC_ASSERT(buffer.desc().memory == MemoryType::GpuOnly, "'{}' has a fixed state", buffer.desc().debugName);
                 trackBufferState(buffer, state);
+            }
+
+            void barrier(Texture& texture, ResourceState state) override
+            {
+                ARC_ASSERT(!m_inRenderPass, "Barriers are not allowed inside a render pass");
+                texture.setState(state);
             }
 
             void pushDebugGroup(std::string_view /*name*/) override { ++m_debugDepth; }
@@ -171,6 +249,19 @@ namespace arc::rhi
             }
 
         private:
+            static uint32_t rowBytes(const Texture& texture, uint32_t mipLevel)
+            {
+                return mipSize(texture.desc().size, mipLevel).width * bytesPerPixel(texture.desc().format);
+            }
+
+            // Tightly packed destination rows from pitched source rows.
+            static void copyRows(std::byte* dst, uint32_t dstRowBytes, const std::byte* src, uint32_t srcRowPitch,
+                                 uint32_t rows)
+            {
+                for (uint32_t row = 0; row < rows; ++row)
+                    std::memcpy(dst + uint64_t{row} * dstRowBytes, src + uint64_t{row} * srcRowPitch, dstRowBytes);
+            }
+
             void checkDrawState() const
             {
                 ARC_ASSERT(m_inRenderPass, "Draw outside a render pass");
@@ -206,6 +297,18 @@ namespace arc::rhi
             {
                 ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
                 return std::make_unique<NullBuffer>(desc);
+            }
+
+            std::unique_ptr<Texture> createTexture(const TextureDesc& desc) override
+            {
+                validateTextureDesc(desc);
+                return std::make_unique<NullTexture>(desc);
+            }
+
+            std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc) override
+            {
+                validateSamplerDesc(desc);
+                return std::make_unique<NullSampler>(desc);
             }
 
             ShaderFormat shaderFormat() const override { return ShaderFormat::DXIL; }

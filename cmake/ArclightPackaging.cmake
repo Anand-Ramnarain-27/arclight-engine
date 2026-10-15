@@ -21,7 +21,9 @@ install(FILES
 install(FILES ${sdl3_SOURCE_DIR}/LICENSE.txt  DESTINATION ThirdPartyLicenses RENAME SDL3.txt)
 install(FILES ${imgui_SOURCE_DIR}/LICENSE.txt DESTINATION ThirdPartyLicenses RENAME DearImGui.txt)
 
-# TODO: Install Game/Assets once the editor loads files from it (Phase 2, glTF and textures).
+# findAssetPath() looks for Assets/ in the working directory first (Game/ when run from an IDE),
+# then next to the executable, which is where the package puts it.
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/Game/Assets/ DESTINATION Assets)
 
 if(WIN32)
     set(arclight_package_platform "windows-x64")

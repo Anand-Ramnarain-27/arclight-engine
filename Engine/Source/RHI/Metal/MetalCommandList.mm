@@ -53,7 +53,11 @@ namespace arc::rhi::metal
         ARC_ASSERT(desc.color.texture != nullptr);
         endBlitEncoder();
 
-        const auto& target = static_cast<const MetalTexture&>(*desc.color.texture);
+        auto& target = static_cast<MetalTexture&>(*desc.color.texture);
+        ARC_ASSERT(hasFlag(target.desc().usage, TextureUsage::RenderTarget), "'{}' is not a render target",
+                   target.desc().debugName);
+        // Metal tracks the hazard itself; the state is kept so the RHI's rules hold on every backend.
+        target.setState(ResourceState::RenderTarget);
         const ClearColor& c = desc.color.clearColor;
 
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -118,6 +122,26 @@ namespace arc::rhi::metal
         m_indexType = format == IndexFormat::UInt16 ? MTLIndexTypeUInt16 : MTLIndexTypeUInt32;
     }
 
+    void MetalCommandList::setTexture(uint32_t slot, Texture& texture)
+    {
+        ARC_ASSERT(m_renderEncoder != nil, "setTexture outside a render pass");
+        validateTextureBinding(slot, texture);
+        // The shader build passes --msl-decoration-binding to SPIRV-Cross, so register(t<slot>)
+        // becomes [[texture(<slot>)]] in both stages.
+        id<MTLTexture> native = static_cast<MetalTexture&>(texture).native();
+        [m_renderEncoder setVertexTexture:native atIndex:slot];
+        [m_renderEncoder setFragmentTexture:native atIndex:slot];
+    }
+
+    void MetalCommandList::setSampler(uint32_t slot, Sampler& sampler)
+    {
+        ARC_ASSERT(m_renderEncoder != nil, "setSampler outside a render pass");
+        validateSamplerBinding(slot);
+        id<MTLSamplerState> native = static_cast<MetalSampler&>(sampler).native();
+        [m_renderEncoder setVertexSamplerState:native atIndex:slot];
+        [m_renderEncoder setFragmentSamplerState:native atIndex:slot];
+    }
+
     void MetalCommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
     {
         ARC_ASSERT(m_hasPipeline, "Draw without a pipeline");
@@ -175,6 +199,42 @@ namespace arc::rhi::metal
                                  size:size];
     }
 
+    void MetalCommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
+                                               uint32_t srcRowPitch)
+    {
+        ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
+        validateTextureCopy(dst, mipLevel, ResourceState::CopyDest, src, srcOffset, srcRowPitch, ResourceState::CopySource);
+
+        const Extent2D size = mipSize(dst.desc().size, mipLevel);
+        [blitEncoder() copyFromBuffer:static_cast<MetalBuffer&>(src).native()
+                         sourceOffset:srcOffset
+                    sourceBytesPerRow:srcRowPitch
+                  sourceBytesPerImage:NSUInteger{srcRowPitch} * size.height
+                           sourceSize:MTLSizeMake(size.width, size.height, 1)
+                            toTexture:static_cast<MetalTexture&>(dst).native()
+                     destinationSlice:0
+                     destinationLevel:mipLevel
+                    destinationOrigin:MTLOriginMake(0, 0, 0)];
+    }
+
+    void MetalCommandList::copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
+                                               uint32_t mipLevel)
+    {
+        ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
+        validateTextureCopy(src, mipLevel, ResourceState::CopySource, dst, dstOffset, dstRowPitch, ResourceState::CopyDest);
+
+        const Extent2D size = mipSize(src.desc().size, mipLevel);
+        [blitEncoder() copyFromTexture:static_cast<MetalTexture&>(src).native()
+                           sourceSlice:0
+                           sourceLevel:mipLevel
+                          sourceOrigin:MTLOriginMake(0, 0, 0)
+                            sourceSize:MTLSizeMake(size.width, size.height, 1)
+                              toBuffer:static_cast<MetalBuffer&>(dst).native()
+                     destinationOffset:dstOffset
+                destinationBytesPerRow:dstRowPitch
+              destinationBytesPerImage:NSUInteger{dstRowPitch} * size.height];
+    }
+
     void MetalCommandList::barrier(Buffer& buffer, ResourceState state)
     {
         ARC_ASSERT(m_renderEncoder == nil, "Barriers are not allowed inside a render pass");
@@ -183,6 +243,13 @@ namespace arc::rhi::metal
         // synchronisation itself. Only the tracked state changes, which keeps the asserts in
         // copyBuffer() meaningful on both backends.
         trackBufferState(buffer, state);
+    }
+
+    void MetalCommandList::barrier(Texture& texture, ResourceState state)
+    {
+        ARC_ASSERT(m_renderEncoder == nil, "Barriers are not allowed inside a render pass");
+        // Hazard tracking covers textures as well as buffers; see barrier(Buffer&).
+        texture.setState(state);
     }
 
     void MetalCommandList::pushDebugGroup(std::string_view name)

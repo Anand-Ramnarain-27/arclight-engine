@@ -20,14 +20,19 @@ add_library(ArclightEngine STATIC
     Source/Platform/PlatformEvents.h
     Source/Platform/SystemInfo.h
     Source/Platform/SystemInfo.cpp
+    Source/Platform/FileSystem.h
+    Source/Platform/FileSystem.cpp
     Source/RHI/RHITypes.h
     Source/RHI/Texture.h
+    Source/RHI/Sampler.h
     Source/RHI/Buffer.h
     Source/RHI/Shader.h
     Source/RHI/ShaderUtils.h
     Source/RHI/ShaderUtils.cpp
     Source/RHI/BufferUtils.h
     Source/RHI/BufferUtils.cpp
+    Source/RHI/TextureUtils.h
+    Source/RHI/TextureUtils.cpp
     Source/RHI/CommandList.h
     Source/RHI/CommandList.cpp
     Source/RHI/Swapchain.h
@@ -39,6 +44,10 @@ add_library(ArclightEngine STATIC
     Source/Renderer/Renderer.cpp
     Source/Renderer/ShaderLibrary.h
     Source/Renderer/ShaderLibrary.cpp
+    Source/Renderer/Image.h
+    Source/Renderer/Image.cpp
+    Source/Renderer/TextureLoader.h
+    Source/Renderer/TextureLoader.cpp
     Source/Application/Module.h
     Source/Application/Application.h
     Source/Application/Application.cpp
@@ -55,6 +64,7 @@ if(WIN32)
         Source/RHI/D3D12/D3D12Common.cpp
         Source/RHI/D3D12/D3D12Backend.h
         Source/RHI/D3D12/D3D12Device.cpp
+        Source/RHI/D3D12/D3D12Descriptors.cpp
         Source/RHI/D3D12/D3D12Swapchain.cpp
         Source/RHI/D3D12/D3D12CommandList.cpp
         Source/UI/ImGuiRenderBackend_D3D12.cpp
@@ -82,11 +92,11 @@ target_compile_definitions(ArclightEngine PUBLIC ARCLIGHT_VERSION="${PROJECT_VER
 
 # PRIVATE: no engine header includes SDL, ImGui or a graphics API header, so none of them
 # leak to engine users through the engine.
-target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui)
+target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image)
 
 arclight_set_warnings(ArclightEngine)
 
-arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Triangle.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Textured.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

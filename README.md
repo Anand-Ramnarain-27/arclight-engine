@@ -15,11 +15,13 @@ The goal is to understand *why* engines are built the way they are, not just to 
 
 Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, keyboard/mouse/gamepad input, a math library with unit tests, and a dockable ImGui editor shell.
 
-Phase 1 (RHI + first triangle) is in progress. Done so far:
-- The RHI core: device, swapchain, command lists and frames in flight, with a D3D12 backend on Windows and a Metal backend on macOS. The editor UI renders through it (`imgui_impl_dx12` / `imgui_impl_metal`).
-- Buffers in GPU-only, upload and readback memory, buffer copies, resource-state barriers, and one-off "immediate" submissions for load-time uploads. Debug builds run an upload/readback round-trip self-test at start-up.
-- Pipelines (D3D12 root signature + pipeline state object / Metal render pipeline state), vertex and index buffers, and indexed draws. The editor draws a coloured triangle behind the UI on both backends.
-- Shaders written once in HLSL and compiled at build time: DXIL with DXC on Windows; SPIR-V → Metal Shading Language (SPIRV-Cross) → `.metallib` on macOS. Debug builds keep shader debug info for PIX, RenderDoc and Xcode.
+Phase 1 (RHI + first triangle) is complete: an RHI with a D3D12 backend on Windows and a Metal backend on macOS (device, swapchain, command lists, frames in flight), GPU-only/upload/readback buffers with barriers, pipelines, indexed draws, HLSL shaders compiled at build time (DXIL on Windows; SPIR-V → Metal Shading Language → `.metallib` on macOS), and in-app GPU frame capture with RenderDoc, PIX or Xcode.
+
+Phase 2 (meshes, textures, camera, viewport) is in progress. Done so far:
+- **Textures and samplers.** Mipmapped 2D textures (RGBA8, sRGB or linear), buffer↔texture copies with one copy layout for both backends, texture barriers, and samplers with filtering, addressing, border colours, anisotropy and LOD clamps. Debug builds run a texture upload/readback round-trip self-test at start-up.
+- **Resource binding.** `setTexture(slot, …)` and `setSampler(slot, …)` bind to fixed slots t0–t7 and s0–s3 in every shader. On D3D12 this is one shared root signature with descriptor tables built per draw in a shader-visible heap that ImGui shares; on Metal the slots are the `[[texture(n)]]` / `[[sampler(n)]]` indices, kept equal to the HLSL registers by the shader build.
+- **Image loading.** PNG, JPEG, TGA and BMP through stb_image, with sRGB-correct mip generation on the CPU.
+- **Texture demo.** A ground plane receding to the horizon and an address-mode quad, with a *Texture Demo* panel to switch textures and sampler settings, including a texture that colours each mip level differently.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -62,7 +64,7 @@ The zip goes to `build/packages/` (for example `Arclight-0.2.0-windows-x64.zip`)
 - **PIX** (Windows): start the editor with `--pix` (Visual Studio: project *Properties → Debugging → Command Arguments*). Captures are saved to `Game/Captures/*.wpix`; open them in PIX. Or launch it from PIX directly.
 - **Xcode** (macOS): run from Xcode and use the menu item, or Xcode's own camera button in the debug bar.
 
-Passes, buffers and pipelines carry debug names, so captures show "Triangle", "ImGui", "Triangle Vertices" and so on instead of anonymous objects.
+Passes, resources and pipelines carry debug names, so captures show "Texture Demo", "Ground", "ImGui", "Checker" and so on instead of anonymous objects.
 
 **Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it, F11 captures a GPU frame. Panels are listed under View; View > Reset Layout restores the default docking layout.
 
@@ -92,7 +94,8 @@ Editor/Source/       Arclight editor executable
   Panels/              Dockable editor panels
   Scene/               Placeholder scene (the triangle) until the scene viewport exists
 Tests/Source/        Unit tests (doctest)
-Game/                Runtime working directory (assets, imgui.ini)
+Game/                Runtime working directory (imgui.ini)
+  Assets/              Files the editor loads; shipped next to the executable in the release zip
 Source/              Old course starter code (reference only, not built)
 ```
 
@@ -105,11 +108,13 @@ Source/              Old course starter code (reference only, not built)
 | [doctest](https://github.com/doctest/doctest) | Unit tests | Fetched by CMake (pinned release tag) |
 | [DXC](https://github.com/microsoft/DirectXShaderCompiler) | HLSL compiler (build tool) | Windows: fetched by CMake (pinned release + hash). macOS: from the Vulkan SDK |
 | [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | SPIR-V → Metal Shading Language (build tool, macOS) | Fetched by CMake (pinned release tag) |
+| [stb_image](https://github.com/nothings/stb) | PNG/JPEG/TGA/BMP decoding | Fetched by CMake (pinned commit + hash) |
+| [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | Frame capture trigger (header only, Windows) | Fetched by CMake (pinned release + hash) |
 
 Libraries from the old base (ImGuizmo, DirectXTex, tinygltf, WinPixEventRuntime) move into the new build as the roadmap reaches them. Each library is under its own license.
 
 ## License
 
-Arclight's own code (`Engine/`, `Editor/`, `Tests/`, `cmake/` and the build files) is released under the [MIT License](LICENSE).
+Arclight's own code (`Engine/`, `Editor/`, `Tests/`, `cmake/` and the build files) and its assets (`Game/Assets/`) are released under the [MIT License](LICENSE).
 
 `Source/` contains the course's starter code. It is kept as a reference only, is not part of the build, and is **not** covered by the MIT License.

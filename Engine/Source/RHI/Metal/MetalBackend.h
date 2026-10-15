@@ -10,6 +10,7 @@
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Pipeline.h"
+#include "RHI/Sampler.h"
 #include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
@@ -34,6 +35,11 @@ namespace arc::rhi::metal
     class MetalTexture final : public Texture
     {
     public:
+        /// For the swapchain's backbuffer, which is given a new drawable texture every frame.
+        MetalTexture() = default;
+
+        MetalTexture(id<MTLTexture> texture, const TextureDesc& desc) : m_texture(texture) { m_desc = desc; }
+
         void reset(id<MTLTexture> texture, const TextureDesc& desc)
         {
             m_texture = texture;
@@ -44,6 +50,17 @@ namespace arc::rhi::metal
 
     private:
         id<MTLTexture> m_texture = nil;
+    };
+
+    class MetalSampler final : public Sampler
+    {
+    public:
+        MetalSampler(const SamplerDesc& desc, id<MTLSamplerState> state) : Sampler(desc), m_state(state) {}
+
+        [[nodiscard]] id<MTLSamplerState> native() const { return m_state; }
+
+    private:
+        id<MTLSamplerState> m_state = nil;
     };
 
     class MetalBuffer final : public Buffer
@@ -104,11 +121,18 @@ namespace arc::rhi::metal
         void setPipeline(Pipeline& pipeline) override;
         void setVertexBuffer(Buffer& buffer, uint64_t offset) override;
         void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset) override;
+        void setTexture(uint32_t slot, Texture& texture) override;
+        void setSampler(uint32_t slot, Sampler& sampler) override;
         void draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
         void drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex,
                          uint32_t firstInstance) override;
         void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override;
+        void copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
+                                 uint32_t srcRowPitch) override;
+        void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
+                                 uint32_t mipLevel) override;
         void barrier(Buffer& buffer, ResourceState state) override;
+        void barrier(Texture& texture, ResourceState state) override;
         void pushDebugGroup(std::string_view name) override;
         void popDebugGroup() override;
 
@@ -173,6 +197,8 @@ namespace arc::rhi::metal
 
         [[nodiscard]] const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
         [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Texture> createTexture(const TextureDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc) override;
         [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::MetalLib; }
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;

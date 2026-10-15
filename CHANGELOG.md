@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+Phase 2 in progress: textures.
+
+### Added
+- Textures: `rhi::Texture` with mip levels and Sampled / RenderTarget usage, `Device::createTexture()`, the `RGBA8_UNORM_SRGB` format, texture barriers, and `copyBufferToTexture` / `copyTextureToBuffer` with one copy layout for both backends (`kTextureCopyRowAlignment`, `kTextureCopyOffsetAlignment`).
+- Samplers: `rhi::Sampler` and `Device::createSampler()` with min/mag/mip filters, repeat / mirrored repeat / clamp / border addressing, border colours, anisotropic filtering and LOD clamps.
+- Resource binding: `CommandList::setTexture()` and `setSampler()` bind to slots t0–t7 and s0–s3 of both shader stages.
+- D3D12: a shared root signature with an SRV table and a sampler table; descriptor heaps with persistent (free-list) and per-frame transient parts; descriptor tables built per draw by copying from CPU-only heaps; a null SRV and default sampler for unbound slots.
+- `RHI/TextureUtils`: `computeTextureCopyLayout`, `uploadTexture`, `readbackTexture`, and a texture round-trip self-test that Debug builds run at start-up.
+- `Renderer/Image`: PNG, JPEG, TGA and BMP decoding (stb_image), box-filtered downsampling that averages sRGB images in linear space, and full mip chain generation. `Renderer/TextureLoader` creates and uploads textures from images or files.
+- `findAssetPath()` looks for `Assets/` in the working directory, then next to the executable; the release zip now includes `Assets/`.
+- Texture demo (`Editor/Source/Scene/TextureDemoModule`): a perspective ground plane and an address-mode quad, with a *Texture Demo* panel for the texture (UV grid, checker, colour-per-mip-level) and sampler settings.
+- `Engine/Shaders/Common.hlsli` with `LinearToSrgb()`, and `Textured.hlsl`.
+- Unit tests for mip sizes, the copy layout, texture round trips, samplers, downsampling and PNG decoding.
+
+### Changed
+- The Metal shader build passes `--msl-decoration-binding` to SPIRV-Cross, so HLSL register numbers become the Metal binding indices.
+- The ImGui D3D12 backend takes its descriptors from the device's shader-visible heap instead of a heap of its own, so drawing the UI no longer switches descriptor heaps.
+- `beginRenderPass()` moves its target to the RenderTarget state through the same texture state tracking as everything else; backbuffers are created with RenderTarget usage.
+
+### Removed
+- The Phase 1 triangle (`TriangleModule`, `Triangle.hlsl`), replaced by the texture demo.
+
 ## [0.2.0] - 2026-10-15
 
 Phase 1: RHI and first triangle.

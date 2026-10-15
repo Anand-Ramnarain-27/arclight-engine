@@ -5,7 +5,7 @@
 #   Linux     DXIL, SPIR-V and MSL source only, as a compile check (no GPU backend).
 #
 # Outputs go to a Shaders/ folder next to the editor executable, named <Name>.<stage>.<ext>,
-# e.g. Triangle.vs.dxil. Debug builds keep debug information for PIX, RenderDoc and Xcode;
+# e.g. Textured.vs.dxil. Debug builds keep debug information for PIX, RenderDoc and Xcode;
 # Release builds are optimised and stripped.
 
 include(FetchContent)
@@ -96,7 +96,7 @@ set_target_properties(ArclightShaders PROPERTIES FOLDER "Arclight")
 # arclight_compile_shader(SOURCE <file.hlsl> [VERTEX <entry>] [PIXEL <entry>])
 #
 # Compiles each listed stage of one HLSL file. The output name is the file name without its
-# extension, so Engine/Shaders/Triangle.hlsl with VERTEX VSMain produces Triangle.vs.<ext>.
+# extension, so Engine/Shaders/Textured.hlsl with VERTEX VSMain produces Textured.vs.<ext>.
 function(arclight_compile_shader)
     if(NOT ARCLIGHT_SHADERS_ENABLED)
         return()
@@ -154,12 +154,17 @@ function(arclight_compile_shader)
 
         if(NOT WIN32)
             # No -fvk-invert-y: Metal's clip space has +Y up like D3D12, unlike Vulkan's.
+            # --msl-decoration-binding keeps the HLSL register numbers as the Metal indices
+            # (register(t2) -> [[texture(2)]]), which is what the RHI's binding slots rely on.
+            # Without it SPIRV-Cross numbers resources in declaration order. DXC maps t0, s0 and b0
+            # all to SPIR-V binding 0; that clash does not matter here because Metal keeps
+            # textures, samplers and buffers in separate tables.
             add_custom_command(
                 OUTPUT "${spirv}" "${msl}"
                 COMMAND ${CMAKE_COMMAND} -E make_directory "${arclight_shader_intermediate_dir}"
                 COMMAND "${ARCLIGHT_DXC}" ${common_flags} ${spirv_flags} -T ${profile} -E ${entry}
                         -Fo "${spirv}" "${ARG_SOURCE}"
-                COMMAND spirv-cross "${spirv}" --msl --msl-version 30000 --output "${msl}"
+                COMMAND spirv-cross "${spirv}" --msl --msl-version 30000 --msl-decoration-binding --output "${msl}"
                 DEPENDS "${ARG_SOURCE}" ${includes} spirv-cross
                 COMMENT "DXC + SPIRV-Cross ${base}.metal"
                 COMMAND_EXPAND_LISTS

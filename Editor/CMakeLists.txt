@@ -11,8 +11,8 @@ add_executable(Arclight
     Source/Panels/PlaybackPanel.cpp
     Source/Panels/SystemInfoPanel.h
     Source/Panels/SystemInfoPanel.cpp
-    Source/Scene/TriangleModule.h
-    Source/Scene/TriangleModule.cpp
+    Source/Scene/TextureDemoModule.h
+    Source/Scene/TextureDemoModule.cpp
 )
 
 target_include_directories(Arclight PRIVATE Source)

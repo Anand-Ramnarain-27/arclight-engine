@@ -16,10 +16,12 @@ namespace arc::rhi
     class Buffer;
     class CommandList;
     class Pipeline;
+    class Sampler;
     class Shader;
     struct PipelineDesc;
     struct ShaderDesc;
     class Swapchain;
+    class Texture;
 
     /// The GPU, its command queue and the per-frame synchronisation.
     ///
@@ -46,6 +48,13 @@ namespace arc::rhi
         /// Upload and Readback buffers are mapped on creation. GPU-only buffers start in the Common
         /// state. Returns nullptr and logs on failure.
         [[nodiscard]] virtual std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) = 0;
+
+        /// GPU-only memory, starting in the Common state with undefined contents. Fill it with
+        /// uploadTexture() (RHI/TextureUtils.h). Returns nullptr and logs on failure.
+        [[nodiscard]] virtual std::unique_ptr<Texture> createTexture(const TextureDesc& desc) = 0;
+
+        /// Returns nullptr and logs on failure.
+        [[nodiscard]] virtual std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc) = 0;
 
         [[nodiscard]] virtual ShaderFormat shaderFormat() const = 0;
 
@@ -90,6 +99,10 @@ namespace arc::rhi
 
     protected:
         Device() = default;
+
+        /// Asserts the rules shared by every backend; the backends call these first.
+        static void validateTextureDesc(const TextureDesc& desc);
+        static void validateSamplerDesc(const SamplerDesc& desc);
 
         void advanceFrame()
         {
