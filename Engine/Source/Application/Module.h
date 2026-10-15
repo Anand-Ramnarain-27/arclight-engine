@@ -31,7 +31,8 @@ namespace arc
         virtual void preRender() {}
 
         /// GPU work is recorded here, and only while Renderer::isFrameActive() is true.
-        /// render() is for the scene; postRender() is for overlays drawn on top, such as the UI.
+        /// render() is for the scene, drawn into the scene target (Renderer::beginScenePass());
+        /// postRender() is for what goes on the backbuffer, such as the UI that shows the scene.
         virtual void render() {}
         virtual void postRender() {}
 

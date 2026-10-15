@@ -120,6 +120,11 @@ namespace arc
             ImGui::DestroyContext();
     }
 
+    uint64_t ImGuiModule::textureId(rhi::Texture& texture)
+    {
+        return m_renderBackend->textureId(texture);
+    }
+
     void ImGuiModule::onPlatformEvent(const SDL_Event& event)
     {
         ImGui_ImplSDL3_ProcessEvent(&event);

@@ -7,6 +7,8 @@
 #include <imgui.h>
 #include <imgui_impl_dx12.h>
 
+#include <unordered_map>
+
 namespace arc
 {
     namespace
@@ -49,9 +51,20 @@ namespace arc
                 return ImGui_ImplDX12_Init(&info);
             }
 
-            void shutdown() override { ImGui_ImplDX12_Shutdown(); }
+            void shutdown() override
+            {
+                // The device has waited for the GPU before modules shut down.
+                for (auto& [key, entry] : m_textureIds)
+                    m_device.shaderVisibleSrvHeap().free(entry.descriptor);
+                m_textureIds.clear();
+                ImGui_ImplDX12_Shutdown();
+            }
 
-            void newFrame() override { ImGui_ImplDX12_NewFrame(); }
+            void newFrame() override
+            {
+                releaseStaleTextureIds();
+                ImGui_ImplDX12_NewFrame();
+            }
 
             void render(rhi::CommandList& commandList, ImDrawData* drawData) override
             {
@@ -61,9 +74,57 @@ namespace arc
                 d3dCommandList.invalidateBindings();
             }
 
+            uint64_t textureId(rhi::Texture& texture) override
+            {
+                // ImGui's shader reads its texture through a descriptor table in the shader-visible
+                // heap, so each texture shown needs its SRV copied there once. The copy is cached by
+                // the texture's handle; a recreated texture has a new handle and gets a new copy.
+                const rhi::TextureHandle handle = texture.handle();
+                ARC_ASSERT(!handle.isNull(), "Only textures created by the device can be shown in ImGui");
+                const uint64_t key = (uint64_t{handle.index} << 32) | handle.generation;
+
+                auto [it, inserted] = m_textureIds.try_emplace(key);
+                CachedTextureId& entry = it->second;
+                if (inserted)
+                {
+                    entry.handle = handle;
+                    entry.descriptor = m_device.shaderVisibleSrvHeap().allocate();
+                    ARC_ASSERT(entry.descriptor.valid(), "No shader-visible descriptor left for an ImGui texture");
+                    m_device.native()->CopyDescriptorsSimple(1, entry.descriptor.cpu,
+                                                             static_cast<rhi::d3d12::D3D12Texture&>(texture).srv,
+                                                             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                }
+                entry.lastUsedFrame = m_device.frameNumber();
+                return entry.descriptor.gpu.ptr;
+            }
+
         private:
+            struct CachedTextureId
+            {
+                rhi::TextureHandle handle;
+                rhi::d3d12::D3D12Descriptor descriptor;
+                uint64_t lastUsedFrame = 0;
+            };
+
+            // A copy is freed once its texture is gone and the last frame that drew it has finished
+            // on the GPU. During frame N's update, frame N - kMaxFramesInFlight - 1 is the newest
+            // one guaranteed complete.
+            void releaseStaleTextureIds()
+            {
+                std::erase_if(m_textureIds, [this](auto& item) {
+                    CachedTextureId& entry = item.second;
+                    const bool textureGone = m_device.find(entry.handle) == nullptr;
+                    const bool gpuDone = m_device.frameNumber() > entry.lastUsedFrame + rhi::kMaxFramesInFlight;
+                    if (!textureGone || !gpuDone)
+                        return false;
+                    m_device.shaderVisibleSrvHeap().free(entry.descriptor);
+                    return true;
+                });
+            }
+
             rhi::d3d12::D3D12Device& m_device;
             DXGI_FORMAT m_rtvFormat;
+            std::unordered_map<uint64_t, CachedTextureId> m_textureIds;
         };
     }
 

@@ -24,6 +24,7 @@ Phase 2 (meshes, textures, camera, viewport) is in progress. Done so far:
 - **Texture demo.** A ground plane receding to the horizon and an address-mode quad, with a *Texture Demo* panel to switch textures and sampler settings, including a texture that colours each mip level differently.
 - **Resource lifetimes.** Buffers, textures and pipelines can be destroyed while the GPU still uses them: D3D12 keeps them in a fence-tagged deferred release queue, and Metal's command buffers retain them. Resources have generational handles (`Device::find()` returns nullptr once a resource is gone), leaks are reported by name at shutdown, and System Info shows live resource counts.
 - **Constants.** `setConstants(slot, data)` binds cbuffers b0–b2 from a per-frame upload ring (root CBVs on D3D12, buffer slots on Metal). The demo's camera and per-draw transforms now come from constants.
+- **Scene viewport.** The scene renders into its own texture, shown in a dockable *Scene* panel at the panel's pixel size; any device texture can be shown in ImGui through `ImGuiModule::textureId()`.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -68,7 +69,7 @@ The zip goes to `build/packages/` (for example `Arclight-0.2.0-windows-x64.zip`)
 
 Passes, resources and pipelines carry debug names, so captures show "Texture Demo", "Ground", "ImGui", "Checker" and so on instead of anonymous objects.
 
-**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it, F11 captures a GPU frame. Panels are listed under View; View > Reset Layout restores the default docking layout.
+**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it, F11 captures a GPU frame. Panels are listed under View; View > Reset Layout restores the default docking layout (the Scene panel in the centre).
 
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 

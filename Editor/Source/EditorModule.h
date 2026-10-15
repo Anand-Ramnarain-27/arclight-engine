@@ -16,10 +16,13 @@ namespace arc
     ///   + / -       Double / halve the time scale
     ///   0           Reset the time scale to 1
     ///   F11         Capture a GPU frame (RenderDoc, PIX or Xcode, when attached)
+    class ImGuiModule;
+
     class EditorModule final : public Module
     {
     public:
-        explicit EditorModule(Application& app);
+        /// `imgui` gives panels ImTextureIDs for engine textures, such as the scene target.
+        EditorModule(Application& app, ImGuiModule& imgui);
         ~EditorModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Editor"; }

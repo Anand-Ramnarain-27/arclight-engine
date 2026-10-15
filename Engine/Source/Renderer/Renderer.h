@@ -16,6 +16,7 @@ namespace arc
         class CommandList;
         class Device;
         class Swapchain;
+        class Texture;
     }
 
     /// Owns the GPU device and the window's swapchain, and brackets each frame.
@@ -27,6 +28,11 @@ namespace arc
     /// The backbuffer is cleared by whichever pass opens it first in a frame, so passes drawn
     /// later (such as the UI) load what is already there. If nothing draws to it, endFrame()
     /// clears it so a stale image is never presented.
+    ///
+    /// The scene is not drawn to the backbuffer but to the scene target, a texture the editor shows
+    /// in its Scene panel. It follows the same rule: the first scene pass of a frame clears it.
+    /// finishScene(), called by the Application after every module's render(), clears it if no
+    /// pass did and moves it to the ShaderRead state for the UI.
     class Renderer
     {
     public:
@@ -65,6 +71,26 @@ namespace arc
         [[nodiscard]] bool beginBackbufferPass(std::string_view debugName);
         void endBackbufferPass();
 
+        /// Opens a render pass on the scene target. Returns false if there is none.
+        [[nodiscard]] bool beginScenePass(std::string_view debugName);
+        void endScenePass();
+        void finishScene();
+
+        /// Recreates the scene target if the size differs. Must be called outside a frame, before
+        /// anything shows this frame's scene texture: the old texture is released (deferred until the
+        /// GPU is done with it), so an ImTextureID taken from it earlier in the frame would dangle on
+        /// Metal. Zero sizes are ignored.
+        void setSceneSize(Extent2D pixelSize);
+        [[nodiscard]] Extent2D sceneSize() const;
+
+        /// The texture the scene renders into: RenderTarget + Sampled, in sceneFormat().
+        [[nodiscard]] rhi::Texture* sceneTexture() { return m_sceneTarget.get(); }
+
+        /// The colour format of the scene target, for pipelines that draw into it. Not sRGB: shaders
+        /// write display-ready values (see LinearToSrgb in Common.hlsli) until the HDR target and
+        /// tone mapping of Phase 4.
+        [[nodiscard]] static constexpr rhi::Format sceneFormat() { return rhi::Format::RGBA8_UNORM; }
+
         [[nodiscard]] rhi::Device& device() { return *m_device; }
         [[nodiscard]] const rhi::Device& device() const { return *m_device; }
         [[nodiscard]] rhi::Swapchain& swapchain() { return *m_swapchain; }
@@ -83,5 +109,8 @@ namespace arc
         std::optional<Extent2D> m_pendingSize;
         rhi::ClearColor m_clearColor{0.08f, 0.09f, 0.11f, 1.0f};
         bool m_backbufferCleared = false;
+
+        std::unique_ptr<rhi::Texture> m_sceneTarget;
+        bool m_sceneCleared = false;
     };
 }

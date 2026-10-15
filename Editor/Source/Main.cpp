@@ -32,8 +32,8 @@ int main(int argc, char* argv[])
     arc::Application app(std::move(desc));
 
     // ImGuiModule must come first: it starts the ImGui frame that EditorModule draws into.
-    app.addModule<arc::ImGuiModule>();
-    app.addModule<arc::EditorModule>();
+    arc::ImGuiModule& imgui = app.addModule<arc::ImGuiModule>();
+    app.addModule<arc::EditorModule>(imgui);
     app.addModule<arc::TextureDemoModule>();
 
     return app.run();

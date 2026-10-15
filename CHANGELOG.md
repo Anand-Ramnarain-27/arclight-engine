@@ -5,7 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Phase 2 in progress: textures, resource lifetimes, constants.
+Phase 2 in progress: textures, resource lifetimes, constants, scene viewport.
+
+### Added (scene viewport)
+- Scene target: the renderer owns a RenderTarget + Sampled texture (`Renderer::sceneTexture()`, `sceneFormat()`), and `beginScenePass()` / `endScenePass()` draw into it. `Renderer::finishScene()`, called by the Application after every module's `render()`, clears it if nothing drew and moves it to ShaderRead for the UI.
+- *Scene* panel (`Editor/Source/Panels/ScenePanel`): shows the scene target with `ImGui::Image`, resizes it to the panel's size in pixels (full resolution on Retina), shows the resolution and graphics API, and reports whether the mouse is over it. Docked in the centre by the default layout.
+- `ImGuiModule::textureId(texture)`: an ImTextureID for any device texture. On D3D12 the texture's SRV is copied into the shader-visible heap once, cached by `TextureHandle`, and freed when the texture is gone and the last frame that drew it has finished. On Metal the ID is the `MTLTexture`.
+
+### Changed (scene viewport)
+- The texture demo renders into the scene target instead of the backbuffer; its aspect ratio follows the Scene panel. Only the UI draws to the backbuffer now.
+- `EditorModule` takes the `ImGuiModule`; the dock space no longer has a transparent central node.
 
 ### Added (constants)
 - `RHI/UploadRing`: per-frame scratch memory in one Upload buffer, one region per frame in flight plus one for immediate submissions, reset when the frame slot comes round again. Starts with 64 KB of zeros that unset constant slots read.

@@ -11,7 +11,6 @@
 #include "RHI/Pipeline.h"
 #include "RHI/Sampler.h"
 #include "RHI/Shader.h"
-#include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
 #include "Renderer/Image.h"
 #include "Renderer/ShaderConstants.h"
@@ -189,7 +188,7 @@ namespace arc
                 {.semantic = "TEXCOORD", .format = rhi::VertexFormat::Float2, .offset = offsetof(Vertex, uv)},
             },
         };
-        pipelineDesc.colorFormat = renderer.swapchain().desc().format;
+        pipelineDesc.colorFormat = Renderer::sceneFormat();
         pipelineDesc.debugName = "Textured";
         m_pipeline = device.createPipeline(pipelineDesc);
         if (!m_pipeline)
@@ -377,8 +376,8 @@ namespace arc
         if (!renderer.isFrameActive() || !m_groundSampler || !m_quadSampler)
             return;
 
-        // Recomputed every frame from the current backbuffer size, so resizing needs no extra work.
-        const Extent2D size = renderer.swapchain().desc().size;
+        // Recomputed every frame from the scene target's size, so resizing needs no extra work.
+        const Extent2D size = renderer.sceneSize();
         const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
 
         // Looking slightly down, so the far edge of the ground sits just below the horizon.
@@ -387,7 +386,7 @@ namespace arc
                                 Mat4::lookAt({0.0f, m_cameraHeight, 0.0f}, {0.0f, m_cameraHeight - 1.0f, -6.0f},
                                              {0.0f, 1.0f, 0.0f});
 
-        if (!renderer.beginBackbufferPass("Texture Demo"))
+        if (size.width == 0 || !renderer.beginScenePass("Texture Demo"))
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
@@ -410,7 +409,7 @@ namespace arc
             commandList.setSampler(0, *m_quadSampler);
             commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
         }
-        renderer.endBackbufferPass();
+        renderer.endScenePass();
     }
 
     void TextureDemoModule::shutdown()

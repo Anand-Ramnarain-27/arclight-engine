@@ -1,5 +1,8 @@
 #include "UI/ImGuiRenderBackend.h"
 
+#include "Core/Assert.h"
+#include "RHI/Texture.h"
+
 #include <imgui.h>
 
 namespace arc
@@ -48,6 +51,13 @@ namespace arc
                         destroyTexture(texture);
                     }
                 }
+            }
+
+            uint64_t textureId(rhi::Texture& texture) override
+            {
+                ARC_ASSERT(!texture.handle().isNull(), "Only textures created by the device can be shown in ImGui");
+                // Nothing is drawn; any non-zero value is a valid ID.
+                return (uint64_t{texture.handle().index} << 32) | texture.handle().generation;
             }
 
         private:

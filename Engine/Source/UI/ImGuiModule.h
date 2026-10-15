@@ -3,11 +3,17 @@
 #include "Application/Module.h"
 #include "Platform/PlatformEvents.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace arc
 {
     class ImGuiRenderBackend;
+
+    namespace rhi
+    {
+        class Texture;
+    }
 
     /// Owns the Dear ImGui context and its platform and renderer backends.
     ///
@@ -30,6 +36,10 @@ namespace arc
         void shutdown() override;
 
         void onPlatformEvent(const SDL_Event& event) override;
+
+        /// The ImTextureID for showing a device texture with ImGui::Image() this frame. The texture
+        /// must be Sampled and in the ShaderRead state when the UI is drawn (in postRender()).
+        [[nodiscard]] uint64_t textureId(rhi::Texture& texture);
 
     private:
         std::unique_ptr<ImGuiRenderBackend> m_renderBackend;

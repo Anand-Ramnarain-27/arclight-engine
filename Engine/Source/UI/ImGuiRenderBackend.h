@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 struct ImDrawData;
@@ -11,6 +12,7 @@ namespace arc
     namespace rhi
     {
         class CommandList;
+        class Texture;
     }
 
     /// Bridges Dear ImGui's renderer backend for the active RHI backend (imgui_impl_dx12 or
@@ -30,6 +32,11 @@ namespace arc
 
         /// Records the draw data inside the current render pass.
         virtual void render(rhi::CommandList& commandList, ImDrawData* drawData) = 0;
+
+        /// The ImTextureID that shows `texture` in ImGui::Image() this frame. The texture must have
+        /// been created by the device (it has a handle) with Sampled usage, and be in the
+        /// ShaderRead state when the UI is drawn.
+        [[nodiscard]] virtual uint64_t textureId(rhi::Texture& texture) = 0;
     };
 
     /// Defined once per platform, for that platform's RHI backend.

@@ -7,6 +7,7 @@
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Swapchain.h"
+#include "RHI/Texture.h"
 #include "RHI/TextureUtils.h"
 #include "Renderer/ShaderLibrary.h"
 
@@ -50,7 +51,12 @@ namespace arc
         swapchainDesc.size = window.pixelSize();
         swapchainDesc.vsync = vsync;
         m_swapchain = m_device->createSwapchain(window, swapchainDesc);
-        return m_swapchain != nullptr;
+        if (!m_swapchain)
+            return false;
+
+        // The Scene panel resizes it to fit as soon as it is drawn.
+        setSceneSize(swapchainDesc.size);
+        return m_sceneTarget != nullptr;
     }
 
     void Renderer::shutdown()
@@ -59,6 +65,7 @@ namespace arc
         if (m_device)
             m_device->waitIdle();
         m_shaders.reset();
+        m_sceneTarget.reset();
         m_swapchain.reset();
         m_device.reset();
     }
@@ -97,6 +104,7 @@ namespace arc
 
         m_commandList = &m_device->beginFrame(*m_swapchain);
         m_backbufferCleared = false;
+        m_sceneCleared = false;
         return true;
     }
 
@@ -137,6 +145,59 @@ namespace arc
     void Renderer::endBackbufferPass()
     {
         commandList().endRenderPass();
+    }
+
+    bool Renderer::beginScenePass(std::string_view debugName)
+    {
+        if (!m_sceneTarget)
+            return false;
+
+        rhi::RenderPassDesc pass;
+        pass.color.texture = m_sceneTarget.get();
+        pass.color.load = m_sceneCleared ? rhi::LoadOp::Load : rhi::LoadOp::Clear;
+        pass.color.clearColor = m_clearColor;
+        pass.debugName = debugName;
+        commandList().beginRenderPass(pass);
+
+        m_sceneCleared = true;
+        return true;
+    }
+
+    void Renderer::endScenePass()
+    {
+        commandList().endRenderPass();
+    }
+
+    void Renderer::finishScene()
+    {
+        if (!m_sceneTarget)
+            return;
+        if (!m_sceneCleared && beginScenePass("Clear Scene"))
+            endScenePass();
+        commandList().barrier(*m_sceneTarget, rhi::ResourceState::ShaderRead);
+    }
+
+    void Renderer::setSceneSize(Extent2D pixelSize)
+    {
+        ARC_ASSERT(!isFrameActive(), "The scene target cannot be resized while a frame is being recorded");
+        if (pixelSize.width == 0 || pixelSize.height == 0)
+            return;
+        if (m_sceneTarget && m_sceneTarget->desc().size.width == pixelSize.width &&
+            m_sceneTarget->desc().size.height == pixelSize.height)
+            return;
+
+        // Frames in flight may still read the old target; the device keeps it until they finish.
+        m_sceneTarget = m_device->createTexture({
+            .size = pixelSize,
+            .format = sceneFormat(),
+            .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::Sampled,
+            .debugName = "Scene Target",
+        });
+    }
+
+    Extent2D Renderer::sceneSize() const
+    {
+        return m_sceneTarget ? m_sceneTarget->desc().size : Extent2D{};
     }
 
     void Renderer::setVSync(bool enabled)

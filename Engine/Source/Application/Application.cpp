@@ -77,6 +77,8 @@ namespace arc
         // per-frame bookkeeping (ImGui must end every frame it starts) stay balanced.
         const bool frameActive = m_renderer->beginFrame();
         for (auto& module : m_modules) module->render();
+        if (frameActive)
+            m_renderer->finishScene();
         for (auto& module : m_modules) module->postRender();
         if (frameActive)
             m_renderer->endFrame();

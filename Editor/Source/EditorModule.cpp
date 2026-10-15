@@ -5,6 +5,7 @@
 #include "Panels/ConsolePanel.h"
 #include "Panels/PerformancePanel.h"
 #include "Panels/PlaybackPanel.h"
+#include "Panels/ScenePanel.h"
 #include "Panels/SystemInfoPanel.h"
 
 #include "RHI/Device.h"
@@ -18,9 +19,10 @@
 
 namespace arc
 {
-    EditorModule::EditorModule(Application& app)
+    EditorModule::EditorModule(Application& app, ImGuiModule& imgui)
         : Module(app)
     {
+        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui));
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
         m_panels.push_back(std::make_unique<PerformancePanel>(app));
@@ -120,9 +122,7 @@ namespace arc
             m_resetLayout = false;
         }
 
-        // The central node is left transparent so the scene viewport shows through and mouse
-        // input over it reaches the game instead of ImGui.
-        ImGui::DockSpaceOverViewport(dockspaceId, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+        ImGui::DockSpaceOverViewport(dockspaceId);
     }
 
     void EditorModule::buildDefaultLayout(unsigned int dockspaceId)
@@ -131,8 +131,7 @@ namespace arc
 
         ImGui::DockBuilderRemoveNode(dockspaceId);
         // DockSpace is in ImGui's private flag enum; combining it with a public flag needs the int type.
-        const ImGuiDockNodeFlags flags = static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_DockSpace) |
-                                         ImGuiDockNodeFlags_PassthruCentralNode;
+        const ImGuiDockNodeFlags flags = static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderAddNode(dockspaceId, flags);
         ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
 
@@ -143,6 +142,7 @@ namespace arc
         ImGuiID rightTop = right;
         const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(rightTop, ImGuiDir_Down, 0.45f, nullptr, &rightTop);
 
+        ImGui::DockBuilderDockWindow("Scene", center);
         ImGui::DockBuilderDockWindow("Playback", top);
         ImGui::DockBuilderDockWindow("Console", bottom);
         ImGui::DockBuilderDockWindow("Texture Demo", rightTop);
