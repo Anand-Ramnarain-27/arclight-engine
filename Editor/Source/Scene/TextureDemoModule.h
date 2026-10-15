@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Application/Module.h"
-#include "Platform/Window.h"
 #include "RHI/RHITypes.h"
 
 #include <memory>
@@ -23,8 +22,9 @@ namespace arc
     /// mode decides what lies outside [0, 1]. The Texture Demo window picks the texture and the
     /// sampler settings.
     ///
-    /// Placeholder until the scene viewport and camera exist (Phase 2). Without constant buffers the
-    /// ground is projected on the CPU into a new vertex buffer whenever the backbuffer changes size.
+    /// Both shapes are one unit quad drawn twice with different per-draw constants (b1); the ground
+    /// also takes a camera in the view constants (b0). Placeholder until the scene viewport and the
+    /// editor camera exist (Phase 2).
     class TextureDemoModule final : public Module
     {
     public:
@@ -47,14 +47,12 @@ namespace arc
         };
 
         [[nodiscard]] bool createTextures();
-        [[nodiscard]] bool uploadGeometry(Extent2D targetSize);
         [[nodiscard]] bool rebuildSamplers();
         void drawWindow();
 
         std::unique_ptr<rhi::Pipeline> m_pipeline;
         std::unique_ptr<rhi::Buffer> m_vertexBuffer;
         std::unique_ptr<rhi::Buffer> m_indexBuffer;
-        Extent2D m_geometrySize;
 
         std::vector<DemoTexture> m_textures;
         size_t m_selectedTexture = 0;
@@ -65,5 +63,9 @@ namespace arc
         std::unique_ptr<rhi::Sampler> m_quadSampler;
         bool m_samplersDirty = true;
         bool m_recreateTextures = false;
+
+        float m_mipBias = 0.0f;
+        float m_fieldOfView = 60.0f;   // Degrees, vertical.
+        float m_cameraHeight = 1.2f;   // World units above the ground.
     };
 }

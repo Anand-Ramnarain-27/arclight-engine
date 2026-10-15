@@ -23,6 +23,7 @@ Phase 2 (meshes, textures, camera, viewport) is in progress. Done so far:
 - **Image loading.** PNG, JPEG, TGA and BMP through stb_image, with sRGB-correct mip generation on the CPU.
 - **Texture demo.** A ground plane receding to the horizon and an address-mode quad, with a *Texture Demo* panel to switch textures and sampler settings, including a texture that colours each mip level differently.
 - **Resource lifetimes.** Buffers, textures and pipelines can be destroyed while the GPU still uses them: D3D12 keeps them in a fence-tagged deferred release queue, and Metal's command buffers retain them. Resources have generational handles (`Device::find()` returns nullptr once a resource is gone), leaks are reported by name at shutdown, and System Info shows live resource counts.
+- **Constants.** `setConstants(slot, data)` binds cbuffers b0–b2 from a per-frame upload ring (root CBVs on D3D12, buffer slots on Metal). The demo's camera and per-draw transforms now come from constants.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 

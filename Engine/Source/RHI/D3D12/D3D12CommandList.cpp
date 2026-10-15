@@ -61,6 +61,7 @@ namespace arc::rhi::d3d12
                                          m_device->shaderVisibleSamplerHeap().native()};
         m_list->SetDescriptorHeaps(2, heaps);
         m_rootSignature = nullptr;
+        setUploadRing(m_device->uploadRing(), transientRegion);
         resetBindings();
     }
 
@@ -68,8 +69,11 @@ namespace arc::rhi::d3d12
     {
         m_textures.fill(m_device->nullSrv());
         m_samplers.fill(m_device->defaultSampler());
+        const UploadAllocation zeros = m_device->uploadRing().zeroBlock();
+        m_constants.fill(static_cast<D3D12Buffer&>(*zeros.buffer).gpuAddress() + zeros.offset);
         m_texturesDirty = true;
         m_samplersDirty = true;
+        m_constantsDirty = (1u << kMaxConstantSlots) - 1;
     }
 
     void D3D12CommandList::invalidateBindings()
@@ -78,6 +82,7 @@ namespace arc::rhi::d3d12
         m_pipeline = nullptr;
         m_texturesDirty = true;
         m_samplersDirty = true;
+        m_constantsDirty = (1u << kMaxConstantSlots) - 1;
     }
 
     bool D3D12CommandList::close()
@@ -102,6 +107,7 @@ namespace arc::rhi::d3d12
             m_list->SetGraphicsRootSignature(m_rootSignature);
             m_texturesDirty = true;
             m_samplersDirty = true;
+            m_constantsDirty = (1u << kMaxConstantSlots) - 1;
         }
         // The PSO only fixes the topology type (triangles); the exact topology is command list state.
         m_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -159,6 +165,13 @@ namespace arc::rhi::d3d12
         }
     }
 
+    void D3D12CommandList::bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset)
+    {
+        ARC_ASSERT(m_inRenderPass, "setConstants outside a render pass");
+        m_constants[slot] = static_cast<D3D12Buffer&>(buffer).gpuAddress() + offset;
+        m_constantsDirty |= 1u << slot;
+    }
+
     bool D3D12CommandList::flushBindings()
     {
         // Root descriptor tables point into a shader-visible heap, but views are created in CPU-only
@@ -196,6 +209,13 @@ namespace arc::rhi::d3d12
             m_list->SetGraphicsRootDescriptorTable(kRootSamplerTable, table.gpu);
             m_samplersDirty = false;
         }
+
+        // Root CBVs hold the GPU address directly, with no descriptor: the cheapest way to bind
+        // small data that changes every draw.
+        for (uint32_t slot = 0; slot < kMaxConstantSlots; ++slot)
+            if (m_constantsDirty & (1u << slot))
+                m_list->SetGraphicsRootConstantBufferView(kRootFirstConstants + slot, m_constants[slot]);
+        m_constantsDirty = 0;
         return true;
     }
 

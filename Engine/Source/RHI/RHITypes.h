@@ -31,6 +31,18 @@ namespace arc::rhi
     inline constexpr uint32_t kMaxTextureSlots = 8;
     inline constexpr uint32_t kMaxSamplerSlots = 4;
 
+    /// Constant buffer slots b0..b2, bound with CommandList::setConstants(). By convention b0 holds
+    /// per-view data (camera), b1 per-draw data (transform) and b2 per-material data. On Metal the
+    /// slot is the [[buffer(n)]] index, again kept equal to the HLSL register by the shader build.
+    inline constexpr uint32_t kMaxConstantSlots = 3;
+
+    /// Constant data is placed at multiples of this many bytes (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT),
+    /// which also satisfies Metal's buffer offset rules.
+    inline constexpr uint32_t kConstantBufferAlignment = 256;
+
+    /// The largest cbuffer HLSL allows: 4096 16-byte rows.
+    inline constexpr uint32_t kMaxConstantBufferSize = 64 * 1024;
+
     /// Layout rules for the buffer side of buffer/texture copies: every row starts at a multiple
     /// of kTextureCopyRowAlignment bytes and every mip level at a multiple of
     /// kTextureCopyOffsetAlignment. These are D3D12's requirements (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT

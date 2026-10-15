@@ -30,10 +30,12 @@ namespace arc::rhi::metal
         }
     }
 
-    void MetalCommandList::begin(id<MTLCommandBuffer> commandBuffer)
+    void MetalCommandList::begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region)
     {
         ARC_ASSERT(m_commandBuffer == nil, "Command list begun twice");
         m_commandBuffer = commandBuffer;
+        setUploadRing(ring, region);
+        m_zeroConstants = ring.zeroBlock();
     }
 
     id<MTLCommandBuffer> MetalCommandList::finish()
@@ -70,6 +72,19 @@ namespace arc::rhi::metal
         if (!desc.debugName.empty())
             m_renderEncoder.label = toNSString(desc.debugName);
         m_renderPassDescriptor = pass;
+
+        // A new encoder has nothing bound, and Metal's validation rejects a draw whose shader reads
+        // an unbound buffer, so every constant slot starts on the zero block (D3D12 does the same).
+        for (uint32_t slot = 0; slot < kMaxConstantSlots; ++slot)
+            bindConstants(slot, *m_zeroConstants.buffer, m_zeroConstants.offset);
+    }
+
+    void MetalCommandList::bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset)
+    {
+        ARC_ASSERT(m_renderEncoder != nil, "setConstants outside a render pass");
+        id<MTLBuffer> native = static_cast<MetalBuffer&>(buffer).native();
+        [m_renderEncoder setVertexBuffer:native offset:offset atIndex:slot];
+        [m_renderEncoder setFragmentBuffer:native offset:offset atIndex:slot];
     }
 
     void MetalCommandList::endRenderPass()

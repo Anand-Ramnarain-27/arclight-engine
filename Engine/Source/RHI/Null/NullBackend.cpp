@@ -8,6 +8,7 @@
 #include "RHI/ShaderUtils.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
+#include "RHI/UploadRing.h"
 
 #include "Core/Assert.h"
 #include "Core/Log.h"
@@ -242,10 +243,18 @@ namespace arc::rhi
                 --m_debugDepth;
             }
 
+            void begin(UploadRing& ring, uint32_t region) { setUploadRing(ring, region); }
+
             void checkEndOfFrame() const
             {
                 ARC_ASSERT(!m_inRenderPass, "Frame ended inside a render pass");
                 ARC_ASSERT(m_debugDepth == 0, "Frame ended with open debug groups");
+            }
+
+        protected:
+            void bindConstants(uint32_t /*slot*/, Buffer& /*buffer*/, uint64_t /*offset*/) override
+            {
+                ARC_ASSERT(m_inRenderPass, "setConstants outside a render pass");
             }
 
         private:
@@ -284,6 +293,9 @@ namespace arc::rhi
             {
                 m_adapterInfo.backend = Backend::Null;
                 m_adapterInfo.name = "Null device (no GPU work)";
+                // NullDevice is final, so the virtual createBufferImpl() reached from here is its own.
+                const bool ringCreated = m_uploadRing.init(*this, 256 * 1024, "Upload Ring");
+                ARC_VERIFY(ringCreated);
             }
 
             const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
@@ -329,13 +341,20 @@ namespace arc::rhi
 
             void submitImmediate(const std::function<void(CommandList&)>& record) override
             {
+                m_uploadRing.reset(UploadRing::kImmediateRegion);
                 NullCommandList commandList;
+                commandList.begin(m_uploadRing, UploadRing::kImmediateRegion);
                 record(commandList);
                 commandList.checkEndOfFrame();
                 commandList.decayBufferStates();
             }
 
-            CommandList& beginFrame(Swapchain& /*swapchain*/) override { return m_commandList; }
+            CommandList& beginFrame(Swapchain& /*swapchain*/) override
+            {
+                m_uploadRing.reset(frameSlot());
+                m_commandList.begin(m_uploadRing, frameSlot());
+                return m_commandList;
+            }
 
             void endFrame(Swapchain& /*swapchain*/) override
             {
@@ -349,6 +368,7 @@ namespace arc::rhi
         private:
             AdapterInfo m_adapterInfo;
             NullCommandList m_commandList;
+            UploadRing m_uploadRing;
         };
     }
 

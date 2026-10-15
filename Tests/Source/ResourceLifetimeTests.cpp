@@ -77,6 +77,8 @@ TEST_CASE("Resources are found by handle until they are destroyed")
 {
     auto device = createNullDevice({});
     REQUIRE(device);
+    // The device's own resources, such as its upload ring, are counted too.
+    const Device::ResourceCounts before = device->resourceCounts();
 
     auto texture = device->createTexture({.size = {8, 8}, .format = Format::RGBA8_UNORM, .debugName = "Found"});
     auto buffer = device->createBuffer({.size = 16, .debugName = "Found"});
@@ -93,9 +95,9 @@ TEST_CASE("Resources are found by handle until they are destroyed")
     CHECK(device->find(samplerHandle) == sampler.get());
 
     const Device::ResourceCounts counts = device->resourceCounts();
-    CHECK(counts.textures == 1);
-    CHECK(counts.buffers == 1);
-    CHECK(counts.samplers == 1);
+    CHECK(counts.textures == before.textures + 1);
+    CHECK(counts.buffers == before.buffers + 1);
+    CHECK(counts.samplers == before.samplers + 1);
 
     texture.reset();
     buffer.reset();
@@ -103,7 +105,8 @@ TEST_CASE("Resources are found by handle until they are destroyed")
     CHECK(device->find(textureHandle) == nullptr);
     CHECK(device->find(bufferHandle) == nullptr);
     CHECK(device->find(samplerHandle) == nullptr);
-    CHECK(device->resourceCounts().textures == 0);
+    CHECK(device->resourceCounts().textures == before.textures);
+    CHECK(device->resourceCounts().buffers == before.buffers);
 }
 
 TEST_CASE("A handle to a destroyed texture stays stale when its slot is reused")

@@ -2,7 +2,10 @@
 
 #include "RHI/RHITypes.h"
 
+#include <cstddef>
+#include <span>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace arc::rhi
@@ -11,6 +14,7 @@ namespace arc::rhi
     class Pipeline;
     class Sampler;
     class Texture;
+    class UploadRing;
 
     struct ColorAttachment
     {
@@ -66,6 +70,20 @@ namespace arc::rhi
         /// Binds a sampler to slot s<slot> of both shader stages. Same rules as setTexture().
         virtual void setSampler(uint32_t slot, Sampler& sampler) = 0;
 
+        /// Copies `data` into this frame's upload ring and binds it to cbuffer slot b<slot> of both
+        /// shader stages, for the draws that follow in this pass. The bytes must follow HLSL's
+        /// cbuffer packing (16-byte rows; see ShaderConstants.h). Calling it again before the next
+        /// draw replaces the binding; earlier draws keep the data they were recorded with. Slots
+        /// nothing has set read as zero.
+        void setConstants(uint32_t slot, std::span<const std::byte> data);
+
+        template <typename T>
+        void setConstants(uint32_t slot, const T& data)
+        {
+            static_assert(std::is_trivially_copyable_v<T>, "Constants are copied as raw bytes");
+            setConstants(slot, std::as_bytes(std::span(&data, 1)));
+        }
+
         virtual void draw(uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t firstVertex = 0,
                           uint32_t firstInstance = 0) = 0;
         virtual void drawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0,
@@ -113,6 +131,16 @@ namespace arc::rhi
         /// Records the buffer's new state and remembers the buffer for decayBufferStates().
         void trackBufferState(Buffer& buffer, ResourceState state);
 
+        /// Called by the device when the command list begins: where setConstants() allocates.
+        void setUploadRing(UploadRing& ring, uint32_t region)
+        {
+            m_uploadRing = &ring;
+            m_uploadRegion = region;
+        }
+
+        /// Binds `offset` bytes into `buffer` to cbuffer slot b<slot>. Only valid inside a render pass.
+        virtual void bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset) = 0;
+
         /// Asserts the rules shared by every backend; the backends call these first.
         static void validateTextureCopy(const Texture& texture, uint32_t mipLevel, ResourceState textureState,
                                         const Buffer& buffer, uint64_t bufferOffset, uint32_t rowPitch,
@@ -122,6 +150,8 @@ namespace arc::rhi
 
     private:
         std::vector<Buffer*> m_trackedBuffers;
+        UploadRing* m_uploadRing = nullptr;
+        uint32_t m_uploadRegion = 0;
     };
 
     /// Pushes a debug group for the lifetime of the scope.

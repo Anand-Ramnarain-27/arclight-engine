@@ -14,6 +14,7 @@
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
 #include "Renderer/Image.h"
+#include "Renderer/ShaderConstants.h"
 #include "Renderer/ShaderLibrary.h"
 #include "Renderer/TextureLoader.h"
 
@@ -33,15 +34,35 @@ namespace arc
         // Matches VSInput in Textured.hlsl, member for member.
         struct Vertex
         {
-            Vec4 position;   // Clip space.
+            Vec3 position;   // Object space.
             Vec2 uv;
         };
-        static_assert(sizeof(Vertex) == 24, "Vertex must be tightly packed to match the vertex layout");
+        static_assert(sizeof(Vertex) == 20, "Vertex must be tightly packed to match the vertex layout");
 
-        constexpr int32_t kGroundBaseVertex = 0;
-        constexpr int32_t kQuadBaseVertex = 4;
+        // Mirrors DrawConstants in Textured.hlsl. See ShaderConstants.h for the packing rules.
+        struct TexturedDrawConstants
+        {
+            Mat4 world;
+            Vec2 uvScale{1.0f, 1.0f};
+            Vec2 uvOffset{0.0f, 0.0f};
+            float mipBias = 0.0f;
+            float padding[3]{};
+        };
+        static_assert(offsetof(TexturedDrawConstants, uvScale) == 64);
+        static_assert(offsetof(TexturedDrawConstants, uvOffset) == 72);
+        static_assert(offsetof(TexturedDrawConstants, mipBias) == 80);
+        static_assert(sizeof(TexturedDrawConstants) == 96);
 
-        // Both shapes are quads, drawn as two counter-clockwise triangles.
+        // One unit quad in the XY plane, facing +Z, with texture coordinates from (0, 0) at the top
+        // left to (1, 1). Both shapes in the demo are this quad with a different transform.
+        constexpr std::array<Vertex, 4> kQuadVertices = {{
+            {{-0.5f, -0.5f, 0.0f}, {0.0f, 1.0f}},
+            {{0.5f, -0.5f, 0.0f}, {1.0f, 1.0f}},
+            {{0.5f, 0.5f, 0.0f}, {1.0f, 0.0f}},
+            {{-0.5f, 0.5f, 0.0f}, {0.0f, 0.0f}},
+        }};
+
+        // Two counter-clockwise triangles.
         constexpr std::array<uint16_t, 6> kIndices = {0, 1, 2, 0, 2, 3};
 
         // sRGB-encoded, so they read as named on screen.
@@ -54,39 +75,36 @@ namespace arc
             {70, 110, 230},  {150, 80, 220},  {230, 80, 190}, {240, 240, 240}, {128, 128, 128},
         }};
 
-        std::array<Vertex, 8> buildVertices(Extent2D targetSize)
+        // 40 x 80 units of ground in the y = 0 plane, from just in front of the camera into the
+        // distance: the quad laid flat (its +Y edge pointing away down -Z) and scaled. The texture
+        // repeats every 2 units.
+        TexturedDrawConstants groundConstants(float mipBias)
         {
-            const float aspect = static_cast<float>(targetSize.width) / static_cast<float>(targetSize.height);
+            TexturedDrawConstants constants;
+            constants.world = Mat4::translation({0.0f, 0.0f, -40.25f}) *
+                              Mat4::rotation(Quat::fromAxisAngle({1.0f, 0.0f, 0.0f}, toRadians(-90.0f))) *
+                              Mat4::scaling({40.0f, 80.0f, 1.0f});
+            constants.uvScale = {20.0f, 40.0f};
+            constants.mipBias = mipBias;
+            return constants;
+        }
 
-            // A camera 1.2 units above the ground, tilted slightly down, so the far edge of the plane
-            // sits just below the horizon in the upper part of the screen.
-            const Mat4 viewProjection = Mat4::perspective(toRadians(60.0f), aspect, 0.1f, 200.0f) *
-                                        Mat4::lookAt({0.0f, 1.2f, 0.0f}, {0.0f, 0.2f, -6.0f}, {0.0f, 1.0f, 0.0f});
-
-            // 40 x 80 units in the y = 0 plane, starting just in front of the camera so every vertex
-            // has a positive w. The texture repeats every 2 units.
-            const auto ground = [&](float x, float z) {
-                return Vertex{viewProjection * Vec4(x, 0.0f, z, 1.0f), {x * 0.5f, -z * 0.5f}};
-            };
-
-            // A square on screen in the top-left corner, with texture coordinates from -1 to 2: the
-            // centre ninth shows the texture once and the rest is decided by the address mode.
-            constexpr float kQuadHeight = 0.5f;   // NDC units.
-            const float quadWidth = kQuadHeight / aspect;
+        // A square on screen in the top-left corner, placed directly in clip space (drawn with an
+        // identity view-projection). Its texture coordinates run from -1 to 2: the centre ninth
+        // shows the texture once and the rest is decided by the address mode.
+        TexturedDrawConstants cornerQuadConstants(float aspect)
+        {
+            constexpr float kHeight = 0.5f;   // NDC units.
             constexpr float kLeft = -0.95f;
             constexpr float kTop = 0.82f;
-            const auto quad = [](float x, float y, float u, float v) { return Vertex{{x, y, 0.0f, 1.0f}, {u, v}}; };
+            const float width = kHeight / aspect;
 
-            return {{
-                ground(-20.0f, -0.5f),
-                ground(20.0f, -0.5f),
-                ground(20.0f, -80.0f),
-                ground(-20.0f, -80.0f),
-                quad(kLeft, kTop - kQuadHeight, -1.0f, 2.0f),
-                quad(kLeft + quadWidth, kTop - kQuadHeight, 2.0f, 2.0f),
-                quad(kLeft + quadWidth, kTop, 2.0f, -1.0f),
-                quad(kLeft, kTop, -1.0f, -1.0f),
-            }};
+            TexturedDrawConstants constants;
+            constants.world = Mat4::translation({kLeft + width * 0.5f, kTop - kHeight * 0.5f, 0.0f}) *
+                              Mat4::scaling({width, kHeight, 1.0f});
+            constants.uvScale = {3.0f, 3.0f};
+            constants.uvOffset = {-1.0f, -1.0f};
+            return constants;
         }
 
         Image makeChecker(Extent2D size, uint32_t cellSize, Rgb light, Rgb dark)
@@ -167,7 +185,7 @@ namespace arc
         pipelineDesc.vertexLayout = {
             .stride = sizeof(Vertex),
             .attributes = {
-                {.semantic = "POSITION", .format = rhi::VertexFormat::Float4, .offset = offsetof(Vertex, position)},
+                {.semantic = "POSITION", .format = rhi::VertexFormat::Float3, .offset = offsetof(Vertex, position)},
                 {.semantic = "TEXCOORD", .format = rhi::VertexFormat::Float2, .offset = offsetof(Vertex, uv)},
             },
         };
@@ -177,16 +195,24 @@ namespace arc
         if (!m_pipeline)
             return false;
 
+        m_vertexBuffer = device.createBuffer({
+            .size = sizeof(kQuadVertices),
+            .usage = rhi::BufferUsage::Vertex,
+            .memory = rhi::MemoryType::GpuOnly,
+            .debugName = "Unit Quad Vertices",
+        });
         m_indexBuffer = device.createBuffer({
             .size = sizeof(kIndices),
             .usage = rhi::BufferUsage::Index,
             .memory = rhi::MemoryType::GpuOnly,
-            .debugName = "Texture Demo Indices",
+            .debugName = "Unit Quad Indices",
         });
-        if (!m_indexBuffer || !rhi::uploadBuffer(device, *m_indexBuffer, std::as_bytes(std::span(kIndices))))
+        if (!m_vertexBuffer || !m_indexBuffer ||
+            !rhi::uploadBuffer(device, *m_vertexBuffer, std::as_bytes(std::span(kQuadVertices))) ||
+            !rhi::uploadBuffer(device, *m_indexBuffer, std::as_bytes(std::span(kIndices))))
             return false;
 
-        return createTextures() && uploadGeometry(renderer.swapchain().desc().size) && rebuildSamplers();
+        return createTextures() && rebuildSamplers();
     }
 
     bool TextureDemoModule::createTextures()
@@ -217,26 +243,6 @@ namespace arc
             return false;
         }
         m_selectedTexture = std::min(m_selectedTexture, m_textures.size() - 1);
-        return true;
-    }
-
-    bool TextureDemoModule::uploadGeometry(Extent2D targetSize)
-    {
-        // A new buffer rather than overwriting the old one, which frames in flight may still be
-        // reading. Replacing m_vertexBuffer hands the old one to the device's deferred release.
-        rhi::Device& device = app().renderer().device();
-        auto vertexBuffer = device.createBuffer({
-            .size = sizeof(Vertex) * 8,
-            .usage = rhi::BufferUsage::Vertex,
-            .memory = rhi::MemoryType::GpuOnly,
-            .debugName = "Texture Demo Vertices",
-        });
-        const std::array<Vertex, 8> vertices = buildVertices(targetSize);
-        if (!vertexBuffer || !rhi::uploadBuffer(device, *vertexBuffer, std::as_bytes(std::span(vertices))))
-            return false;
-
-        m_vertexBuffer = std::move(vertexBuffer);
-        m_geometrySize = targetSize;
         return true;
     }
 
@@ -326,6 +332,14 @@ namespace arc
         m_samplersDirty |= ImGui::SliderFloat("Max LOD", &ground.maxLod, 0.0f, static_cast<float>(textureDesc.mipLevels - 1),
                                               "%.1f");
         ImGui::SetItemTooltip("The least detailed mip level the sampler may use. 0 turns mipmapping off.");
+        ImGui::SliderFloat("Mip bias", &m_mipBias, -4.0f, 4.0f, "%+.1f");
+        ImGui::SetItemTooltip("Added to the mip level the GPU picks (a per-draw constant, b1). Negative is "
+                              "sharper but aliases; positive is blurrier.");
+
+        ImGui::SeparatorText("Camera");
+        ImGui::SliderFloat("Field of view", &m_fieldOfView, 20.0f, 110.0f, "%.0f deg");
+        ImGui::SliderFloat("Height", &m_cameraHeight, 0.2f, 10.0f, "%.1f");
+        ImGui::TextDisabled("Sent every frame as the view constants (b0).");
 
         ImGui::SeparatorText("Corner quad sampler");
         ImGui::TextDisabled("Texture coordinates run from -1 to 2.");
@@ -363,9 +377,15 @@ namespace arc
         if (!renderer.isFrameActive() || !m_groundSampler || !m_quadSampler)
             return;
 
+        // Recomputed every frame from the current backbuffer size, so resizing needs no extra work.
         const Extent2D size = renderer.swapchain().desc().size;
-        if ((size.width != m_geometrySize.width || size.height != m_geometrySize.height) && !uploadGeometry(size))
-            return;
+        const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
+
+        // Looking slightly down, so the far edge of the ground sits just below the horizon.
+        ViewConstants camera;
+        camera.viewProjection = Mat4::perspective(toRadians(m_fieldOfView), aspect, 0.1f, 200.0f) *
+                                Mat4::lookAt({0.0f, m_cameraHeight, 0.0f}, {0.0f, m_cameraHeight - 1.0f, -6.0f},
+                                             {0.0f, 1.0f, 0.0f});
 
         if (!renderer.beginBackbufferPass("Texture Demo"))
             return;
@@ -377,13 +397,18 @@ namespace arc
         commandList.setTexture(0, *m_textures[m_selectedTexture].texture);
         {
             const rhi::ScopedDebugGroup group(commandList, "Ground");
+            commandList.setConstants(0, camera);
+            commandList.setConstants(1, groundConstants(m_mipBias));
             commandList.setSampler(0, *m_groundSampler);
-            commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()), 1, 0, kGroundBaseVertex);
+            commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
         }
         {
             const rhi::ScopedDebugGroup group(commandList, "Address Mode Quad");
+            // Already in clip space, so this draw gets an identity camera of its own.
+            commandList.setConstants(0, ViewConstants{});
+            commandList.setConstants(1, cornerQuadConstants(aspect));
             commandList.setSampler(0, *m_quadSampler);
-            commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()), 1, 0, kQuadBaseVertex);
+            commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
         }
         renderer.endBackbufferPass();
     }

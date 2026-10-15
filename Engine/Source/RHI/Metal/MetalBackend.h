@@ -20,6 +20,7 @@
 #include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
+#include "RHI/UploadRing.h"
 
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -117,7 +118,8 @@ namespace arc::rhi::metal
     class MetalCommandList final : public CommandList
     {
     public:
-        void begin(id<MTLCommandBuffer> commandBuffer);
+        /// setConstants() allocates from the given region of `ring`.
+        void begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region);
 
         /// Returns the command buffer, ready to commit, and resets the list.
         [[nodiscard]] id<MTLCommandBuffer> finish();
@@ -148,6 +150,9 @@ namespace arc::rhi::metal
         [[nodiscard]] id<MTLRenderCommandEncoder> renderEncoder() const { return m_renderEncoder; }
         [[nodiscard]] MTLRenderPassDescriptor* renderPassDescriptor() const { return m_renderPassDescriptor; }
 
+    protected:
+        void bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset) override;
+
     private:
         // Copies need a blit encoder. Consecutive copies share one; it is ended before a render
         // pass, a debug group change, or the end of the command buffer.
@@ -156,6 +161,7 @@ namespace arc::rhi::metal
 
         id<MTLCommandBuffer> m_commandBuffer = nil;
         id<MTLRenderCommandEncoder> m_renderEncoder = nil;
+        UploadAllocation m_zeroConstants;
         id<MTLBlitCommandEncoder> m_blitEncoder = nil;
 
         // Metal takes the index buffer as a draw argument rather than as bound state.
@@ -216,6 +222,7 @@ namespace arc::rhi::metal
 
         [[nodiscard]] id<MTLDevice> native() const { return m_device; }
         [[nodiscard]] id<MTLCommandQueue> queue() const { return m_queue; }
+        [[nodiscard]] UploadRing& uploadRing() { return *m_uploadRing; }
 
     protected:
         // No deferred release on Metal: command buffers from [MTLCommandQueue commandBuffer] retain
@@ -240,5 +247,6 @@ namespace arc::rhi::metal
         bool m_capturing = false;
         MetalCommandList m_commandList;
         AdapterInfo m_adapterInfo;
+        std::unique_ptr<UploadRing> m_uploadRing;
     };
 }

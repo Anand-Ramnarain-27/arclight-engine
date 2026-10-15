@@ -81,7 +81,9 @@ namespace arc::rhi::metal
         m_adapterInfo.driver = std::string("macOS ") + NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String;
 
         ARC_LOG_INFO("Metal API validation is controlled by the Xcode scheme, or MTL_DEBUG_LAYER=1 outside Xcode");
-        return true;
+
+        m_uploadRing = std::make_unique<UploadRing>();
+        return m_uploadRing->init(*this, 2 * 1024 * 1024, "Upload Ring");
     }
 
     std::unique_ptr<Buffer> MetalDevice::createBufferImpl(const BufferDesc& desc)
@@ -265,10 +267,13 @@ namespace arc::rhi::metal
     {
         @autoreleasepool
         {
+            // The previous immediate submission was waited for, so its region is free.
+            m_uploadRing->reset(UploadRing::kImmediateRegion);
+
             MetalCommandList commandList;
             id<MTLCommandBuffer> commandBuffer = [m_queue commandBuffer];
             commandBuffer.label = @"Immediate";
-            commandList.begin(commandBuffer);
+            commandList.begin(commandBuffer, *m_uploadRing, UploadRing::kImmediateRegion);
             record(commandList);
 
             commandBuffer = commandList.finish();
@@ -348,7 +353,10 @@ namespace arc::rhi::metal
 
         id<MTLCommandBuffer> commandBuffer = [m_queue commandBuffer];
         commandBuffer.label = [NSString stringWithFormat:@"Frame %llu", static_cast<unsigned long long>(frameNumber())];
-        m_commandList.begin(commandBuffer);
+        // The semaphore wait above means the frame that last used this slot has completed: a queue
+        // finishes command buffers in commit order.
+        m_uploadRing->reset(frameSlot());
+        m_commandList.begin(commandBuffer, *m_uploadRing, frameSlot());
         return m_commandList;
     }
 

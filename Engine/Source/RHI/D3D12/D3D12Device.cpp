@@ -46,6 +46,7 @@ namespace arc::rhi::d3d12
     {
         if (m_device)
             waitIdle();
+        m_uploadRing.reset();
         m_deferredRelease.releaseAll();
 
         if (m_fenceEvent)
@@ -159,6 +160,12 @@ namespace arc::rhi::d3d12
         }
 
         if (!createDescriptorHeaps() || !createRootSignature())
+            return false;
+
+        // 2 MB of constants per frame is 8192 draws' worth of 256-byte blocks.
+        // TODO: Chain extra pages when a frame needs more, instead of dropping data.
+        m_uploadRing = std::make_unique<UploadRing>();
+        if (!m_uploadRing->init(*this, 2 * 1024 * 1024, "Upload Ring"))
             return false;
 
         if (!succeeded(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_immediateAllocator)),
@@ -557,8 +564,8 @@ namespace arc::rhi::d3d12
     {
         // A root signature is the function signature of a pipeline: which constants, buffers and
         // descriptor tables its shaders read, and in which root slots. This one gives every shader
-        // the same slots: a table of kMaxTextureSlots SRVs (t0..) and one of kMaxSamplerSlots
-        // samplers (s0..), visible to all stages.
+        // the same slots: a table of kMaxTextureSlots SRVs (t0..), one of kMaxSamplerSlots samplers
+        // (s0..) and a root CBV per constant slot (b0..), all visible to every stage.
         const D3D12_DESCRIPTOR_RANGE textureRange{D3D12_DESCRIPTOR_RANGE_TYPE_SRV, kMaxTextureSlots, 0, 0,
                                                   D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
         const D3D12_DESCRIPTOR_RANGE samplerRange{D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, kMaxSamplerSlots, 0, 0,
@@ -571,6 +578,13 @@ namespace arc::rhi::d3d12
         parameters[kRootSamplerTable].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         parameters[kRootSamplerTable].DescriptorTable = {1, &samplerRange};
         parameters[kRootSamplerTable].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        for (uint32_t slot = 0; slot < kMaxConstantSlots; ++slot)
+        {
+            D3D12_ROOT_PARAMETER& parameter = parameters[kRootFirstConstants + slot];
+            parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+            parameter.Descriptor = {slot, 0};
+            parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        }
 
         D3D12_ROOT_SIGNATURE_DESC desc{};
         desc.NumParameters = static_cast<UINT>(parameters.size());
@@ -665,9 +679,10 @@ namespace arc::rhi::d3d12
     void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)
     {
         // The previous immediate submission was waited for, so its transient descriptors are free.
-        constexpr uint32_t kImmediateRegion = kMaxFramesInFlight;
+        constexpr uint32_t kImmediateRegion = UploadRing::kImmediateRegion;
         m_shaderVisibleSrvHeap.resetTransient(kImmediateRegion);
         m_shaderVisibleSamplerHeap.resetTransient(kImmediateRegion);
+        m_uploadRing->reset(kImmediateRegion);
 
         ARC_VERIFY(SUCCEEDED(m_immediateAllocator->Reset()));
         m_immediateList.begin(m_immediateAllocator.Get(), kImmediateRegion);
@@ -701,6 +716,7 @@ namespace arc::rhi::d3d12
 
         m_shaderVisibleSrvHeap.resetTransient(frameSlot());
         m_shaderVisibleSamplerHeap.resetTransient(frameSlot());
+        m_uploadRing->reset(frameSlot());
 
         ARC_VERIFY(SUCCEEDED(frame.allocator->Reset()));
         m_commandList.begin(frame.allocator.Get(), frameSlot());

@@ -2,6 +2,7 @@ add_executable(ArclightTests
     Source/TestMain.cpp
     Source/HandleTests.cpp
     Source/ResourceLifetimeTests.cpp
+    Source/UploadRingTests.cpp
     Source/MathTests.cpp
     Source/TimeTests.cpp
     Source/RHITests.cpp

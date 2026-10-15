@@ -5,7 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Phase 2 in progress: textures, resource lifetimes.
+Phase 2 in progress: textures, resource lifetimes, constants.
+
+### Added (constants)
+- `RHI/UploadRing`: per-frame scratch memory in one Upload buffer, one region per frame in flight plus one for immediate submissions, reset when the frame slot comes round again. Starts with 64 KB of zeros that unset constant slots read.
+- `CommandList::setConstants(slot, data)` (and a typed overload) for cbuffer slots b0–b2 in both shader stages: copies the data into the ring and binds it. D3D12 uses root constant buffer views; Metal binds the buffer at `[[buffer(n)]]`.
+- `Engine/Shaders/Constants.hlsli` (`ViewConstants` at b0) mirrored by `Renderer/ShaderConstants.h`, with `static_assert`s on every offset against HLSL's 16-byte-row packing.
+- Texture demo: the ground plane is a unit quad in world space with a camera in b0 and a per-draw transform, texture-coordinate scale/offset and mip bias in b1. New *Mip bias*, *Field of view* and *Height* controls.
+- Unit tests for the upload ring.
+
+### Changed (constants)
+- The D3D12 root signature gains three root CBVs (b0–b2) after the SRV and sampler tables.
+- The texture demo draws one 4-vertex quad twice instead of building clip-space vertices on the CPU, so resizing no longer creates any buffer.
 
 ### Added (resource lifetimes)
 - `Core/Handle.h`: generational handles (`Handle<Tag>`), `HandleAllocator` and `HandlePool`. A freed slot bumps its generation, so stale handles are detected instead of reaching whatever reuses the slot.

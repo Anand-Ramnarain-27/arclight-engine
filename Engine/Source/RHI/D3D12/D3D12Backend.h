@@ -11,6 +11,7 @@
 #include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
+#include "RHI/UploadRing.h"
 
 #include <array>
 #include <memory>
@@ -162,7 +163,8 @@ namespace arc::rhi::d3d12
     {
         kRootTextureTable = 0,   // SRV table, t0 .. t(kMaxTextureSlots - 1).
         kRootSamplerTable = 1,   // Sampler table, s0 .. s(kMaxSamplerSlots - 1).
-        kRootParameterCount,
+        kRootFirstConstants = 2, // Root CBVs b0 .. b(kMaxConstantSlots - 1), one parameter each.
+        kRootParameterCount = kRootFirstConstants + kMaxConstantSlots,
     };
 
     /// D3D12 has no shader object; the bytecode is passed to pipeline creation, so it is kept here.
@@ -241,6 +243,9 @@ namespace arc::rhi::d3d12
 
         [[nodiscard]] ID3D12GraphicsCommandList* native() const { return m_list.Get(); }
 
+    protected:
+        void bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset) override;
+
     private:
         void resetBindings();
 
@@ -255,8 +260,10 @@ namespace arc::rhi::d3d12
         uint32_t m_transientRegion = 0;
         std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxTextureSlots> m_textures{};
         std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxSamplerSlots> m_samplers{};
+        std::array<D3D12_GPU_VIRTUAL_ADDRESS, kMaxConstantSlots> m_constants{};
         bool m_texturesDirty = true;
         bool m_samplersDirty = true;
+        uint32_t m_constantsDirty = 0;   // Bit per slot.
         bool m_inRenderPass = false;
         bool m_passHasDebugGroup = false;
         int m_debugDepth = 0;
@@ -344,6 +351,9 @@ namespace arc::rhi::d3d12
         [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE nullSrv() const { return m_nullSrv.cpu; }
         [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE defaultSampler() const { return m_defaultSampler.cpu; }
 
+        /// Per-frame memory for setConstants().
+        [[nodiscard]] UploadRing& uploadRing() { return *m_uploadRing; }
+
         /// Logs why the device was removed, if it was. Call after a call fails with DXGI_ERROR_DEVICE_REMOVED.
         void reportDeviceRemoved() const;
 
@@ -400,6 +410,7 @@ namespace arc::rhi::d3d12
         D3D12DescriptorHeap m_shaderVisibleSamplerHeap;
         D3D12Descriptor m_nullSrv;
         D3D12Descriptor m_defaultSampler;
+        std::unique_ptr<UploadRing> m_uploadRing;
 
         // submitImmediate() waits for its work to finish, so one allocator suffices.
         ComPtr<ID3D12CommandAllocator> m_immediateAllocator;

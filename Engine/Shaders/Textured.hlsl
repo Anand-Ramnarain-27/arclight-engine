@@ -1,14 +1,23 @@
-// A textured surface. Positions arrive already projected to clip space but keep their w, so the
-// rasterizer still interpolates texture coordinates with perspective correction.
+// A textured surface in world space, transformed by the camera in b0 and the object in b1.
 
 #include "Common.hlsli"
+#include "Constants.hlsli"
+
+// Mirrored by TexturedDrawConstants in Editor/Source/Scene/TextureDemoModule.cpp.
+cbuffer DrawConstants : register(b1)
+{
+    float4x4 world;      // Object space to world space.
+    float2 uvScale;      // Applied to the mesh's texture coordinates before uvOffset.
+    float2 uvOffset;
+    float mipBias;       // Added to the mip level the hardware selects; negative is sharper.
+};
 
 Texture2D<float4> g_texture : register(t0);
 SamplerState g_sampler : register(s0);
 
 struct VSInput
 {
-    float4 position : POSITION;
+    float3 position : POSITION;
     float2 uv : TEXCOORD0;
 };
 
@@ -21,14 +30,14 @@ struct VSOutput
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    output.position = input.position;
-    output.uv = input.uv;
+    output.position = mul(viewProjection, mul(world, float4(input.position, 1.0)));
+    output.uv = input.uv * uvScale + uvOffset;
     return output;
 }
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
     // Sampling an sRGB texture returns linear colour; the hardware decodes before filtering.
-    const float4 color = g_texture.Sample(g_sampler, input.uv);
+    const float4 color = g_texture.SampleBias(g_sampler, input.uv, mipBias);
     return float4(LinearToSrgb(color.rgb), color.a);
 }

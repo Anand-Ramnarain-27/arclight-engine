@@ -3,8 +3,10 @@
 #include "Core/Assert.h"
 #include "RHI/Buffer.h"
 #include "RHI/Texture.h"
+#include "RHI/UploadRing.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace arc::rhi
 {
@@ -13,6 +15,19 @@ namespace arc::rhi
         for (Buffer* buffer : m_trackedBuffers)
             buffer->setState(ResourceState::Common);
         m_trackedBuffers.clear();
+    }
+
+    void CommandList::setConstants(uint32_t slot, std::span<const std::byte> data)
+    {
+        ARC_ASSERT(slot < kMaxConstantSlots, "Constant slot {} is out of range", slot);
+        ARC_ASSERT(!data.empty() && data.size() <= kMaxConstantBufferSize, "Constant data of {} bytes", data.size());
+        ARC_ASSERT(m_uploadRing, "The device did not give this command list an upload ring");
+
+        const UploadAllocation allocation = m_uploadRing->allocate(m_uploadRegion, data.size(), kConstantBufferAlignment);
+        if (!allocation)
+            return;
+        std::memcpy(allocation.cpu, data.data(), data.size());
+        bindConstants(slot, *allocation.buffer, allocation.offset);
     }
 
     void CommandList::trackBufferState(Buffer& buffer, ResourceState state)

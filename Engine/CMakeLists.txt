@@ -33,6 +33,8 @@ add_library(ArclightEngine STATIC
     Source/RHI/DeferredRelease.h
     Source/RHI/BufferUtils.h
     Source/RHI/BufferUtils.cpp
+    Source/RHI/UploadRing.h
+    Source/RHI/UploadRing.cpp
     Source/RHI/TextureUtils.h
     Source/RHI/TextureUtils.cpp
     Source/RHI/CommandList.h
@@ -46,6 +48,7 @@ add_library(ArclightEngine STATIC
     Source/Renderer/Renderer.cpp
     Source/Renderer/ShaderLibrary.h
     Source/Renderer/ShaderLibrary.cpp
+    Source/Renderer/ShaderConstants.h
     Source/Renderer/Image.h
     Source/Renderer/Image.cpp
     Source/Renderer/TextureLoader.h
