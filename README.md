@@ -22,6 +22,7 @@ Phase 2 (meshes, textures, camera, viewport) is in progress. Done so far:
 - **Resource binding.** `setTexture(slot, …)` and `setSampler(slot, …)` bind to fixed slots t0–t7 and s0–s3 in every shader. On D3D12 this is one shared root signature with descriptor tables built per draw in a shader-visible heap that ImGui shares; on Metal the slots are the `[[texture(n)]]` / `[[sampler(n)]]` indices, kept equal to the HLSL registers by the shader build.
 - **Image loading.** PNG, JPEG, TGA and BMP through stb_image, with sRGB-correct mip generation on the CPU.
 - **Texture demo.** A ground plane receding to the horizon and an address-mode quad, with a *Texture Demo* panel to switch textures and sampler settings, including a texture that colours each mip level differently.
+- **Resource lifetimes.** Buffers, textures and pipelines can be destroyed while the GPU still uses them: D3D12 keeps them in a fence-tagged deferred release queue, and Metal's command buffers retain them. Resources have generational handles (`Device::find()` returns nullptr once a resource is gone), leaks are reported by name at shutdown, and System Info shows live resource counts.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 

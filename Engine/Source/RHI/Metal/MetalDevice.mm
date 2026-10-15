@@ -84,9 +84,8 @@ namespace arc::rhi::metal
         return true;
     }
 
-    std::unique_ptr<Buffer> MetalDevice::createBuffer(const BufferDesc& desc)
+    std::unique_ptr<Buffer> MetalDevice::createBufferImpl(const BufferDesc& desc)
     {
-        ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
 
         MTLResourceOptions options = MTLResourceHazardTrackingModeDefault;
         ResourceState state = ResourceState::Common;
@@ -118,9 +117,8 @@ namespace arc::rhi::metal
         return std::make_unique<MetalBuffer>(buffer, desc, state);
     }
 
-    std::unique_ptr<Texture> MetalDevice::createTexture(const TextureDesc& desc)
+    std::unique_ptr<Texture> MetalDevice::createTextureImpl(const TextureDesc& desc)
     {
-        validateTextureDesc(desc);
 
         MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
                                                                                               width:desc.size.width
@@ -148,9 +146,8 @@ namespace arc::rhi::metal
         return std::make_unique<MetalTexture>(texture, desc);
     }
 
-    std::unique_ptr<Sampler> MetalDevice::createSampler(const SamplerDesc& desc)
+    std::unique_ptr<Sampler> MetalDevice::createSamplerImpl(const SamplerDesc& desc)
     {
-        validateSamplerDesc(desc);
 
         const auto address = [](AddressMode mode) {
             switch (mode)

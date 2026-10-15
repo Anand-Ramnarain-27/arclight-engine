@@ -1,7 +1,11 @@
 #include "RHI/Device.h"
 
 #include "Core/Assert.h"
+#include "Core/Log.h"
 #include "RHI/Backends.h"
+#include "RHI/Buffer.h"
+#include "RHI/Sampler.h"
+#include "RHI/Texture.h"
 
 #include <algorithm>
 #include <bit>
@@ -68,21 +72,129 @@ namespace arc::rhi
         return "unknown";
     }
 
-    void Device::validateTextureDesc(const TextureDesc& desc)
+    namespace
     {
-        ARC_ASSERT(desc.size.width > 0 && desc.size.height > 0, "Texture '{}' has zero size", desc.debugName);
-        ARC_ASSERT(desc.format != Format::Unknown, "Texture '{}' has no format", desc.debugName);
-        ARC_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size),
-                   "Texture '{}' asks for {} mip levels; its size allows 1 to {}", desc.debugName, desc.mipLevels,
-                   fullMipCount(desc.size));
-        ARC_ASSERT(desc.usage != TextureUsage::None, "Texture '{}' has no usage", desc.debugName);
+        // The rules shared by every backend, checked before the backend sees the description.
+        void validateBufferDesc(const BufferDesc& desc)
+        {
+            ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
+        }
+
+        void validateTextureDesc(const TextureDesc& desc)
+        {
+            ARC_ASSERT(desc.size.width > 0 && desc.size.height > 0, "Texture '{}' has zero size", desc.debugName);
+            ARC_ASSERT(desc.format != Format::Unknown, "Texture '{}' has no format", desc.debugName);
+            ARC_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size),
+                       "Texture '{}' asks for {} mip levels; its size allows 1 to {}", desc.debugName,
+                       desc.mipLevels, fullMipCount(desc.size));
+            ARC_ASSERT(desc.usage != TextureUsage::None, "Texture '{}' has no usage", desc.debugName);
+        }
+
+        void validateSamplerDesc(const SamplerDesc& desc)
+        {
+            ARC_ASSERT(desc.maxAnisotropy >= 1 && desc.maxAnisotropy <= 16,
+                       "Sampler '{}': maxAnisotropy {} is outside [1, 16]", desc.debugName, desc.maxAnisotropy);
+            ARC_ASSERT(desc.minLod <= desc.maxLod, "Sampler '{}': minLod is above maxLod", desc.debugName);
+        }
+
+        template <typename Resource, typename Pool>
+        void reportLeaks(Pool& pool, const char* kind)
+        {
+            pool.forEach([kind](auto /*handle*/, Resource* resource) {
+                ARC_LOG_ERROR("Leaked {}: '{}' was not destroyed before its device", kind, resource->desc().debugName);
+            });
+        }
     }
 
-    void Device::validateSamplerDesc(const SamplerDesc& desc)
+    Device::~Device()
     {
-        ARC_ASSERT(desc.maxAnisotropy >= 1 && desc.maxAnisotropy <= 16, "Sampler '{}': maxAnisotropy {} is outside [1, 16]",
-                   desc.debugName, desc.maxAnisotropy);
-        ARC_ASSERT(desc.minLod <= desc.maxLod, "Sampler '{}': minLod is above maxLod", desc.debugName);
+        reportLeaks<Buffer>(m_buffers, "buffer");
+        reportLeaks<Texture>(m_textures, "texture");
+        reportLeaks<Sampler>(m_samplers, "sampler");
+
+        // A leaked resource destroyed later must not reach into this device.
+        m_buffers.forEach([](BufferHandle, Buffer* buffer) { buffer->m_owner = nullptr; });
+        m_textures.forEach([](TextureHandle, Texture* texture) { texture->m_owner = nullptr; });
+        m_samplers.forEach([](SamplerHandle, Sampler* sampler) { sampler->m_owner = nullptr; });
+    }
+
+    std::unique_ptr<Buffer> Device::createBuffer(const BufferDesc& desc)
+    {
+        validateBufferDesc(desc);
+        std::unique_ptr<Buffer> buffer = createBufferImpl(desc);
+        if (buffer)
+        {
+            buffer->m_owner = this;
+            buffer->m_handle = m_buffers.insert(buffer.get());
+        }
+        return buffer;
+    }
+
+    std::unique_ptr<Texture> Device::createTexture(const TextureDesc& desc)
+    {
+        validateTextureDesc(desc);
+        std::unique_ptr<Texture> texture = createTextureImpl(desc);
+        if (texture)
+        {
+            texture->m_owner = this;
+            texture->m_handle = m_textures.insert(texture.get());
+        }
+        return texture;
+    }
+
+    std::unique_ptr<Sampler> Device::createSampler(const SamplerDesc& desc)
+    {
+        validateSamplerDesc(desc);
+        std::unique_ptr<Sampler> sampler = createSamplerImpl(desc);
+        if (sampler)
+        {
+            sampler->m_owner = this;
+            sampler->m_handle = m_samplers.insert(sampler.get());
+        }
+        return sampler;
+    }
+
+    Buffer* Device::find(BufferHandle handle) const
+    {
+        Buffer* const* buffer = m_buffers.get(handle);
+        return buffer ? *buffer : nullptr;
+    }
+
+    Texture* Device::find(TextureHandle handle) const
+    {
+        Texture* const* texture = m_textures.get(handle);
+        return texture ? *texture : nullptr;
+    }
+
+    Sampler* Device::find(SamplerHandle handle) const
+    {
+        Sampler* const* sampler = m_samplers.get(handle);
+        return sampler ? *sampler : nullptr;
+    }
+
+    Device::ResourceCounts Device::resourceCounts() const
+    {
+        return {m_buffers.size(), m_textures.size(), m_samplers.size(), awaitingReleaseCount()};
+    }
+
+    // Each resource removes itself from its device's registry. The backend's destructor has
+    // already run by now and has handed the GPU object to the deferred release queue if needed.
+    Buffer::~Buffer()
+    {
+        if (m_owner)
+            m_owner->m_buffers.remove(m_handle);
+    }
+
+    Texture::~Texture()
+    {
+        if (m_owner)
+            m_owner->m_textures.remove(m_handle);
+    }
+
+    Sampler::~Sampler()
+    {
+        if (m_owner)
+            m_owner->m_samplers.remove(m_handle);
     }
 
     std::unique_ptr<Device> Device::create(const DeviceDesc& desc)

@@ -2,7 +2,9 @@
 
 #include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
+#include "Core/Handle.h"
 #include "RHI/D3D12/D3D12Common.h"
+#include "RHI/DeferredRelease.h"
 #include "RHI/Device.h"
 #include "RHI/Pipeline.h"
 #include "RHI/Sampler.h"
@@ -24,6 +26,10 @@ namespace arc::rhi::d3d12
     {
         D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE gpu{};   // Zero unless the heap is shader-visible.
+
+        /// Identifies a persistent descriptor's slot and generation, so freeing it twice, or
+        /// freeing a stale copy, is caught. Null for transient descriptors.
+        Handle<D3D12Descriptor> handle;
 
         [[nodiscard]] bool valid() const { return cpu.ptr != 0; }
     };
@@ -52,6 +58,12 @@ namespace arc::rhi::d3d12
 
         /// Returns an invalid descriptor and logs if the persistent part is full.
         [[nodiscard]] D3D12Descriptor allocate();
+
+        /// Does nothing for an invalid descriptor. Asserts if it was already freed.
+        void free(const D3D12Descriptor& descriptor);
+
+        /// For callers that only kept the CPU handle, such as ImGui's free callback. Still catches
+        /// a double free, but not a stale copy.
         void free(D3D12_CPU_DESCRIPTOR_HANDLE cpu);
 
         /// The GPU must have finished every command list that used the region.
@@ -61,7 +73,7 @@ namespace arc::rhi::d3d12
         [[nodiscard]] D3D12Descriptor allocateTransient(uint32_t region, uint32_t count);
 
         [[nodiscard]] ID3D12DescriptorHeap* native() const { return m_heap.Get(); }
-        [[nodiscard]] uint32_t persistentInUse() const { return m_persistentCount - static_cast<uint32_t>(m_freeList.size()); }
+        [[nodiscard]] uint32_t persistentInUse() const { return m_persistentSlots.aliveCount(); }
 
     private:
         [[nodiscard]] D3D12Descriptor at(uint32_t index) const;
@@ -72,7 +84,7 @@ namespace arc::rhi::d3d12
         uint32_t m_stride = 0;
         uint32_t m_persistentCount = 0;
         uint32_t m_transientCountPerRegion = 0;
-        std::vector<uint32_t> m_freeList;
+        HandleAllocator<D3D12Descriptor> m_persistentSlots{0};
         std::vector<uint32_t> m_transientUsed;   // Per region.
         std::string m_name;
     };
@@ -85,7 +97,7 @@ namespace arc::rhi::d3d12
 
         /// Takes ownership of the views, which are freed with the texture.
         D3D12Texture(D3D12Device& device, ComPtr<ID3D12Resource> resource, const TextureDesc& desc,
-                     D3D12_CPU_DESCRIPTOR_HANDLE srv, D3D12_CPU_DESCRIPTOR_HANDLE rtv);
+                     const D3D12Descriptor& srv, const D3D12Descriptor& rtv);
         ~D3D12Texture() override;
 
         void reset(ComPtr<ID3D12Resource> resource, const TextureDesc& desc, ResourceState state);
@@ -103,37 +115,43 @@ namespace arc::rhi::d3d12
     private:
         ComPtr<ID3D12Resource> m_resource;
         D3D12Device* m_device = nullptr;   // Null for backbuffers, whose views the swapchain owns.
+        D3D12Descriptor m_srvDescriptor;
+        D3D12Descriptor m_rtvDescriptor;
     };
 
     class D3D12Sampler final : public Sampler
     {
     public:
-        D3D12Sampler(D3D12Device& device, const SamplerDesc& desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor);
+        D3D12Sampler(D3D12Device& device, const SamplerDesc& desc, const D3D12Descriptor& descriptor);
         ~D3D12Sampler() override;
 
         /// In the device's CPU-only sampler heap; copied into a shader-visible table at draw time.
-        [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE descriptor() const { return m_descriptor; }
+        [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE descriptor() const { return m_descriptor.cpu; }
 
     private:
         D3D12Device& m_device;
-        D3D12_CPU_DESCRIPTOR_HANDLE m_descriptor{};
+        D3D12Descriptor m_descriptor;
     };
 
     class D3D12Buffer final : public Buffer
     {
     public:
-        D3D12Buffer(ComPtr<ID3D12Resource> resource, const BufferDesc& desc, void* mapped, ResourceState state)
-            : m_resource(std::move(resource))
+        D3D12Buffer(D3D12Device& device, ComPtr<ID3D12Resource> resource, const BufferDesc& desc, void* mapped,
+                    ResourceState state)
+            : m_device(device)
+            , m_resource(std::move(resource))
         {
             m_desc = desc;
             m_mapped = mapped;
             m_state = state;
         }
+        ~D3D12Buffer() override;
 
         [[nodiscard]] ID3D12Resource* resource() const { return m_resource.Get(); }
         [[nodiscard]] D3D12_GPU_VIRTUAL_ADDRESS gpuAddress() const { return m_resource->GetGPUVirtualAddress(); }
 
     private:
+        D3D12Device& m_device;
         ComPtr<ID3D12Resource> m_resource;
     };
 
@@ -166,18 +184,22 @@ namespace arc::rhi::d3d12
     class D3D12Pipeline final : public Pipeline
     {
     public:
-        D3D12Pipeline(const PipelineDesc& desc, ComPtr<ID3D12PipelineState> state, ID3D12RootSignature* rootSignature)
+        D3D12Pipeline(D3D12Device& device, const PipelineDesc& desc, ComPtr<ID3D12PipelineState> state,
+                      ID3D12RootSignature* rootSignature)
             : Pipeline(desc)
+            , m_device(device)
             , m_state(std::move(state))
             , m_rootSignature(rootSignature)
         {
         }
+        ~D3D12Pipeline() override;
 
         [[nodiscard]] ID3D12PipelineState* state() const { return m_state.Get(); }
         /// Owned by the device.
         [[nodiscard]] ID3D12RootSignature* rootSignature() const { return m_rootSignature; }
 
     private:
+        D3D12Device& m_device;
         ComPtr<ID3D12PipelineState> m_state;
         ID3D12RootSignature* m_rootSignature = nullptr;
     };
@@ -286,9 +308,6 @@ namespace arc::rhi::d3d12
         [[nodiscard]] bool init(const DeviceDesc& desc);
 
         [[nodiscard]] const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
-        [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
-        [[nodiscard]] std::unique_ptr<Texture> createTexture(const TextureDesc& desc) override;
-        [[nodiscard]] std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc) override;
         [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::DXIL; }
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
@@ -305,6 +324,10 @@ namespace arc::rhi::d3d12
         [[nodiscard]] ID3D12CommandQueue* queue() const { return m_queue.Get(); }
         [[nodiscard]] IDXGIFactory6* factory() const { return m_factory.Get(); }
         [[nodiscard]] bool tearingSupported() const { return m_tearingSupported; }
+
+        /// Keeps a GPU object alive until every command list that may use it has completed. Called
+        /// by the destructors of buffers, textures and pipelines.
+        void retire(ComPtr<ID3D12Pageable> object);
 
         /// CPU-only heaps where views are created. Shaders never read these directly.
         [[nodiscard]] D3D12DescriptorHeap& cpuSrvHeap() { return m_cpuSrvHeap; }
@@ -323,6 +346,15 @@ namespace arc::rhi::d3d12
 
         /// Logs why the device was removed, if it was. Call after a call fails with DXGI_ERROR_DEVICE_REMOVED.
         void reportDeviceRemoved() const;
+
+    protected:
+        [[nodiscard]] std::unique_ptr<Buffer> createBufferImpl(const BufferDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Sampler> createSamplerImpl(const SamplerDesc& desc) override;
+        [[nodiscard]] uint32_t awaitingReleaseCount() const override
+        {
+            return static_cast<uint32_t>(m_deferredRelease.size());
+        }
 
     private:
         struct FrameContext
@@ -349,6 +381,10 @@ namespace arc::rhi::d3d12
         ComPtr<ID3D12Fence> m_fence;
         HANDLE m_fenceEvent = nullptr;
         uint64_t m_lastSignalledValue = 0;
+
+        // Fence values tag each retired object; see DeferredReleaseQueue.
+        DeferredReleaseQueue<ComPtr<ID3D12Pageable>> m_deferredRelease;
+        bool m_frameOpen = false;   // Between beginFrame() and endFrame().
 
         std::array<FrameContext, kMaxFramesInFlight> m_frames;
         D3D12CommandList m_commandList;

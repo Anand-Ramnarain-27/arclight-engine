@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Handle.h"
 #include "Core/Platform.h"
 #include "Platform/Window.h"
 
@@ -8,6 +9,17 @@
 
 namespace arc::rhi
 {
+    class Buffer;
+    class Sampler;
+    class Texture;
+
+    /// Non-owning references to resources created by a Device. The owner holds the unique_ptr; any
+    /// other system keeps a handle and resolves it with Device::find(), which returns nullptr once
+    /// the resource has been destroyed.
+    using BufferHandle = Handle<Buffer>;
+    using TextureHandle = Handle<Texture>;
+    using SamplerHandle = Handle<Sampler>;
+
     /// How many frames the CPU may record ahead of the GPU. Per-frame resources (command
     /// allocators, upload memory) are created this many times and reused round-robin.
     inline constexpr uint32_t kMaxFramesInFlight = 2;

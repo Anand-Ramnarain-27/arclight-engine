@@ -293,21 +293,18 @@ namespace arc::rhi
                 return std::make_unique<NullSwapchain>(desc);
             }
 
-            std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override
+            std::unique_ptr<Buffer> createBufferImpl(const BufferDesc& desc) override
             {
-                ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
                 return std::make_unique<NullBuffer>(desc);
             }
 
-            std::unique_ptr<Texture> createTexture(const TextureDesc& desc) override
+            std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) override
             {
-                validateTextureDesc(desc);
                 return std::make_unique<NullTexture>(desc);
             }
 
-            std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc) override
+            std::unique_ptr<Sampler> createSamplerImpl(const SamplerDesc& desc) override
             {
-                validateSamplerDesc(desc);
                 return std::make_unique<NullSampler>(desc);
             }
 

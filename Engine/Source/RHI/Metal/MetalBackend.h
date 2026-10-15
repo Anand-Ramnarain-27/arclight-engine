@@ -202,9 +202,6 @@ namespace arc::rhi::metal
         [[nodiscard]] bool init(const DeviceDesc& desc);
 
         [[nodiscard]] const AdapterInfo& adapterInfo() const override { return m_adapterInfo; }
-        [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) override;
-        [[nodiscard]] std::unique_ptr<Texture> createTexture(const TextureDesc& desc) override;
-        [[nodiscard]] std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc) override;
         [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::MetalLib; }
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
@@ -219,6 +216,14 @@ namespace arc::rhi::metal
 
         [[nodiscard]] id<MTLDevice> native() const { return m_device; }
         [[nodiscard]] id<MTLCommandQueue> queue() const { return m_queue; }
+
+    protected:
+        // No deferred release on Metal: command buffers from [MTLCommandQueue commandBuffer] retain
+        // every resource their encoders reference until they complete, so dropping the engine's
+        // reference early is safe.
+        [[nodiscard]] std::unique_ptr<Buffer> createBufferImpl(const BufferDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<Sampler> createSamplerImpl(const SamplerDesc& desc) override;
 
     private:
         void startCapture();

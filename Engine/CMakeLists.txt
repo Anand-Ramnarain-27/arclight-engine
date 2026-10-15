@@ -1,6 +1,7 @@
 add_library(ArclightEngine STATIC
     Source/Core/Platform.h
     Source/Core/Assert.h
+    Source/Core/Handle.h
     Source/Core/Assert.cpp
     Source/Core/Log.h
     Source/Core/Log.cpp
@@ -29,6 +30,7 @@ add_library(ArclightEngine STATIC
     Source/RHI/Shader.h
     Source/RHI/ShaderUtils.h
     Source/RHI/ShaderUtils.cpp
+    Source/RHI/DeferredRelease.h
     Source/RHI/BufferUtils.h
     Source/RHI/BufferUtils.cpp
     Source/RHI/TextureUtils.h

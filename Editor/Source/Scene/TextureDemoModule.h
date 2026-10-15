@@ -24,7 +24,7 @@ namespace arc
     /// sampler settings.
     ///
     /// Placeholder until the scene viewport and camera exist (Phase 2). Without constant buffers the
-    /// ground is projected on the CPU when the backbuffer changes size.
+    /// ground is projected on the CPU into a new vertex buffer whenever the backbuffer changes size.
     class TextureDemoModule final : public Module
     {
     public:
@@ -64,5 +64,6 @@ namespace arc
         std::unique_ptr<rhi::Sampler> m_groundSampler;
         std::unique_ptr<rhi::Sampler> m_quadSampler;
         bool m_samplersDirty = true;
+        bool m_recreateTextures = false;
     };
 }

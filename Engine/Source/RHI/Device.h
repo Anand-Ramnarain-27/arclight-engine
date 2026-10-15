@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Handle.h"
 #include "RHI/RHITypes.h"
 
 #include <functional>
@@ -32,13 +33,19 @@ namespace arc::rhi
     ///   CommandList& cmd = device.beginFrame(swapchain);  // Waits until a frame slot is free.
     ///   ...record...
     ///   device.endFrame(swapchain);                       // Submits and presents.
+    ///
+    /// Resource lifetime: buffers, textures and samplers are owned by whoever holds their
+    /// unique_ptr, and may be destroyed at any time, including while frames in flight still use
+    /// them. Each backend keeps the GPU object alive until the GPU has finished with it.
     class Device
     {
     public:
         /// Returns nullptr and logs the reason if no suitable GPU is found.
         [[nodiscard]] static std::unique_ptr<Device> create(const DeviceDesc& desc);
 
-        virtual ~Device() = default;
+        /// Logs every buffer, texture and sampler still alive: each one is a leak, since resources
+        /// must be destroyed before their device.
+        virtual ~Device();
 
         Device(const Device&) = delete;
         Device& operator=(const Device&) = delete;
@@ -47,14 +54,30 @@ namespace arc::rhi
 
         /// Upload and Readback buffers are mapped on creation. GPU-only buffers start in the Common
         /// state. Returns nullptr and logs on failure.
-        [[nodiscard]] virtual std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc) = 0;
+        [[nodiscard]] std::unique_ptr<Buffer> createBuffer(const BufferDesc& desc);
 
         /// GPU-only memory, starting in the Common state with undefined contents. Fill it with
         /// uploadTexture() (RHI/TextureUtils.h). Returns nullptr and logs on failure.
-        [[nodiscard]] virtual std::unique_ptr<Texture> createTexture(const TextureDesc& desc) = 0;
+        [[nodiscard]] std::unique_ptr<Texture> createTexture(const TextureDesc& desc);
 
         /// Returns nullptr and logs on failure.
-        [[nodiscard]] virtual std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc) = 0;
+        [[nodiscard]] std::unique_ptr<Sampler> createSampler(const SamplerDesc& desc);
+
+        /// The resource a handle refers to, or nullptr once it has been destroyed.
+        [[nodiscard]] Buffer* find(BufferHandle handle) const;
+        [[nodiscard]] Texture* find(TextureHandle handle) const;
+        [[nodiscard]] Sampler* find(SamplerHandle handle) const;
+
+        struct ResourceCounts
+        {
+            uint32_t buffers = 0;
+            uint32_t textures = 0;     // Not counting swapchain backbuffers.
+            uint32_t samplers = 0;
+            /// Destroyed by their owners but kept until the GPU has finished with them.
+            uint32_t awaitingRelease = 0;
+        };
+
+        [[nodiscard]] ResourceCounts resourceCounts() const;
 
         [[nodiscard]] virtual ShaderFormat shaderFormat() const = 0;
 
@@ -100,9 +123,13 @@ namespace arc::rhi
     protected:
         Device() = default;
 
-        /// Asserts the rules shared by every backend; the backends call these first.
-        static void validateTextureDesc(const TextureDesc& desc);
-        static void validateSamplerDesc(const SamplerDesc& desc);
+        // Backend implementations of the create functions. The description has been validated.
+        [[nodiscard]] virtual std::unique_ptr<Buffer> createBufferImpl(const BufferDesc& desc) = 0;
+        [[nodiscard]] virtual std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) = 0;
+        [[nodiscard]] virtual std::unique_ptr<Sampler> createSamplerImpl(const SamplerDesc& desc) = 0;
+
+        /// GPU objects whose owners have destroyed them but which the GPU may still be using.
+        [[nodiscard]] virtual uint32_t awaitingReleaseCount() const { return 0; }
 
         void advanceFrame()
         {
@@ -111,7 +138,17 @@ namespace arc::rhi
         }
 
     private:
+        // The destructors of the resource classes remove themselves from the registry.
+        friend class Buffer;
+        friend class Sampler;
+        friend class Texture;
+
         uint32_t m_frameSlot = 0;
         uint64_t m_frameNumber = 0;
+
+        // Every live resource created through this device, for find() and the leak report.
+        HandlePool<Buffer*, Buffer> m_buffers;
+        HandlePool<Texture*, Texture> m_textures;
+        HandlePool<Sampler*, Sampler> m_samplers;
     };
 }

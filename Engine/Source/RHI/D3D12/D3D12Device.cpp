@@ -46,6 +46,7 @@ namespace arc::rhi::d3d12
     {
         if (m_device)
             waitIdle();
+        m_deferredRelease.releaseAll();
 
         if (m_fenceEvent)
             CloseHandle(m_fenceEvent);
@@ -334,9 +335,8 @@ namespace arc::rhi::d3d12
         ARC_LOG_INFO("D3D12 debug messages go to the debugger output only (ID3D12InfoQueue1 unavailable)");
     }
 
-    std::unique_ptr<Buffer> D3D12Device::createBuffer(const BufferDesc& desc)
+    std::unique_ptr<Buffer> D3D12Device::createBufferImpl(const BufferDesc& desc)
     {
-        ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
 
         D3D12_HEAP_PROPERTIES heap{};
         D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON;
@@ -390,12 +390,11 @@ namespace arc::rhi::d3d12
                 return nullptr;
         }
 
-        return std::make_unique<D3D12Buffer>(std::move(resource), desc, mapped, trackedState);
+        return std::make_unique<D3D12Buffer>(*this, std::move(resource), desc, mapped, trackedState);
     }
 
-    std::unique_ptr<Texture> D3D12Device::createTexture(const TextureDesc& desc)
+    std::unique_ptr<Texture> D3D12Device::createTextureImpl(const TextureDesc& desc)
     {
-        validateTextureDesc(desc);
 
         D3D12_RESOURCE_DESC resourceDesc{};
         resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -421,34 +420,33 @@ namespace arc::rhi::d3d12
             return nullptr;
         setDebugName(resource.Get(), desc.debugName);
 
-        D3D12_CPU_DESCRIPTOR_HANDLE srv{};
+        D3D12Descriptor srv;
         if (hasFlag(desc.usage, TextureUsage::Sampled))
         {
-            srv = m_cpuSrvHeap.allocate().cpu;
-            if (srv.ptr == 0)
+            srv = m_cpuSrvHeap.allocate();
+            if (!srv.valid())
                 return nullptr;
             // A null description views every mip level in the resource's own format.
-            m_device->CreateShaderResourceView(resource.Get(), nullptr, srv);
+            m_device->CreateShaderResourceView(resource.Get(), nullptr, srv.cpu);
         }
 
-        D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
+        D3D12Descriptor rtv;
         if (hasFlag(desc.usage, TextureUsage::RenderTarget))
         {
-            rtv = m_rtvHeap.allocate().cpu;
-            if (rtv.ptr == 0)
+            rtv = m_rtvHeap.allocate();
+            if (!rtv.valid())
             {
                 m_cpuSrvHeap.free(srv);
                 return nullptr;
             }
-            m_device->CreateRenderTargetView(resource.Get(), nullptr, rtv);
+            m_device->CreateRenderTargetView(resource.Get(), nullptr, rtv.cpu);
         }
 
         return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, rtv);
     }
 
-    std::unique_ptr<Sampler> D3D12Device::createSampler(const SamplerDesc& desc)
+    std::unique_ptr<Sampler> D3D12Device::createSamplerImpl(const SamplerDesc& desc)
     {
-        validateSamplerDesc(desc);
 
         const D3D12Descriptor descriptor = m_cpuSamplerHeap.allocate();
         if (!descriptor.valid())
@@ -482,7 +480,7 @@ namespace arc::rhi::d3d12
         samplerDesc.MaxLOD = desc.maxLod;
         m_device->CreateSampler(&samplerDesc, descriptor.cpu);
 
-        return std::make_unique<D3D12Sampler>(*this, desc, descriptor.cpu);
+        return std::make_unique<D3D12Sampler>(*this, desc, descriptor);
     }
 
     std::unique_ptr<Shader> D3D12Device::createShader(const ShaderDesc& desc)
@@ -661,7 +659,7 @@ namespace arc::rhi::d3d12
             return nullptr;
         setDebugName(state.Get(), desc.debugName);
 
-        return std::make_unique<D3D12Pipeline>(desc, std::move(state), m_rootSignature.Get());
+        return std::make_unique<D3D12Pipeline>(*this, desc, std::move(state), m_rootSignature.Get());
     }
 
     void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)
@@ -682,6 +680,7 @@ namespace arc::rhi::d3d12
         }
         m_immediateList.decayBufferStates();
         waitForFence(signal());
+        m_deferredRelease.release(m_fence->GetCompletedValue());
     }
 
     std::unique_ptr<Swapchain> D3D12Device::createSwapchain(Window& window, const SwapchainDesc& desc)
@@ -697,6 +696,8 @@ namespace arc::rhi::d3d12
         // The allocator's memory is still referenced by the GPU until that frame's fence passes.
         FrameContext& frame = m_frames[frameSlot()];
         waitForFence(frame.fenceValue);
+        m_deferredRelease.release(m_fence->GetCompletedValue());
+        m_frameOpen = true;
 
         m_shaderVisibleSrvHeap.resetTransient(frameSlot());
         m_shaderVisibleSamplerHeap.resetTransient(frameSlot());
@@ -724,13 +725,30 @@ namespace arc::rhi::d3d12
             reportDeviceRemoved();
 
         m_frames[frameSlot()].fenceValue = signal();
+        m_deferredRelease.stampOpenFrame(m_frames[frameSlot()].fenceValue);
+        m_frameOpen = false;
         advanceFrame();
     }
 
     void D3D12Device::waitIdle()
     {
-        if (m_queue && m_fence)
-            waitForFence(signal());
+        if (!m_queue || !m_fence)
+            return;
+        waitForFence(signal());
+        // Objects retired during an open frame stay queued: that frame has not been submitted.
+        m_deferredRelease.release(m_fence->GetCompletedValue());
+    }
+
+    void D3D12Device::retire(ComPtr<ID3D12Pageable> object)
+    {
+        if (!object)
+            return;
+        if (m_frameOpen)
+            m_deferredRelease.retireAfterOpenFrame(std::move(object));
+        else if (m_fence && m_fence->GetCompletedValue() < m_lastSignalledValue)
+            m_deferredRelease.retire(std::move(object), m_lastSignalledValue);
+        // Otherwise the GPU has finished everything submitted so far, and the object is released
+        // when it goes out of scope here.
     }
 
     uint64_t D3D12Device::signal()

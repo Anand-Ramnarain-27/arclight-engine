@@ -5,7 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Phase 2 in progress: textures.
+Phase 2 in progress: textures, resource lifetimes.
+
+### Added (resource lifetimes)
+- `Core/Handle.h`: generational handles (`Handle<Tag>`), `HandleAllocator` and `HandlePool`. A freed slot bumps its generation, so stale handles are detected instead of reaching whatever reuses the slot.
+- Buffers, textures and samplers get handles (`BufferHandle`, `TextureHandle`, `SamplerHandle`); `Device::find()` returns the resource, or nullptr once it has been destroyed. Systems that do not own a resource keep its handle instead of a pointer.
+- Deferred release: a buffer, texture or pipeline may be destroyed while frames in flight still use it. On D3D12 the device keeps the GPU object until the fence value of the last submission that could use it has passed (`RHI/DeferredRelease.h`); objects destroyed while a frame is being recorded wait for that frame's own fence value. Metal needs no queue, because command buffers retain the resources they use.
+- `Device::resourceCounts()`: live buffers, textures and samplers, and objects awaiting release; shown live in the System Info panel.
+- The device logs every buffer, texture and sampler still alive when it is destroyed, by name.
+- D3D12 persistent descriptors carry a handle, so a double free or a stale copy is caught.
+- Texture demo: *Recreate textures* button, which replaces every texture while frames in flight still use the old ones.
+- Unit tests for handles, the deferred release queue and the resource registry.
+
+### Changed (resource lifetimes)
+- `Device::createBuffer/createTexture/createSampler` are no longer virtual: they validate the description, call the backend's `create*Impl()` and register the resource.
+- The texture demo builds a new vertex buffer when the window is resized instead of calling `waitIdle()` and overwriting the old one.
 
 ### Added
 - Textures: `rhi::Texture` with mip levels and Sampled / RenderTarget usage, `Device::createTexture()`, the `RGBA8_UNORM_SRGB` format, texture barriers, and `copyBufferToTexture` / `copyTextureToBuffer` with one copy layout for both backends (`kTextureCopyRowAlignment`, `kTextureCopyOffsetAlignment`).

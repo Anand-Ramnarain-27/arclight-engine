@@ -80,6 +80,20 @@ namespace arc
             const std::string_view captureTool = m_app.renderer().device().gpuCaptureTool();
             row("GPU capture", captureTool.empty() ? std::string("none attached") : std::string(captureTool));
 
+            // Live every frame rather than on Refresh: these change as resources come and go.
+            const rhi::Device::ResourceCounts counts = m_app.renderer().device().resourceCounts();
+            section("GPU resources");
+            row("Buffers", std::format("{}", counts.buffers));
+            row("Textures", std::format("{}", counts.textures));
+            row("Samplers", std::format("{}", counts.samplers));
+            row("Awaiting release", std::format("{}", counts.awaitingRelease));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Destroyed by their owners, kept until the GPU has finished the frames that "
+                                  "use them.%s",
+                                  adapter.backend == rhi::Backend::Metal
+                                      ? " Always 0 on Metal: command buffers retain what they use."
+                                      : "");
+
             ImGui::EndTable();
         }
 

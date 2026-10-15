@@ -177,19 +177,13 @@ namespace arc
         if (!m_pipeline)
             return false;
 
-        m_vertexBuffer = device.createBuffer({
-            .size = sizeof(Vertex) * 8,
-            .usage = rhi::BufferUsage::Vertex,
-            .memory = rhi::MemoryType::GpuOnly,
-            .debugName = "Texture Demo Vertices",
-        });
         m_indexBuffer = device.createBuffer({
             .size = sizeof(kIndices),
             .usage = rhi::BufferUsage::Index,
             .memory = rhi::MemoryType::GpuOnly,
             .debugName = "Texture Demo Indices",
         });
-        if (!m_vertexBuffer || !m_indexBuffer || !rhi::uploadBuffer(device, *m_indexBuffer, std::as_bytes(std::span(kIndices))))
+        if (!m_indexBuffer || !rhi::uploadBuffer(device, *m_indexBuffer, std::as_bytes(std::span(kIndices))))
             return false;
 
         return createTextures() && uploadGeometry(renderer.swapchain().desc().size) && rebuildSamplers();
@@ -198,6 +192,9 @@ namespace arc
     bool TextureDemoModule::createTextures()
     {
         rhi::Device& device = app().renderer().device();
+        // The textures being replaced may still be in use by frames in flight; the device keeps
+        // their GPU memory until those frames complete.
+        m_textures.clear();
 
         const std::string uvGridPath = findAssetPath("Textures/UVGrid.png");
         if (uvGridPath.empty())
@@ -219,14 +216,26 @@ namespace arc
             ARC_LOG_ERROR("The texture demo could not create any texture");
             return false;
         }
+        m_selectedTexture = std::min(m_selectedTexture, m_textures.size() - 1);
         return true;
     }
 
     bool TextureDemoModule::uploadGeometry(Extent2D targetSize)
     {
+        // A new buffer rather than overwriting the old one, which frames in flight may still be
+        // reading. Replacing m_vertexBuffer hands the old one to the device's deferred release.
+        rhi::Device& device = app().renderer().device();
+        auto vertexBuffer = device.createBuffer({
+            .size = sizeof(Vertex) * 8,
+            .usage = rhi::BufferUsage::Vertex,
+            .memory = rhi::MemoryType::GpuOnly,
+            .debugName = "Texture Demo Vertices",
+        });
         const std::array<Vertex, 8> vertices = buildVertices(targetSize);
-        if (!rhi::uploadBuffer(app().renderer().device(), *m_vertexBuffer, std::as_bytes(std::span(vertices))))
+        if (!vertexBuffer || !rhi::uploadBuffer(device, *vertexBuffer, std::as_bytes(std::span(vertices))))
             return false;
+
+        m_vertexBuffer = std::move(vertexBuffer);
         m_geometrySize = targetSize;
         return true;
     }
@@ -250,6 +259,12 @@ namespace arc
     void TextureDemoModule::update(const FrameTime& /*time*/)
     {
         drawWindow();
+        if (m_recreateTextures)
+        {
+            m_recreateTextures = false;
+            if (!createTextures())
+                app().requestQuit();
+        }
         if (m_samplersDirty)
             (void)rebuildSamplers();
     }
@@ -273,6 +288,10 @@ namespace arc
         const rhi::TextureDesc& textureDesc = m_textures[m_selectedTexture].texture->desc();
         ImGui::TextDisabled("%u x %u px, %u mip levels, sRGB", textureDesc.size.width, textureDesc.size.height,
                             textureDesc.mipLevels);
+        if (ImGui::Button("Recreate textures"))
+            m_recreateTextures = true;
+        ImGui::SetItemTooltip("Destroys and recreates every texture while frames in flight still use the old ones. "
+                              "System Info shows them waiting for release.");
 
         ImGui::SeparatorText("Ground sampler");
         rhi::SamplerDesc& ground = m_groundSamplerDesc;
@@ -345,13 +364,8 @@ namespace arc
             return;
 
         const Extent2D size = renderer.swapchain().desc().size;
-        if (size.width != m_geometrySize.width || size.height != m_geometrySize.height)
-        {
-            // Earlier frames may still be reading the vertex buffer.
-            renderer.waitIdle();
-            if (!uploadGeometry(size))
-                return;
-        }
+        if ((size.width != m_geometrySize.width || size.height != m_geometrySize.height) && !uploadGeometry(size))
+            return;
 
         if (!renderer.beginBackbufferPass("Texture Demo"))
             return;

@@ -3,6 +3,8 @@
 #include "Core/Assert.h"
 #include "Core/Log.h"
 
+#include <optional>
+
 namespace arc::rhi::d3d12
 {
     bool D3D12DescriptorHeap::init(ID3D12Device* device, const Desc& desc)
@@ -25,17 +27,14 @@ namespace arc::rhi::d3d12
         if (desc.shaderVisible)
             m_gpuStart = m_heap->GetGPUDescriptorHandleForHeapStart();
 
-        // Reversed, so the lowest indices are handed out first and the heap reads in order in PIX.
-        m_freeList.resize(desc.persistentCount);
-        for (uint32_t i = 0; i < desc.persistentCount; ++i)
-            m_freeList[i] = desc.persistentCount - 1 - i;
+        m_persistentSlots = HandleAllocator<D3D12Descriptor>(desc.persistentCount);
         return true;
     }
 
     void D3D12DescriptorHeap::release()
     {
         m_heap.Reset();
-        m_freeList.clear();
+        m_persistentSlots = HandleAllocator<D3D12Descriptor>(0);
         m_transientUsed.clear();
     }
 
@@ -50,14 +49,25 @@ namespace arc::rhi::d3d12
 
     D3D12Descriptor D3D12DescriptorHeap::allocate()
     {
-        if (m_freeList.empty())
+        const std::optional<Handle<D3D12Descriptor>> handle = m_persistentSlots.allocate();
+        if (!handle)
         {
             ARC_LOG_ERROR("Descriptor heap '{}' is full ({} persistent descriptors)", m_name, m_persistentCount);
             return {};
         }
-        const uint32_t index = m_freeList.back();
-        m_freeList.pop_back();
-        return at(index);
+        D3D12Descriptor descriptor = at(handle->index);
+        descriptor.handle = *handle;
+        return descriptor;
+    }
+
+    void D3D12DescriptorHeap::free(const D3D12Descriptor& descriptor)
+    {
+        if (!descriptor.valid())
+            return;
+        // Descriptors live in CPU-only heaps (copied into tables while recording) or are owned by
+        // ImGui, which waits for its own frames, so the slot can be reused straight away.
+        const bool freed = m_persistentSlots.free(descriptor.handle);
+        ARC_ASSERT(freed, "Descriptor {} of '{}' was already freed", descriptor.handle.index, m_name);
     }
 
     void D3D12DescriptorHeap::free(D3D12_CPU_DESCRIPTOR_HANDLE cpu)
@@ -66,7 +76,10 @@ namespace arc::rhi::d3d12
             return;
         ARC_ASSERT(cpu.ptr >= m_cpuStart.ptr && (cpu.ptr - m_cpuStart.ptr) / m_stride < m_persistentCount,
                    "Descriptor does not belong to the persistent part of '{}'", m_name);
-        m_freeList.push_back(static_cast<uint32_t>((cpu.ptr - m_cpuStart.ptr) / m_stride));
+        const auto index = static_cast<uint32_t>((cpu.ptr - m_cpuStart.ptr) / m_stride);
+        const Handle<D3D12Descriptor> handle = m_persistentSlots.handleAt(index);
+        ARC_ASSERT(!handle.isNull(), "Descriptor {} of '{}' was already freed", index, m_name);
+        m_persistentSlots.free(handle);
     }
 
     void D3D12DescriptorHeap::resetTransient(uint32_t region)
@@ -92,25 +105,27 @@ namespace arc::rhi::d3d12
     }
 
     D3D12Texture::D3D12Texture(D3D12Device& device, ComPtr<ID3D12Resource> resource, const TextureDesc& desc,
-                               D3D12_CPU_DESCRIPTOR_HANDLE srvHandle, D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle)
-        : srv(srvHandle)
-        , rtv(rtvHandle)
+                               const D3D12Descriptor& srvDescriptor, const D3D12Descriptor& rtvDescriptor)
+        : srv(srvDescriptor.cpu)
+        , rtv(rtvDescriptor.cpu)
         , m_resource(std::move(resource))
         , m_device(&device)
+        , m_srvDescriptor(srvDescriptor)
+        , m_rtvDescriptor(rtvDescriptor)
     {
         m_desc = desc;
     }
 
     D3D12Texture::~D3D12Texture()
     {
-        // The views are plain CPU descriptors; draws that used them copied them into shader-visible
-        // tables while recording, so they can be reused straight away. The resource itself must not
-        // be in use by the GPU, the same rule as for buffers.
-        if (m_device)
-        {
-            m_device->cpuSrvHeap().free(srv);
-            m_device->rtvHeap().free(rtv);
-        }
+        if (!m_device)
+            return;
+        // The views are CPU-only descriptors: draws copied the SRV into a shader-visible table and
+        // OMSetRenderTargets read the RTV when they were recorded, so the slots can be reused now.
+        // The resource itself may still be in use by the GPU.
+        m_device->cpuSrvHeap().free(m_srvDescriptor);
+        m_device->rtvHeap().free(m_rtvDescriptor);
+        m_device->retire(std::move(m_resource));
     }
 
     void D3D12Texture::reset(ComPtr<ID3D12Resource> resource, const TextureDesc& desc, ResourceState initialState)
@@ -126,7 +141,7 @@ namespace arc::rhi::d3d12
         m_state = ResourceState::Common;
     }
 
-    D3D12Sampler::D3D12Sampler(D3D12Device& device, const SamplerDesc& desc, D3D12_CPU_DESCRIPTOR_HANDLE descriptor)
+    D3D12Sampler::D3D12Sampler(D3D12Device& device, const SamplerDesc& desc, const D3D12Descriptor& descriptor)
         : Sampler(desc)
         , m_device(device)
         , m_descriptor(descriptor)
@@ -135,6 +150,17 @@ namespace arc::rhi::d3d12
 
     D3D12Sampler::~D3D12Sampler()
     {
+        // A sampler is only a CPU-only descriptor, already copied into the tables that use it.
         m_device.cpuSamplerHeap().free(m_descriptor);
+    }
+
+    D3D12Buffer::~D3D12Buffer()
+    {
+        m_device.retire(std::move(m_resource));
+    }
+
+    D3D12Pipeline::~D3D12Pipeline()
+    {
+        m_device.retire(std::move(m_state));
     }
 }
