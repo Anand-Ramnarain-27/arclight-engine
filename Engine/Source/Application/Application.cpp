@@ -35,6 +35,9 @@ namespace arc
 
         while (!m_quitRequested)
         {
+            if (!m_minimized)
+                m_renderer->waitUntilReady();
+
             const Clock::time_point frameStart = Clock::now();
 
             m_input.beginFrame();
@@ -69,8 +72,14 @@ namespace arc
 
         for (auto& module : m_modules) module->update(m_frameTime);
         for (auto& module : m_modules) module->preRender();
+
+        // render() and postRender() run even when no frame could begin, so modules with
+        // per-frame bookkeeping (ImGui must end every frame it starts) stay balanced.
+        const bool frameActive = m_renderer->beginFrame();
         for (auto& module : m_modules) module->render();
         for (auto& module : m_modules) module->postRender();
+        if (frameActive)
+            m_renderer->endFrame();
     }
 
     void Application::waitForFrameBudget(Clock::time_point frameStart) const
@@ -106,6 +115,10 @@ namespace arc
         if (!m_window)
             return false;
 
+        m_renderer = std::make_unique<Renderer>();
+        if (!m_renderer->init(*m_window, m_desc.device, m_desc.vsync))
+            return false;
+
         for (auto& module : m_modules)
         {
             const Stopwatch moduleTimer;
@@ -123,6 +136,10 @@ namespace arc
 
     void Application::shutdown()
     {
+        // Modules may own GPU resources that in-flight frames still reference.
+        if (m_renderer)
+            m_renderer->waitIdle();
+
         while (m_initializedModules > 0)
         {
             Module& module = *m_modules[--m_initializedModules];
@@ -130,6 +147,9 @@ namespace arc
             module.shutdown();
         }
         m_modules.clear();
+
+        // The swapchain references the window, so the renderer goes first.
+        m_renderer.reset();
 
         if (!m_platformInitialized)
             return;
@@ -181,8 +201,9 @@ namespace arc
                     break;
 
                 case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                    // TODO: Forward to the renderer to resize the swap chain once the RHI exists.
-                    ARC_LOG_TRACE("Window resized to {}x{} px", event.window.data1, event.window.data2);
+                    if (m_renderer)
+                        m_renderer->onWindowResized({static_cast<uint32_t>(event.window.data1),
+                                                     static_cast<uint32_t>(event.window.data2)});
                     break;
 
                 default:

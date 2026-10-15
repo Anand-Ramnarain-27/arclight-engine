@@ -13,7 +13,13 @@ The goal is to understand *why* engines are built the way they are, not just to 
 
 ## Status
 
-Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, keyboard/mouse/gamepad input, a math library with unit tests, and a dockable ImGui editor shell. There is no 3D rendering yet; the editor UI is drawn through SDL_Renderer until the engine's own renderer exists (Phase 1).
+Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 window and main loop, logging and asserts, frame timing with a game clock, keyboard/mouse/gamepad input, a math library with unit tests, and a dockable ImGui editor shell.
+
+Phase 1 (RHI + first triangle) is in progress. Done so far:
+- The RHI core: device, swapchain, command lists and frames in flight, with a D3D12 backend on Windows and a Metal backend on macOS. The editor UI renders through it (`imgui_impl_dx12` / `imgui_impl_metal`).
+- Buffers in GPU-only, upload and readback memory, buffer copies, resource-state barriers, and one-off "immediate" submissions for load-time uploads. Debug builds run an upload/readback round-trip self-test at start-up.
+- Pipelines (D3D12 root signature + pipeline state object / Metal render pipeline state), vertex and index buffers, and indexed draws. The editor draws a coloured triangle behind the UI on both backends.
+- Shaders written once in HLSL and compiled at build time: DXIL with DXC on Windows; SPIR-V → Metal Shading Language (SPIRV-Cross) → `.metallib` on macOS. Debug builds keep shader debug info for PIX, RenderDoc and Xcode.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -24,9 +30,9 @@ The course's original Windows-only starter code is still in `Source/` as a refer
 Requirements:
 - **CMake 3.25+**
 - **Windows:** Visual Studio 2022 with the *Desktop development with C++* workload
-- **macOS:** Xcode 15+ on Apple silicon, plus CMake (`brew install cmake`)
+- **macOS:** Xcode 15+ on Apple silicon, CMake (`brew install cmake`), and the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home#mac), which provides the DXC shader compiler (Microsoft publishes no macOS build). Install it to the default `~/VulkanSDK` location, or configure from a terminal where `VULKAN_SDK` is set. If CMake reports that the Metal compiler is missing, run `xcodebuild -downloadComponent MetalToolchain`.
 
-Dependencies (SDL3, Dear ImGui, doctest) are downloaded automatically the first time you configure, so the first configure needs an internet connection and Git.
+Dependencies (SDL3, Dear ImGui, doctest, and the shader tools DXC on Windows and SPIRV-Cross on macOS) are downloaded automatically the first time you configure, so the first configure needs an internet connection and Git.
 
 **Windows**
 ```
@@ -49,7 +55,16 @@ cmake --workflow --preset macos-release
 ```
 The zip goes to `build/packages/` (for example `Arclight-0.1.0-windows-x64.zip`). The Windows Release build has no console window; log output is in the editor's Console panel. Pushing a `v*` tag runs the same workflow on GitHub Actions for both platforms and creates a draft release; see `.github/workflows/release.yml`.
 
-**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it. Panels are listed under View; View > Reset Layout restores the default docking layout.
+**GPU debugging:** Debug builds enable the D3D12 debug layer (needs the Windows *Graphics Tools* optional feature); on Windows 11 its messages appear in the Console panel. On macOS the generated Xcode scheme enables Metal API validation and GPU frame capture.
+
+**GPU captures:** *Debug → Capture GPU Frame* (F11) captures the next frame with whichever tool is attached:
+- **RenderDoc** (Windows): launch the editor from RenderDoc; the capture appears in RenderDoc's window.
+- **PIX** (Windows): start the editor with `--pix` (Visual Studio: project *Properties → Debugging → Command Arguments*). Captures are saved to `Game/Captures/*.wpix`; open them in PIX. Or launch it from PIX directly.
+- **Xcode** (macOS): run from Xcode and use the menu item, or Xcode's own camera button in the debug bar.
+
+Passes, buffers and pipelines carry debug names, so captures show "Triangle", "ImGui", "Triangle Vertices" and so on instead of anonymous objects.
+
+**Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it, F11 captures a GPU frame. Panels are listed under View; View > Reset Layout restores the default docking layout.
 
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 
@@ -65,10 +80,17 @@ Engine/Source/       ArclightEngine static library
   Core/                Platform detection, logging, asserts, timing
   Math/                Vectors, quaternions, matrices (conventions in Math/Math.h)
   Platform/            OS window, input and system info (SDL3)
+  RHI/                 Rendering hardware interface
+    D3D12/               Direct3D 12 backend (Windows)
+    Metal/               Metal backend (macOS, Objective-C++)
+    Null/                No-GPU backend (headless builds and unit tests)
+  Renderer/            Device + swapchain ownership, frame bracketing
   Application/         Application, main loop, modules
   UI/                  Dear ImGui integration
+Engine/Shaders/      HLSL shaders, compiled at build time into bin/<Config>/Shaders/
 Editor/Source/       Arclight editor executable
   Panels/              Dockable editor panels
+  Scene/               Placeholder scene (the triangle) until the scene viewport exists
 Tests/Source/        Unit tests (doctest)
 Game/                Runtime working directory (assets, imgui.ini)
 Source/              Old course starter code (reference only, not built)
@@ -81,6 +103,8 @@ Source/              Old course starter code (reference only, not built)
 | [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input | Fetched by CMake (pinned release + hash) |
 | [Dear ImGui](https://github.com/ocornut/imgui) (docking) | Editor UI | Fetched by CMake (pinned release tag) |
 | [doctest](https://github.com/doctest/doctest) | Unit tests | Fetched by CMake (pinned release tag) |
+| [DXC](https://github.com/microsoft/DirectXShaderCompiler) | HLSL compiler (build tool) | Windows: fetched by CMake (pinned release + hash). macOS: from the Vulkan SDK |
+| [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | SPIR-V → Metal Shading Language (build tool, macOS) | Fetched by CMake (pinned release tag) |
 
 Libraries from the old base (ImGuizmo, DirectXTex, tinygltf, WinPixEventRuntime) move into the new build as the roadmap reaches them. Each library is under its own license.
 

@@ -1,7 +1,6 @@
 #include "Panels/PerformancePanel.h"
 
 #include "Application/Application.h"
-#include "UI/ImGuiModule.h"
 
 #include <imgui.h>
 
@@ -45,9 +44,10 @@ namespace arc
 
         ImGui::SeparatorText("Frame pacing");
 
-        bool vsync = m_imgui.vsync();
+        Renderer& renderer = m_app.renderer();
+        bool vsync = renderer.vsync();
         if (ImGui::Checkbox("VSync", &vsync))
-            m_imgui.setVSync(vsync);
+            renderer.setVSync(vsync);
 
         bool limit = m_app.maxFrameRate() != 0;
         if (ImGui::Checkbox("Limit frame rate", &limit))

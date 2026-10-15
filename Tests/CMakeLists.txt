@@ -2,6 +2,7 @@ add_executable(ArclightTests
     Source/TestMain.cpp
     Source/MathTests.cpp
     Source/TimeTests.cpp
+    Source/RHITests.cpp
 )
 
 target_link_libraries(ArclightTests PRIVATE ArclightEngine doctest::doctest)

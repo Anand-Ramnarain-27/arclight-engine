@@ -11,11 +11,18 @@ add_executable(Arclight
     Source/Panels/PlaybackPanel.cpp
     Source/Panels/SystemInfoPanel.h
     Source/Panels/SystemInfoPanel.cpp
+    Source/Scene/TriangleModule.h
+    Source/Scene/TriangleModule.cpp
 )
 
 target_include_directories(Arclight PRIVATE Source)
 target_link_libraries(Arclight PRIVATE ArclightEngine imgui)
 arclight_set_warnings(Arclight)
+
+# Compiled shaders are loaded from a Shaders/ folder next to the executable, which
+# ArclightShaders writes into bin/ (bin/<Config>/ for multi-config generators).
+add_dependencies(Arclight ArclightShaders)
+set_target_properties(Arclight PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # Release builds use the Windows GUI subsystem so no console window opens next to the editor.
 # main() stays the entry point on every platform, so the CRT is told to call it instead of WinMain().
@@ -33,4 +40,8 @@ set_target_properties(Arclight PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/Game"
     XCODE_GENERATE_SCHEME ON
     XCODE_SCHEME_WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/Game"
+    # Metal API validation, the equivalent of the D3D12 debug layer, and GPU frame capture
+    # from the Xcode debug bar.
+    XCODE_SCHEME_ENABLE_GPU_API_VALIDATION ON
+    XCODE_SCHEME_ENABLE_GPU_FRAME_CAPTURE_MODE Metal
 )

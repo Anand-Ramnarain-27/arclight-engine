@@ -5,6 +5,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+Phase 1: RHI and first triangle (in progress).
+
+### Added
+- Rendering hardware interface (`Engine/Source/RHI/`): device, swapchain, command list, texture and buffer interfaces, with two frames in flight.
+- Direct3D 12 backend: debug layer (messages routed to the Console panel where supported), high-performance adapter selection, flip-model swapchain with a frame-latency waitable object, tearing when VSync is off, swapchain resize, live-object report at shutdown.
+- Metal backend: command buffers with semaphore-based frames in flight, `CAMetalLayer` swapchain, Metal API validation and GPU frame capture enabled in the Xcode scheme.
+- Null backend for headless builds and unit tests.
+- Buffers in GPU-only, upload and readback memory; buffer copies; resource-state barriers; immediate submission for load-time work; `uploadBuffer` / `readbackBuffer` helpers and a start-up round-trip self-test in Debug builds.
+- System Info panel shows the graphics API, GPU, memory, driver version and the attached GPU capture tool.
+- In-app GPU frame capture (*Debug → Capture GPU Frame*, F11): RenderDoc in-app API when launched from RenderDoc, PIX's GPU capturer with `--pix`, and `MTLCaptureManager` under Xcode. Command-line options `--pix` and `--gpu-validation`.
+- Build-time shader compilation (`cmake/ArclightShaders.cmake`): HLSL → DXIL with DXC on Windows (pinned v1.9.2607); HLSL → SPIR-V → MSL (SPIRV-Cross) → `.metallib` on macOS. Debug shaders keep debug info; Release shaders are optimised. Compiled shaders are copied into the release zip.
+- Graphics pipelines: `rhi::Pipeline` with vertex layout, cull mode and front-face winding; D3D12 root signature and pipeline state object, Metal render pipeline state with a vertex descriptor.
+- Draw commands: `setPipeline`, `setVertexBuffer`, `setIndexBuffer`, `draw`, `drawIndexed`.
+- The editor draws a coloured triangle from GPU-only vertex and index buffers (`Editor/Source/Scene/TriangleModule`).
+- `rhi::Shader`, `Device::createShader()` and a `ShaderLibrary` that loads compiled shaders from the `Shaders/` folder next to the executable.
+
+### Changed
+- The editor executable is built into `build/<preset>/bin/<Config>/`, next to its `Shaders/` folder.
+- macOS builds need the Vulkan SDK for DXC; the release workflow installs it.
+- The editor UI renders through the engine's RHI (`imgui_impl_dx12` / `imgui_impl_metal`) instead of SDL_Renderer.
+- Resizing the window resizes the swapchain.
+
 ## [0.1.0] - 2026-10-14
 
 Phase 0: Foundations. No GPU rendering yet.

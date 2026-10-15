@@ -29,6 +29,9 @@ namespace arc
 
         virtual void update(const FrameTime& /*time*/) {}
         virtual void preRender() {}
+
+        /// GPU work is recorded here, and only while Renderer::isFrameActive() is true.
+        /// render() is for the scene; postRender() is for overlays drawn on top, such as the UI.
         virtual void render() {}
         virtual void postRender() {}
 

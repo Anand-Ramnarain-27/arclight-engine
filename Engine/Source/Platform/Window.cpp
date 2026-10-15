@@ -17,6 +17,10 @@ namespace arc
             flags |= SDL_WINDOW_RESIZABLE;
         if (desc.maximized)
             flags |= SDL_WINDOW_MAXIMIZED;
+#if ARC_PLATFORM_MACOS
+        // Required for SDL_Metal_CreateView, which provides the swapchain's CAMetalLayer.
+        flags |= SDL_WINDOW_METAL;
+#endif
 
         SDL_Window* window = SDL_CreateWindow(desc.title.c_str(),
                                               static_cast<int>(desc.width),

@@ -8,8 +8,6 @@
 
 namespace arc
 {
-    class ImGuiModule;
-
     /// The editor: main menu, dockable panels and global shortcuts.
     ///
     ///   F5          Play / Pause
@@ -17,10 +15,11 @@ namespace arc
     ///   F6          Step one frame
     ///   + / -       Double / halve the time scale
     ///   0           Reset the time scale to 1
+    ///   F11         Capture a GPU frame (RenderDoc, PIX or Xcode, when attached)
     class EditorModule final : public Module
     {
     public:
-        EditorModule(Application& app, ImGuiModule& imgui);
+        explicit EditorModule(Application& app);
         ~EditorModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Editor"; }
@@ -29,13 +28,13 @@ namespace arc
 
     private:
         void handleShortcuts();
+        void requestGpuCapture();
         void logInputActivity();
         void drawDockSpace();
         void buildDefaultLayout(unsigned int dockspaceId);
         void drawMainMenu();
         void drawAboutPopup();
 
-        ImGuiModule& m_imgui;
         std::vector<std::unique_ptr<Panel>> m_panels;
         bool m_showImGuiDemo = false;
         bool m_layoutChecked = false;
