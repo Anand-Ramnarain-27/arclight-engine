@@ -6,6 +6,12 @@
     #error "MetalBackend.h can only be included from Objective-C++ (.mm) files."
 #endif
 
+// Without ARC, assigning an autoreleased object to a member does not retain it, and the object
+// is freed when the frame's autorelease pool is popped.
+#if !__has_feature(objc_arc)
+    #error "The Metal backend must be compiled with ARC (-fobjc-arc / CLANG_ENABLE_OBJC_ARC)."
+#endif
+
 #include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"

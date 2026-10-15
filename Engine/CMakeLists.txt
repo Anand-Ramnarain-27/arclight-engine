@@ -80,7 +80,10 @@ elseif(APPLE)
         Source/UI/ImGuiRenderBackend_Metal.mm
     )
     target_link_libraries(ArclightEngine PRIVATE "-framework Metal" "-framework QuartzCore" "-framework Foundation")
+    # ARC for the Objective-C++ sources. The Xcode generator drops per-language compile options
+    # for OBJCXX, so Xcode builds get ARC from its own build setting instead.
     target_compile_options(ArclightEngine PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    set_target_properties(ArclightEngine PROPERTIES XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES)
 else()
     target_sources(ArclightEngine PRIVATE
         Source/UI/ImGuiRenderBackend_Null.cpp
