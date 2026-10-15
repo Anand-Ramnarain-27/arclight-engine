@@ -27,6 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Microsoft publishes no macOS build of DXC; the Vulkan SDK bundles one.
+      - name: Install the Vulkan SDK (DXC for macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -fsSL "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.zip" -o "$RUNNER_TEMP/vulkan-sdk.zip"
+          unzip -q "$RUNNER_TEMP/vulkan-sdk.zip" -d "$RUNNER_TEMP"
+          installer=$(ls -d "$RUNNER_TEMP"/InstallVulkan*.app/Contents/MacOS/InstallVulkan* | head -n 1)
+          "$installer" --root "$HOME/VulkanSDK/ci" --accept-licenses --default-answer --confirm-command install copy_only=1
+          echo "VULKAN_SDK=$HOME/VulkanSDK/ci/macOS" >> "$GITHUB_ENV"
+
       - name: Configure, build, test and package
         run: cmake --workflow --preset ${{ matrix.preset }}
 

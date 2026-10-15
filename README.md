@@ -53,7 +53,7 @@ Then open `build/macos-xcode/Arclight.xcodeproj`, pick the `Arclight` scheme and
 cmake --workflow --preset windows-release
 cmake --workflow --preset macos-release
 ```
-The zip goes to `build/packages/` (for example `Arclight-0.1.0-windows-x64.zip`). The Windows Release build has no console window; log output is in the editor's Console panel. Pushing a `v*` tag runs the same workflow on GitHub Actions for both platforms and creates a draft release; see `.github/workflows/release.yml`.
+The zip goes to `build/packages/` (for example `Arclight-0.2.0-windows-x64.zip`). The Windows Release build has no console window; log output is in the editor's Console panel. Pushing a `v*` tag runs the same workflow on GitHub Actions for both platforms and creates a draft release; see `.github/workflows/release.yml`.
 
 **GPU debugging:** Debug builds enable the D3D12 debug layer (needs the Windows *Graphics Tools* optional feature); on Windows 11 its messages appear in the Console panel. On macOS the generated Xcode scheme enables Metal API validation and GPU frame capture.
 
