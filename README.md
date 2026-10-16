@@ -17,7 +17,7 @@ Phase 0 (foundations) is complete: CMake build for Windows and macOS, an SDL3 wi
 
 Phase 1 (RHI + first triangle) is complete: an RHI with a D3D12 backend on Windows and a Metal backend on macOS (device, swapchain, command lists, frames in flight), GPU-only/upload/readback buffers with barriers, pipelines, indexed draws, HLSL shaders compiled at build time (DXIL on Windows; SPIR-V → Metal Shading Language → `.metallib` on macOS), and in-app GPU frame capture with RenderDoc, PIX or Xcode.
 
-Phase 2 (meshes, textures, camera, viewport) is in progress. Done so far:
+Phase 2 (meshes, textures, camera, viewport) is complete:
 - **Textures and samplers.** Mipmapped 2D textures (RGBA8, sRGB or linear), buffer↔texture copies with one copy layout for both backends, texture barriers, and samplers with filtering, addressing, border colours, anisotropy and LOD clamps. Debug builds run a texture upload/readback round-trip self-test at start-up.
 - **Resource binding.** `setTexture(slot, …)` and `setSampler(slot, …)` bind to fixed slots t0–t7 and s0–s3 in every shader. On D3D12 this is one shared root signature with descriptor tables built per draw in a shader-visible heap that ImGui shares; on Metal the slots are the `[[texture(n)]]` / `[[sampler(n)]]` indices, kept equal to the HLSL registers by the shader build.
 - **Image loading.** PNG, JPEG, TGA and BMP through stb_image, with sRGB-correct mip generation on the CPU.
@@ -60,7 +60,7 @@ Then open `build/macos-xcode/Arclight.xcodeproj`, pick the `Arclight` scheme and
 cmake --workflow --preset windows-release
 cmake --workflow --preset macos-release
 ```
-The zip goes to `build/packages/` (for example `Arclight-0.2.0-windows-x64.zip`). The Windows Release build has no console window; log output is in the editor's Console panel. Pushing a `v*` tag runs the same workflow on GitHub Actions for both platforms and creates a draft release; see `.github/workflows/release.yml`.
+The zip goes to `build/packages/` (for example `Arclight-0.3.0-windows-x64.zip`). The Windows Release build has no console window; log output is in the editor's Console panel. Pushing a `v*` tag runs the same workflow on GitHub Actions for both platforms and creates a draft release; see `.github/workflows/release.yml`.
 
 **GPU debugging:** Debug builds enable the D3D12 debug layer (needs the Windows *Graphics Tools* optional feature); on Windows 11 its messages appear in the Console panel. On macOS the generated Xcode scheme enables Metal API validation and GPU frame capture.
 

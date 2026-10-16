@@ -5,23 +5,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Phase 2 in progress: textures, resource lifetimes, constants, scene viewport, editor camera, glTF models.
+## [0.3.0] - 2026-10-16
 
-### Added (glTF models)
-- `Renderer/GltfImporter`: imports `.gltf` (separate or embedded buffers and images) and `.glb` with tinygltf into `ModelData`, a GPU-free description that unit tests can check. Reads POSITION, NORMAL and TEXCOORD_0 from any component type (normalized integers included, so KHR_mesh_quantization is supported), any byte stride, and sparse accessors; 8/16/32-bit indices widened to 32 bits; triangle strips and fans converted to lists; flat normals generated when a primitive has none. The default scene's node hierarchy is flattened into instances with complete transforms. Materials (base colour factor and texture, metallic/roughness factors, alpha mode and cutoff, double-sided) and samplers are imported; only images a drawn material uses are decoded. Every accessor and index is bounds-checked, and broken parts are skipped with a warning. Files are read through SDL, so UTF-8 paths work on Windows.
-- `Renderer/Model`: a model on the GPU, with one vertex buffer and one index buffer for all primitives, sRGB base colour textures with CPU-generated mips, and samplers shared between textures with equal settings.
-- `Renderer/MeshRenderer` and `Engine/Shaders/Mesh.hlsl`: base colour (factor × texture) under a fixed directional light and sky/ground ambient; alpha mask and blend (blended primitives after opaque ones, unsorted); double-sided materials; mirrored instances (negative determinant) drawn with clockwise front faces. A white stand-in for materials without a texture, a magenta checker for textures that could not be loaded, and debug views of base colour, normals and texture coordinates.
-- `Math/Aabb.h`: axis-aligned bounding boxes, with a transformed() that encloses the eight transformed corners.
-- `Platform/FileSystem`: `readFile()`, `fileExists()` and `fileSize()`.
-- Editor: a *Model* panel (`Editor/Source/Scene/ModelViewerModule`) that opens the sample model at start-up, opens others by path or by dropping a `.gltf` / `.glb` file on the window, fits the model to the view, rotates it, switches the debug view, and lists its instances and materials.
-- The *Lantern* sample model (Khronos glTF sample assets, CC0) is downloaded at configure time, copied next to the editor and included in the release zip. tinygltf and nlohmann/json licence notices are included too.
-- Unit tests for the importer: interleaved attributes and node transforms, flat normals, normalized texture coordinates, triangle strips, sparse accessors, out-of-bounds accessors and indices, materials, samplers and embedded images, binary files, and unsupported required extensions.
+Phase 2: textures, resource lifetimes, constants, scene viewport, editor camera, glTF models.
 
-### Changed (glTF models)
-- The texture demo has a *Visible* switch.
+### Added
 
+#### Textures and samplers
+- Textures: `rhi::Texture` with mip levels and Sampled / RenderTarget usage, `Device::createTexture()`, the `RGBA8_UNORM_SRGB` format, texture barriers, and `copyBufferToTexture` / `copyTextureToBuffer` with one copy layout for both backends (`kTextureCopyRowAlignment`, `kTextureCopyOffsetAlignment`).
+- Samplers: `rhi::Sampler` and `Device::createSampler()` with min/mag/mip filters, repeat / mirrored repeat / clamp / border addressing, border colours, anisotropic filtering and LOD clamps.
+- Resource binding: `CommandList::setTexture()` and `setSampler()` bind to slots t0–t7 and s0–s3 of both shader stages.
+- D3D12: a shared root signature with an SRV table and a sampler table; descriptor heaps with persistent (free-list) and per-frame transient parts; descriptor tables built per draw by copying from CPU-only heaps; a null SRV and default sampler for unbound slots.
+- `RHI/TextureUtils`: `computeTextureCopyLayout`, `uploadTexture`, `readbackTexture`, and a texture round-trip self-test that Debug builds run at start-up.
+- `Renderer/Image`: PNG, JPEG, TGA and BMP decoding (stb_image), box-filtered downsampling that averages sRGB images in linear space, and full mip chain generation. `Renderer/TextureLoader` creates and uploads textures from images or files.
+- `findAssetPath()` looks for `Assets/` in the working directory, then next to the executable; the release zip now includes `Assets/`.
+- Texture demo (`Editor/Source/Scene/TextureDemoModule`): a perspective ground plane and an address-mode quad, with a *Texture Demo* panel for the texture (UV grid, checker, colour-per-mip-level) and sampler settings.
+- `Engine/Shaders/Common.hlsli` with `LinearToSrgb()`, and `Textured.hlsl`.
+- stb_image's licence notice ships in `ThirdPartyLicenses/` of the release zip.
+- Unit tests for mip sizes, the copy layout, texture round trips, samplers, downsampling and PNG decoding.
 
-### Added (editor camera)
+#### Resource lifetimes
+- `Core/Handle.h`: generational handles (`Handle<Tag>`), `HandleAllocator` and `HandlePool`. A freed slot bumps its generation, so stale handles are detected instead of reaching whatever reuses the slot.
+- Buffers, textures and samplers get handles (`BufferHandle`, `TextureHandle`, `SamplerHandle`); `Device::find()` returns the resource, or nullptr once it has been destroyed. Systems that do not own a resource keep its handle instead of a pointer.
+- Deferred release: a buffer, texture or pipeline may be destroyed while frames in flight still use it. On D3D12 the device keeps the GPU object until the fence value of the last submission that could use it has passed (`RHI/DeferredRelease.h`); objects destroyed while a frame is being recorded wait for that frame's own fence value. Metal needs no queue, because command buffers retain the resources they use.
+- `Device::resourceCounts()`: live buffers, textures and samplers, and objects awaiting release; shown live in the System Info panel.
+- The device logs every buffer, texture and sampler still alive when it is destroyed, by name.
+- D3D12 persistent descriptors carry a handle, so a double free or a stale copy is caught.
+- Texture demo: *Recreate textures* button, which replaces every texture while frames in flight still use the old ones.
+- Unit tests for handles, the deferred release queue and the resource registry.
+
+#### Constants
+- `RHI/UploadRing`: per-frame scratch memory in one Upload buffer, one region per frame in flight plus one for immediate submissions, reset when the frame slot comes round again. Starts with 64 KB of zeros that unset constant slots read.
+- `CommandList::setConstants(slot, data)` (and a typed overload) for cbuffer slots b0–b2 in both shader stages: copies the data into the ring and binds it. D3D12 uses root constant buffer views; Metal binds the buffer at `[[buffer(n)]]`.
+- `Engine/Shaders/Constants.hlsli` (`ViewConstants` at b0) mirrored by `Renderer/ShaderConstants.h`, with `static_assert`s on every offset against HLSL's 16-byte-row packing.
+- Texture demo: the ground plane is a unit quad in world space with a camera in b0 and a per-draw transform, texture-coordinate scale/offset and mip bias in b1. New *Mip bias*, *Field of view* and *Height* controls.
+- Unit tests for the upload ring.
+
+#### Scene viewport
+- Scene target: the renderer owns a RenderTarget + Sampled texture (`Renderer::sceneTexture()`, `sceneFormat()`), and `beginScenePass()` / `endScenePass()` draw into it. `Renderer::finishScene()`, called by the Application after every module's `render()`, clears it if nothing drew and moves it to ShaderRead for the UI.
+- *Scene* panel (`Editor/Source/Panels/ScenePanel`): shows the scene target with `ImGui::Image`, resizes it to the panel's size in pixels (full resolution on Retina), shows the resolution and graphics API, and reports whether the mouse is over it. Docked in the centre by the default layout.
+- `ImGuiModule::textureId(texture)`: an ImTextureID for any device texture. On D3D12 the texture's SRV is copied into the shader-visible heap once, cached by `TextureHandle`, and freed when the texture is gone and the last frame that drew it has finished. On Metal the ID is the `MTLTexture`.
+
+#### Editor camera
 - Depth buffers: the `D32_FLOAT` format, `TextureUsage::DepthStencil`, the `DepthWrite` resource state, and `RenderPassDesc::depth` (load/store and clear depth). D3D12 creates depth-stencil views in a DSV heap; Metal sets the pass's depth attachment.
 - Pipeline depth and blend state: `PipelineDesc::depthFormat`, `depth` (test, write, `CompareOp`) and `blend` (`Opaque` or straight `AlphaBlend`). On Metal the depth test is a separate `MTLDepthStencilState`, set with the pipeline.
 - Pipelines with no vertex attributes, which draw without a vertex buffer (e.g. a full-screen triangle from `SV_VertexID`).
@@ -35,60 +60,41 @@ Phase 2 in progress: textures, resource lifetimes, constants, scene viewport, ed
 - Texture demo: a z-fighting test, two walls a small distance apart far down -Z, with distance and separation controls.
 - Unit tests for the camera (orientation, view, both depth conventions, and reversed-Z separating surfaces that standard depth cannot) and for depth render passes.
 
-### Changed (editor camera)
-- The texture demo is seen through the editor camera; its ground is 40 x 40 units around the origin, just below the grid. Its *Field of view* and *Height* controls are gone, and the corner quad uses a pipeline without depth testing.
-- Module order in the editor: ImGui, Editor, Texture Demo, Editor Overlays. The Editor's dock space must exist before other modules submit windows.
-
-### Added (scene viewport)
-- Scene target: the renderer owns a RenderTarget + Sampled texture (`Renderer::sceneTexture()`, `sceneFormat()`), and `beginScenePass()` / `endScenePass()` draw into it. `Renderer::finishScene()`, called by the Application after every module's `render()`, clears it if nothing drew and moves it to ShaderRead for the UI.
-- *Scene* panel (`Editor/Source/Panels/ScenePanel`): shows the scene target with `ImGui::Image`, resizes it to the panel's size in pixels (full resolution on Retina), shows the resolution and graphics API, and reports whether the mouse is over it. Docked in the centre by the default layout.
-- `ImGuiModule::textureId(texture)`: an ImTextureID for any device texture. On D3D12 the texture's SRV is copied into the shader-visible heap once, cached by `TextureHandle`, and freed when the texture is gone and the last frame that drew it has finished. On Metal the ID is the `MTLTexture`.
-
-### Changed (scene viewport)
-- The texture demo renders into the scene target instead of the backbuffer; its aspect ratio follows the Scene panel. Only the UI draws to the backbuffer now.
-- `EditorModule` takes the `ImGuiModule`; the dock space no longer has a transparent central node.
-
-### Added (constants)
-- `RHI/UploadRing`: per-frame scratch memory in one Upload buffer, one region per frame in flight plus one for immediate submissions, reset when the frame slot comes round again. Starts with 64 KB of zeros that unset constant slots read.
-- `CommandList::setConstants(slot, data)` (and a typed overload) for cbuffer slots b0–b2 in both shader stages: copies the data into the ring and binds it. D3D12 uses root constant buffer views; Metal binds the buffer at `[[buffer(n)]]`.
-- `Engine/Shaders/Constants.hlsli` (`ViewConstants` at b0) mirrored by `Renderer/ShaderConstants.h`, with `static_assert`s on every offset against HLSL's 16-byte-row packing.
-- Texture demo: the ground plane is a unit quad in world space with a camera in b0 and a per-draw transform, texture-coordinate scale/offset and mip bias in b1. New *Mip bias*, *Field of view* and *Height* controls.
-- Unit tests for the upload ring.
-
-### Changed (constants)
-- The D3D12 root signature gains three root CBVs (b0–b2) after the SRV and sampler tables.
-- The texture demo draws one 4-vertex quad twice instead of building clip-space vertices on the CPU, so resizing no longer creates any buffer.
-
-### Added (resource lifetimes)
-- `Core/Handle.h`: generational handles (`Handle<Tag>`), `HandleAllocator` and `HandlePool`. A freed slot bumps its generation, so stale handles are detected instead of reaching whatever reuses the slot.
-- Buffers, textures and samplers get handles (`BufferHandle`, `TextureHandle`, `SamplerHandle`); `Device::find()` returns the resource, or nullptr once it has been destroyed. Systems that do not own a resource keep its handle instead of a pointer.
-- Deferred release: a buffer, texture or pipeline may be destroyed while frames in flight still use it. On D3D12 the device keeps the GPU object until the fence value of the last submission that could use it has passed (`RHI/DeferredRelease.h`); objects destroyed while a frame is being recorded wait for that frame's own fence value. Metal needs no queue, because command buffers retain the resources they use.
-- `Device::resourceCounts()`: live buffers, textures and samplers, and objects awaiting release; shown live in the System Info panel.
-- The device logs every buffer, texture and sampler still alive when it is destroyed, by name.
-- D3D12 persistent descriptors carry a handle, so a double free or a stale copy is caught.
-- Texture demo: *Recreate textures* button, which replaces every texture while frames in flight still use the old ones.
-- Unit tests for handles, the deferred release queue and the resource registry.
-
-### Changed (resource lifetimes)
-- `Device::createBuffer/createTexture/createSampler` are no longer virtual: they validate the description, call the backend's `create*Impl()` and register the resource.
-- The texture demo builds a new vertex buffer when the window is resized instead of calling `waitIdle()` and overwriting the old one.
-
-### Added
-- Textures: `rhi::Texture` with mip levels and Sampled / RenderTarget usage, `Device::createTexture()`, the `RGBA8_UNORM_SRGB` format, texture barriers, and `copyBufferToTexture` / `copyTextureToBuffer` with one copy layout for both backends (`kTextureCopyRowAlignment`, `kTextureCopyOffsetAlignment`).
-- Samplers: `rhi::Sampler` and `Device::createSampler()` with min/mag/mip filters, repeat / mirrored repeat / clamp / border addressing, border colours, anisotropic filtering and LOD clamps.
-- Resource binding: `CommandList::setTexture()` and `setSampler()` bind to slots t0–t7 and s0–s3 of both shader stages.
-- D3D12: a shared root signature with an SRV table and a sampler table; descriptor heaps with persistent (free-list) and per-frame transient parts; descriptor tables built per draw by copying from CPU-only heaps; a null SRV and default sampler for unbound slots.
-- `RHI/TextureUtils`: `computeTextureCopyLayout`, `uploadTexture`, `readbackTexture`, and a texture round-trip self-test that Debug builds run at start-up.
-- `Renderer/Image`: PNG, JPEG, TGA and BMP decoding (stb_image), box-filtered downsampling that averages sRGB images in linear space, and full mip chain generation. `Renderer/TextureLoader` creates and uploads textures from images or files.
-- `findAssetPath()` looks for `Assets/` in the working directory, then next to the executable; the release zip now includes `Assets/`.
-- Texture demo (`Editor/Source/Scene/TextureDemoModule`): a perspective ground plane and an address-mode quad, with a *Texture Demo* panel for the texture (UV grid, checker, colour-per-mip-level) and sampler settings.
-- `Engine/Shaders/Common.hlsli` with `LinearToSrgb()`, and `Textured.hlsl`.
-- Unit tests for mip sizes, the copy layout, texture round trips, samplers, downsampling and PNG decoding.
+#### glTF models
+- `Renderer/GltfImporter`: imports `.gltf` (separate or embedded buffers and images) and `.glb` with tinygltf into `ModelData`, a GPU-free description that unit tests can check. Reads POSITION, NORMAL and TEXCOORD_0 from any component type (normalized integers included, so KHR_mesh_quantization is supported), any byte stride, and sparse accessors; 8/16/32-bit indices widened to 32 bits; triangle strips and fans converted to lists; flat normals generated when a primitive has none. The default scene's node hierarchy is flattened into instances with complete transforms. Materials (base colour factor and texture, metallic/roughness factors, alpha mode and cutoff, double-sided) and samplers are imported; only images a drawn material uses are decoded. Every accessor and index is bounds-checked, and broken parts are skipped with a warning. Files are read through SDL, so UTF-8 paths work on Windows.
+- `Renderer/Model`: a model on the GPU, with one vertex buffer and one index buffer for all primitives, sRGB base colour textures with CPU-generated mips, and samplers shared between textures with equal settings.
+- `Renderer/MeshRenderer` and `Engine/Shaders/Mesh.hlsl`: base colour (factor × texture) under a fixed directional light and sky/ground ambient; alpha mask and blend (blended primitives after opaque ones, unsorted); double-sided materials; mirrored instances (negative determinant) drawn with clockwise front faces. A white stand-in for materials without a texture, a magenta checker for textures that could not be loaded, and debug views of base colour, normals and texture coordinates.
+- `Math/Aabb.h`: axis-aligned bounding boxes, with a transformed() that encloses the eight transformed corners.
+- `Platform/FileSystem`: `readFile()`, `fileExists()` and `fileSize()`.
+- Editor: a *Model* panel (`Editor/Source/Scene/ModelViewerModule`) that opens the sample model at start-up, opens others by path or by dropping a `.gltf` / `.glb` file on the window, fits the model to the view, rotates it, switches the debug view, and lists its instances and materials.
+- The *Lantern* sample model (Khronos glTF sample assets, CC0) is downloaded at configure time, copied next to the editor and included in the release zip. tinygltf and nlohmann/json licence notices are included too.
+- Unit tests for the importer: interleaved attributes and node transforms, flat normals, normalized texture coordinates, triangle strips, sparse accessors, out-of-bounds accessors and indices, materials, samplers and embedded images, binary files, and unsupported required extensions.
 
 ### Changed
+
+#### Textures and samplers
 - The Metal shader build passes `--msl-decoration-binding` to SPIRV-Cross, so HLSL register numbers become the Metal binding indices.
 - The ImGui D3D12 backend takes its descriptors from the device's shader-visible heap instead of a heap of its own, so drawing the UI no longer switches descriptor heaps.
 - `beginRenderPass()` moves its target to the RenderTarget state through the same texture state tracking as everything else; backbuffers are created with RenderTarget usage.
+
+#### Resource lifetimes
+- `Device::createBuffer/createTexture/createSampler` are no longer virtual: they validate the description, call the backend's `create*Impl()` and register the resource.
+- The texture demo builds a new vertex buffer when the window is resized instead of calling `waitIdle()` and overwriting the old one.
+
+#### Constants
+- The D3D12 root signature gains three root CBVs (b0–b2) after the SRV and sampler tables.
+- The texture demo draws one 4-vertex quad twice instead of building clip-space vertices on the CPU, so resizing no longer creates any buffer.
+
+#### Scene viewport
+- The texture demo renders into the scene target instead of the backbuffer; its aspect ratio follows the Scene panel. Only the UI draws to the backbuffer now.
+- `EditorModule` takes the `ImGuiModule`; the dock space no longer has a transparent central node.
+
+#### Editor camera
+- The texture demo is seen through the editor camera; its ground is 40 x 40 units around the origin, just below the grid. Its *Field of view* and *Height* controls are gone, and the corner quad uses a pipeline without depth testing.
+- Module order in the editor: ImGui, Editor, Texture Demo, Editor Overlays. The Editor's dock space must exist before other modules submit windows.
+
+#### glTF models
+- The texture demo has a *Visible* switch.
 
 ### Removed
 - The Phase 1 triangle (`TriangleModule`, `Triangle.hlsl`), replaced by the texture demo.
@@ -134,6 +140,7 @@ Phase 0: Foundations. No GPU rendering yet.
 - Release packaging: the Release editor build has no console window on Windows, and `cmake --workflow --preset <platform>-release` configures, builds, tests and zips it.
 - GitHub Actions workflow that builds the Windows and macOS zips and drafts a GitHub release when a `v*` tag is pushed.
 
-[Unreleased]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Anand-Ramnarain-27/arclight-engine/releases/tag/v0.1.0

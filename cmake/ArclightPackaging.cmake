@@ -27,6 +27,14 @@ string(FIND "${nlohmann_json_header}" "*/" nlohmann_json_notice_end)
 string(SUBSTRING "${nlohmann_json_header}" 0 ${nlohmann_json_notice_end} nlohmann_json_notice)
 file(WRITE "${CMAKE_BINARY_DIR}/Generated/nlohmann_json.txt" "${nlohmann_json_notice}*/\n")
 install(FILES "${CMAKE_BINARY_DIR}/Generated/nlohmann_json.txt" DESTINATION ThirdPartyLicenses)
+# stb_image is public domain or MIT, at the user's choice; its notice closes stb_image.h.
+file(READ "${stb_image_SOURCE_DIR}/stb_image.h" stb_image_header)
+string(FIND "${stb_image_header}" "This software is available under 2 licenses" stb_image_notice_start)
+string(FIND "${stb_image_header}" "*/" stb_image_notice_end REVERSE)
+math(EXPR stb_image_notice_length "${stb_image_notice_end} - ${stb_image_notice_start}")
+string(SUBSTRING "${stb_image_header}" ${stb_image_notice_start} ${stb_image_notice_length} stb_image_notice)
+file(WRITE "${CMAKE_BINARY_DIR}/Generated/stb_image.txt" "${stb_image_notice}")
+install(FILES "${CMAKE_BINARY_DIR}/Generated/stb_image.txt" DESTINATION ThirdPartyLicenses)
 
 # findAssetPath() looks for Assets/ in the working directory first (Game/ when run from an IDE),
 # then next to the executable, which is where the package puts it.
