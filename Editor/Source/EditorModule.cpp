@@ -165,6 +165,7 @@ namespace arc
         ImGui::DockBuilderDockWindow("Playback", top);
         ImGui::DockBuilderDockWindow("Console", bottom);
         ImGui::DockBuilderDockWindow("Texture Demo", rightTop);
+        ImGui::DockBuilderDockWindow("Model", rightTop);
         ImGui::DockBuilderDockWindow("Performance", rightBottom);
         ImGui::DockBuilderDockWindow("System Info", rightBottom);
         ImGui::DockBuilderFinish(dockspaceId);

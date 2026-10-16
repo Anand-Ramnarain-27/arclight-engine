@@ -1,5 +1,6 @@
 #include "Application/Application.h"
 #include "EditorModule.h"
+#include "Scene/ModelViewerModule.h"
 #include "Scene/TextureDemoModule.h"
 #include "UI/ImGuiModule.h"
 
@@ -37,6 +38,7 @@ int main(int argc, char* argv[])
     arc::ImGuiModule& imgui = app.addModule<arc::ImGuiModule>();
     arc::EditorModule& editor = app.addModule<arc::EditorModule>(imgui);
     app.addModule<arc::TextureDemoModule>();
+    app.addModule<arc::ModelViewerModule>();
     app.addModule<arc::EditorOverlayModule>(editor);
 
     return app.run();

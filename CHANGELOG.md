@@ -5,7 +5,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Phase 2 in progress: textures, resource lifetimes, constants, scene viewport, editor camera.
+Phase 2 in progress: textures, resource lifetimes, constants, scene viewport, editor camera, glTF models.
+
+### Added (glTF models)
+- `Renderer/GltfImporter`: imports `.gltf` (separate or embedded buffers and images) and `.glb` with tinygltf into `ModelData`, a GPU-free description that unit tests can check. Reads POSITION, NORMAL and TEXCOORD_0 from any component type (normalized integers included, so KHR_mesh_quantization is supported), any byte stride, and sparse accessors; 8/16/32-bit indices widened to 32 bits; triangle strips and fans converted to lists; flat normals generated when a primitive has none. The default scene's node hierarchy is flattened into instances with complete transforms. Materials (base colour factor and texture, metallic/roughness factors, alpha mode and cutoff, double-sided) and samplers are imported; only images a drawn material uses are decoded. Every accessor and index is bounds-checked, and broken parts are skipped with a warning. Files are read through SDL, so UTF-8 paths work on Windows.
+- `Renderer/Model`: a model on the GPU, with one vertex buffer and one index buffer for all primitives, sRGB base colour textures with CPU-generated mips, and samplers shared between textures with equal settings.
+- `Renderer/MeshRenderer` and `Engine/Shaders/Mesh.hlsl`: base colour (factor × texture) under a fixed directional light and sky/ground ambient; alpha mask and blend (blended primitives after opaque ones, unsorted); double-sided materials; mirrored instances (negative determinant) drawn with clockwise front faces. A white stand-in for materials without a texture, a magenta checker for textures that could not be loaded, and debug views of base colour, normals and texture coordinates.
+- `Math/Aabb.h`: axis-aligned bounding boxes, with a transformed() that encloses the eight transformed corners.
+- `Platform/FileSystem`: `readFile()`, `fileExists()` and `fileSize()`.
+- Editor: a *Model* panel (`Editor/Source/Scene/ModelViewerModule`) that opens the sample model at start-up, opens others by path or by dropping a `.gltf` / `.glb` file on the window, fits the model to the view, rotates it, switches the debug view, and lists its instances and materials.
+- The *Lantern* sample model (Khronos glTF sample assets, CC0) is downloaded at configure time, copied next to the editor and included in the release zip. tinygltf and nlohmann/json licence notices are included too.
+- Unit tests for the importer: interleaved attributes and node transforms, flat normals, normalized texture coordinates, triangle strips, sparse accessors, out-of-bounds accessors and indices, materials, samplers and embedded images, binary files, and unsupported required extensions.
+
+### Changed (glTF models)
+- The texture demo has a *Visible* switch.
+
 
 ### Added (editor camera)
 - Depth buffers: the `D32_FLOAT` format, `TextureUsage::DepthStencil`, the `DepthWrite` resource state, and `RenderPassDesc::depth` (load/store and clear depth). D3D12 creates depth-stencil views in a DSV heap; Metal sets the pass's depth attachment.

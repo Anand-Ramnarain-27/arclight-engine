@@ -5,6 +5,7 @@ add_executable(ArclightTests
     Source/UploadRingTests.cpp
     Source/MathTests.cpp
     Source/CameraTests.cpp
+    Source/GltfTests.cpp
     Source/TimeTests.cpp
     Source/RHITests.cpp
     Source/TextureTests.cpp

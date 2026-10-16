@@ -56,6 +56,36 @@ target_compile_definitions(stb_image
 )
 set_target_properties(stb_image PROPERTIES FOLDER "ThirdParty")
 
+# tinygltf: glTF 2.0 parsing (MIT), with nlohmann/json vendored. Its own CMake build is skipped
+# (SOURCE_SUBDIR names a folder without a CMakeLists.txt) so the implementation can be compiled here
+# with Arclight's options: images are decoded by Arclight's stb_image, and files are read through
+# SDL, which handles UTF-8 paths on Windows.
+FetchContent_Declare(tinygltf
+    GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
+    GIT_TAG        v2.9.7
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  no-cmake
+)
+FetchContent_MakeAvailable(tinygltf)
+
+set(tinygltf_impl "${CMAKE_BINARY_DIR}/Generated/tiny_gltf.cpp")
+file(CONFIGURE OUTPUT "${tinygltf_impl}" CONTENT "#define TINYGLTF_IMPLEMENTATION\n#include <tiny_gltf.h>\n")
+add_library(tinygltf STATIC "${tinygltf_impl}")
+target_include_directories(tinygltf SYSTEM PUBLIC ${tinygltf_SOURCE_DIR})
+# Every user of tiny_gltf.h must see the same options as the implementation.
+target_compile_definitions(tinygltf PUBLIC TINYGLTF_NO_STB_IMAGE TINYGLTF_NO_STB_IMAGE_WRITE TINYGLTF_NO_FS)
+set_target_properties(tinygltf PROPERTIES FOLDER "ThirdParty")
+
+# The sample model the editor opens at start-up: "Lantern" from the Khronos glTF sample assets,
+# CC0 (Microsoft), pinned to a commit of the repository.
+FetchContent_Declare(sample_lantern
+    URL      https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/edc7c9e67c639d230715049ee31f9a96a6babbbe/Models/Lantern/glTF-Binary/Lantern.glb
+    URL_HASH SHA256=a79458c4b02d695187a952f23a63b8bf278e7bc3d316a3c2a314f2d6974181f1
+    DOWNLOAD_NO_EXTRACT TRUE
+)
+FetchContent_MakeAvailable(sample_lantern)
+set(ARCLIGHT_SAMPLE_MODEL "${sample_lantern_SOURCE_DIR}/Lantern.glb")
+
 foreach(sdl_target IN ITEMS SDL3-static SDL_uclibc)
     if(TARGET ${sdl_target})
         set_target_properties(${sdl_target} PROPERTIES FOLDER "ThirdParty")

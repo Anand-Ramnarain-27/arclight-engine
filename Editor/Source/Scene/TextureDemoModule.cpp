@@ -316,6 +316,7 @@ namespace arc
             return;
         }
 
+        ImGui::Checkbox("Visible", &m_visible);
         if (ImGui::BeginCombo("Texture", m_textures[m_selectedTexture].name.c_str()))
         {
             for (size_t i = 0; i < m_textures.size(); ++i)
@@ -413,7 +414,7 @@ namespace arc
         Renderer& renderer = app().renderer();
         rhi::Pipeline* pipeline = m_pipelines[renderer.sceneCamera().reversedZ].get();
         const Extent2D size = renderer.sceneSize();
-        if (!renderer.isFrameActive() || !pipeline || !m_groundSampler || !m_quadSampler || size.width == 0 ||
+        if (!m_visible || !renderer.isFrameActive() || !pipeline || !m_groundSampler || !m_quadSampler || size.width == 0 ||
             !renderer.beginScenePass("Texture Demo"))
             return;
 

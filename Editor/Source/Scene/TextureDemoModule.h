@@ -69,6 +69,7 @@ namespace arc
         bool m_samplersDirty = true;
         bool m_recreateTextures = false;
 
+        bool m_visible = true;
         float m_mipBias = 0.0f;
 
         std::unique_ptr<rhi::Texture> m_nearWallTexture;

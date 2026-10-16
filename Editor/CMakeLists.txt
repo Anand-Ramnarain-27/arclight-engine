@@ -17,6 +17,8 @@ add_executable(Arclight
     Source/Scene/EditorCamera.cpp
     Source/Scene/EditorGrid.h
     Source/Scene/EditorGrid.cpp
+    Source/Scene/ModelViewerModule.h
+    Source/Scene/ModelViewerModule.cpp
     Source/Scene/TextureDemoModule.h
     Source/Scene/TextureDemoModule.cpp
 )
@@ -28,6 +30,14 @@ arclight_set_warnings(Arclight)
 # Compiled shaders are loaded from a Shaders/ folder next to the executable, which
 # ArclightShaders writes into bin/ (bin/<Config>/ for multi-config generators).
 add_dependencies(Arclight ArclightShaders)
+
+# The sample model is downloaded at configure time (see ArclightDependencies.cmake), not committed,
+# and placed in Assets/ next to the executable, the second place findAssetPath() looks.
+add_custom_command(TARGET Arclight POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ARCLIGHT_SAMPLE_MODEL}"
+            "$<TARGET_FILE_DIR:Arclight>/Assets/Models/Lantern.glb"
+    VERBATIM
+)
 set_target_properties(Arclight PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # Release builds use the Windows GUI subsystem so no console window opens next to the editor.

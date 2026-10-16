@@ -20,10 +20,18 @@ install(FILES
 # SDL3 and Dear ImGui are linked statically, so their notices ship with the binary.
 install(FILES ${sdl3_SOURCE_DIR}/LICENSE.txt  DESTINATION ThirdPartyLicenses RENAME SDL3.txt)
 install(FILES ${imgui_SOURCE_DIR}/LICENSE.txt DESTINATION ThirdPartyLicenses RENAME DearImGui.txt)
+install(FILES ${tinygltf_SOURCE_DIR}/LICENSE DESTINATION ThirdPartyLicenses RENAME tinygltf.txt)
+# nlohmann/json, vendored by tinygltf, carries its MIT notice in the comment that opens json.hpp.
+file(READ "${tinygltf_SOURCE_DIR}/json.hpp" nlohmann_json_header LIMIT 4096)
+string(FIND "${nlohmann_json_header}" "*/" nlohmann_json_notice_end)
+string(SUBSTRING "${nlohmann_json_header}" 0 ${nlohmann_json_notice_end} nlohmann_json_notice)
+file(WRITE "${CMAKE_BINARY_DIR}/Generated/nlohmann_json.txt" "${nlohmann_json_notice}*/\n")
+install(FILES "${CMAKE_BINARY_DIR}/Generated/nlohmann_json.txt" DESTINATION ThirdPartyLicenses)
 
 # findAssetPath() looks for Assets/ in the working directory first (Game/ when run from an IDE),
 # then next to the executable, which is where the package puts it.
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/Game/Assets/ DESTINATION Assets)
+install(FILES "${ARCLIGHT_SAMPLE_MODEL}" DESTINATION Assets/Models)
 
 if(WIN32)
     set(arclight_package_platform "windows-x64")
