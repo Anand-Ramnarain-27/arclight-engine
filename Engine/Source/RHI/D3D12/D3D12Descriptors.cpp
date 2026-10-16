@@ -105,13 +105,16 @@ namespace arc::rhi::d3d12
     }
 
     D3D12Texture::D3D12Texture(D3D12Device& device, ComPtr<ID3D12Resource> resource, const TextureDesc& desc,
-                               const D3D12Descriptor& srvDescriptor, const D3D12Descriptor& rtvDescriptor)
+                               const D3D12Descriptor& srvDescriptor, const D3D12Descriptor& rtvDescriptor,
+                               const D3D12Descriptor& dsvDescriptor)
         : srv(srvDescriptor.cpu)
         , rtv(rtvDescriptor.cpu)
+        , dsv(dsvDescriptor.cpu)
         , m_resource(std::move(resource))
         , m_device(&device)
         , m_srvDescriptor(srvDescriptor)
         , m_rtvDescriptor(rtvDescriptor)
+        , m_dsvDescriptor(dsvDescriptor)
     {
         m_desc = desc;
     }
@@ -121,10 +124,11 @@ namespace arc::rhi::d3d12
         if (!m_device)
             return;
         // The views are CPU-only descriptors: draws copied the SRV into a shader-visible table and
-        // OMSetRenderTargets read the RTV when they were recorded, so the slots can be reused now.
-        // The resource itself may still be in use by the GPU.
+        // OMSetRenderTargets read the RTV and DSV when they were recorded, so the slots can be reused
+        // now. The resource itself may still be in use by the GPU.
         m_device->cpuSrvHeap().free(m_srvDescriptor);
         m_device->rtvHeap().free(m_rtvDescriptor);
+        m_device->dsvHeap().free(m_dsvDescriptor);
         m_device->retire(std::move(m_resource));
     }
 

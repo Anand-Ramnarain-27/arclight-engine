@@ -1,6 +1,8 @@
 #pragma once
 
 #include "RHI/RHITypes.h"
+#include "Renderer/Camera.h"
+#include "Renderer/ShaderConstants.h"
 
 #include <memory>
 #include <optional>
@@ -30,9 +32,14 @@ namespace arc
     /// clears it so a stale image is never presented.
     ///
     /// The scene is not drawn to the backbuffer but to the scene target, a texture the editor shows
-    /// in its Scene panel. It follows the same rule: the first scene pass of a frame clears it.
-    /// finishScene(), called by the Application after every module's render(), clears it if no
-    /// pass did and moves it to the ShaderRead state for the UI.
+    /// in its Scene panel, with a depth target of the same size. It follows the same rule: the first
+    /// scene pass of a frame clears both. finishScene(), called by the Application after every
+    /// module's render(), clears them if no pass did and moves the colour target to the ShaderRead
+    /// state for the UI.
+    ///
+    /// The scene is seen through the scene camera, which the editor sets every frame. Pipelines that
+    /// test depth must use its depthCompare(); since that changes with Camera::reversedZ, modules
+    /// keep a pipeline for each convention.
     class Renderer
     {
     public:
@@ -86,6 +93,16 @@ namespace arc
         /// The texture the scene renders into: RenderTarget + Sampled, in sceneFormat().
         [[nodiscard]] rhi::Texture* sceneTexture() { return m_sceneTarget.get(); }
 
+        /// The format of the scene's depth target, for pipelines that draw into scene passes.
+        [[nodiscard]] static constexpr rhi::Format sceneDepthFormat() { return rhi::Format::D32_FLOAT; }
+
+        /// Takes effect for passes begun afterwards; set it before render().
+        void setSceneCamera(const Camera& camera) { m_sceneCamera = camera; }
+        [[nodiscard]] const Camera& sceneCamera() const { return m_sceneCamera; }
+
+        /// The scene camera's constants for b0, with the aspect ratio of the scene target.
+        [[nodiscard]] ViewConstants sceneViewConstants() const;
+
         /// The colour format of the scene target, for pipelines that draw into it. Not sRGB: shaders
         /// write display-ready values (see LinearToSrgb in Common.hlsli) until the HDR target and
         /// tone mapping of Phase 4.
@@ -111,6 +128,8 @@ namespace arc
         bool m_backbufferCleared = false;
 
         std::unique_ptr<rhi::Texture> m_sceneTarget;
+        std::unique_ptr<rhi::Texture> m_sceneDepth;
+        Camera m_sceneCamera;
         bool m_sceneCleared = false;
     };
 }

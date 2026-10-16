@@ -74,17 +74,28 @@ namespace arc
             {70, 110, 230},  {150, 80, 220},  {230, 80, 190}, {240, 240, 240}, {128, 128, 128},
         }};
 
-        // 40 x 80 units of ground in the y = 0 plane, from just in front of the camera into the
-        // distance: the quad laid flat (its +Y edge pointing away down -Z) and scaled. The texture
-        // repeats every 2 units.
+        // 40 x 40 units of ground centred on the origin: the quad laid flat (its +Y edge pointing
+        // down -Z) and scaled. The texture repeats every 2 units. It sits slightly below y = 0 so the
+        // editor grid, which lies exactly on y = 0, is never at the same depth.
         TexturedDrawConstants groundConstants(float mipBias)
         {
             TexturedDrawConstants constants;
-            constants.world = Mat4::translation({0.0f, 0.0f, -40.25f}) *
+            constants.world = Mat4::translation({0.0f, -0.01f, 0.0f}) *
                               Mat4::rotation(Quat::fromAxisAngle({1.0f, 0.0f, 0.0f}, toRadians(-90.0f))) *
-                              Mat4::scaling({40.0f, 80.0f, 1.0f});
-            constants.uvScale = {20.0f, 40.0f};
+                              Mat4::scaling({40.0f, 40.0f, 1.0f});
+            constants.uvScale = {20.0f, 20.0f};
             constants.mipBias = mipBias;
+            return constants;
+        }
+
+        // An upright wall facing +Z, centred on the -Z axis at `distance` and standing on y = 0,
+        // scaled with the distance so it covers about the same part of the view from the origin.
+        TexturedDrawConstants wallConstants(float distance)
+        {
+            const float width = distance * 0.8f;
+            const float height = distance * 0.3f;
+            TexturedDrawConstants constants;
+            constants.world = Mat4::translation({0.0f, height * 0.5f, -distance}) * Mat4::scaling({width, height, 1.0f});
             return constants;
         }
 
@@ -189,9 +200,31 @@ namespace arc
             },
         };
         pipelineDesc.colorFormat = Renderer::sceneFormat();
-        pipelineDesc.debugName = "Textured";
-        m_pipeline = device.createPipeline(pipelineDesc);
-        if (!m_pipeline)
+        pipelineDesc.depthFormat = Renderer::sceneDepthFormat();
+
+        for (const bool reversedZ : {false, true})
+        {
+            Camera camera;
+            camera.reversedZ = reversedZ;
+            pipelineDesc.depth = {.test = true, .write = true, .compare = camera.depthCompare()};
+            pipelineDesc.debugName = reversedZ ? "Textured (Reversed-Z)" : "Textured";
+            m_pipelines[reversedZ] = device.createPipeline(pipelineDesc);
+            if (!m_pipelines[reversedZ])
+                return false;
+        }
+
+        pipelineDesc.depth = {};
+        pipelineDesc.debugName = "Textured Overlay";
+        m_overlayPipeline = device.createPipeline(pipelineDesc);
+        if (!m_overlayPipeline)
+            return false;
+
+        // One texel each, so the walls are flat colours and any flicker between them is plain to see.
+        const Image nearWall = makeChecker({1, 1}, 1, {220, 60, 60}, {220, 60, 60});
+        const Image farWall = makeChecker({1, 1}, 1, {60, 110, 230}, {60, 110, 230});
+        m_nearWallTexture = createTexture(device, std::span(&nearWall, 1), ColorSpace::Srgb, "Near Wall");
+        m_farWallTexture = createTexture(device, std::span(&farWall, 1), ColorSpace::Srgb, "Far Wall");
+        if (!m_nearWallTexture || !m_farWallTexture)
             return false;
 
         m_vertexBuffer = device.createBuffer({
@@ -335,10 +368,15 @@ namespace arc
         ImGui::SetItemTooltip("Added to the mip level the GPU picks (a per-draw constant, b1). Negative is "
                               "sharper but aliases; positive is blurrier.");
 
-        ImGui::SeparatorText("Camera");
-        ImGui::SliderFloat("Field of view", &m_fieldOfView, 20.0f, 110.0f, "%.0f deg");
-        ImGui::SliderFloat("Height", &m_cameraHeight, 0.2f, 10.0f, "%.1f");
-        ImGui::TextDisabled("Sent every frame as the view constants (b0).");
+        ImGui::SeparatorText("Z-fighting test");
+        ImGui::Checkbox("Show walls", &m_zFightingTest);
+        ImGui::SetItemTooltip("A red wall just in front of a blue one, down the -Z axis. Where the depth buffer "
+                              "cannot tell them apart, blue shows through.");
+        ImGui::SliderFloat("Distance", &m_wallDistance, 5.0f, 2000.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SliderFloat("Separation", &m_wallSeparation, 0.0001f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+        const Camera& camera = app().renderer().sceneCamera();
+        ImGui::TextDisabled("%s, near plane %.3f", camera.reversedZ ? "Reversed-Z" : "Standard depth", camera.nearZ);
+        ImGui::TextDisabled("Change both in the Scene panel's Camera menu.");
 
         ImGui::SeparatorText("Corner quad sampler");
         ImGui::TextDisabled("Texture coordinates run from -1 to 2.");
@@ -373,37 +411,41 @@ namespace arc
     void TextureDemoModule::render()
     {
         Renderer& renderer = app().renderer();
-        if (!renderer.isFrameActive() || !m_groundSampler || !m_quadSampler)
-            return;
-
-        // Recomputed every frame from the scene target's size, so resizing needs no extra work.
+        rhi::Pipeline* pipeline = m_pipelines[renderer.sceneCamera().reversedZ].get();
         const Extent2D size = renderer.sceneSize();
-        const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
-
-        // Looking slightly down, so the far edge of the ground sits just below the horizon.
-        ViewConstants camera;
-        camera.viewProjection = Mat4::perspective(toRadians(m_fieldOfView), aspect, 0.1f, 200.0f) *
-                                Mat4::lookAt({0.0f, m_cameraHeight, 0.0f}, {0.0f, m_cameraHeight - 1.0f, -6.0f},
-                                             {0.0f, 1.0f, 0.0f});
-
-        if (size.width == 0 || !renderer.beginScenePass("Texture Demo"))
+        if (!renderer.isFrameActive() || !pipeline || !m_groundSampler || !m_quadSampler || size.width == 0 ||
+            !renderer.beginScenePass("Texture Demo"))
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
-        commandList.setPipeline(*m_pipeline);
+        commandList.setPipeline(*pipeline);
         commandList.setVertexBuffer(*m_vertexBuffer);
         commandList.setIndexBuffer(*m_indexBuffer, rhi::IndexFormat::UInt16);
-        commandList.setTexture(0, *m_textures[m_selectedTexture].texture);
+        commandList.setConstants(0, renderer.sceneViewConstants());
         {
             const rhi::ScopedDebugGroup group(commandList, "Ground");
-            commandList.setConstants(0, camera);
+            commandList.setTexture(0, *m_textures[m_selectedTexture].texture);
             commandList.setConstants(1, groundConstants(m_mipBias));
             commandList.setSampler(0, *m_groundSampler);
             commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
         }
+        if (m_zFightingTest)
+        {
+            const rhi::ScopedDebugGroup group(commandList, "Z-Fighting Walls");
+            commandList.setTexture(0, *m_farWallTexture);
+            commandList.setConstants(1, wallConstants(m_wallDistance));
+            commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
+            commandList.setTexture(0, *m_nearWallTexture);
+            commandList.setConstants(1, wallConstants(m_wallDistance - m_wallSeparation));
+            commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
+        }
         {
             const rhi::ScopedDebugGroup group(commandList, "Address Mode Quad");
-            // Already in clip space, so this draw gets an identity camera of its own.
+            // Already in clip space, so this draw gets an identity camera of its own, and a pipeline
+            // without depth testing: it is a 2D overlay, not part of the 3D scene.
+            const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
+            commandList.setPipeline(*m_overlayPipeline);
+            commandList.setTexture(0, *m_textures[m_selectedTexture].texture);
             commandList.setConstants(0, ViewConstants{});
             commandList.setConstants(1, cornerQuadConstants(aspect));
             commandList.setSampler(0, *m_quadSampler);
@@ -419,7 +461,11 @@ namespace arc
         m_groundSampler.reset();
         m_quadSampler.reset();
         m_textures.clear();
-        m_pipeline.reset();
+        m_nearWallTexture.reset();
+        m_farWallTexture.reset();
+        for (auto& pipeline : m_pipelines)
+            pipeline.reset();
+        m_overlayPipeline.reset();
         m_vertexBuffer.reset();
         m_indexBuffer.reset();
     }

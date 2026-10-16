@@ -32,6 +32,7 @@ namespace arc::rhi::d3d12
             case ResourceState::ShaderRead:
                 return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
             case ResourceState::RenderTarget:   return D3D12_RESOURCE_STATE_RENDER_TARGET;
+            case ResourceState::DepthWrite:     return D3D12_RESOURCE_STATE_DEPTH_WRITE;
             case ResourceState::Present:        return D3D12_RESOURCE_STATE_PRESENT;
         }
         return D3D12_RESOURCE_STATE_COMMON;
@@ -95,6 +96,7 @@ namespace arc::rhi::d3d12
     void D3D12CommandList::setPipeline(Pipeline& pipeline)
     {
         ARC_ASSERT(m_inRenderPass, "setPipeline outside a render pass");
+        validatePipelineForPass(pipeline.desc());
         m_pipeline = &static_cast<D3D12Pipeline&>(pipeline);
         m_list->SetPipelineState(m_pipeline->state());
 
@@ -331,25 +333,31 @@ namespace arc::rhi::d3d12
     void D3D12CommandList::beginRenderPass(const RenderPassDesc& desc)
     {
         ARC_ASSERT(!m_inRenderPass, "Render passes do not nest");
-        ARC_ASSERT(desc.color.texture != nullptr);
+        validateRenderPass(desc);
 
         auto& target = static_cast<D3D12Texture&>(*desc.color.texture);
-        ARC_ASSERT(target.rtv.ptr != 0, "'{}' is not a render target", target.desc().debugName);
+        auto* depth = static_cast<D3D12Texture*>(desc.depth.texture);
         barrier(target, ResourceState::RenderTarget);
+        if (depth)
+            barrier(*depth, ResourceState::DepthWrite);
         m_inRenderPass = true;
 
         m_passHasDebugGroup = !desc.debugName.empty();
         if (m_passHasDebugGroup)
             beginEvent(m_list.Get(), desc.debugName);
 
-        m_list->OMSetRenderTargets(1, &target.rtv, FALSE, nullptr);
+        m_list->OMSetRenderTargets(1, &target.rtv, FALSE, depth ? &depth->dsv : nullptr);
 
+        // D3D12 has no load or store actions: Clear is an explicit clear, and Load and DontCare
+        // both leave the contents as they are. Store is likewise implicit.
         if (desc.color.load == LoadOp::Clear)
         {
             const ClearColor& c = desc.color.clearColor;
             const float color[] = {c.r, c.g, c.b, c.a};
             m_list->ClearRenderTargetView(target.rtv, color, 0, nullptr);
         }
+        if (depth && desc.depth.load == LoadOp::Clear)
+            m_list->ClearDepthStencilView(depth->dsv, D3D12_CLEAR_FLAG_DEPTH, desc.depth.clearDepth, 0, 0, nullptr);
 
         // Metal resets the viewport and scissor to the full target at the start of every pass;
         // doing the same here keeps the two backends consistent.

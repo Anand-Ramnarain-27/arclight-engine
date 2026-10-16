@@ -31,10 +31,13 @@ int main(int argc, char* argv[])
 
     arc::Application app(std::move(desc));
 
-    // ImGuiModule must come first: it starts the ImGui frame that EditorModule draws into.
+    // ImGuiModule must come first: it starts the ImGui frame that the others draw into. The
+    // EditorModule's dock space must exist before other modules submit windows, and the overlays
+    // are drawn over everything the modules before them put in the scene.
     arc::ImGuiModule& imgui = app.addModule<arc::ImGuiModule>();
-    app.addModule<arc::EditorModule>(imgui);
+    arc::EditorModule& editor = app.addModule<arc::EditorModule>(imgui);
     app.addModule<arc::TextureDemoModule>();
+    app.addModule<arc::EditorOverlayModule>(editor);
 
     return app.run();
 }

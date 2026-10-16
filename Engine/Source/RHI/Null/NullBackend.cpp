@@ -121,10 +121,10 @@ namespace arc::rhi
             void beginRenderPass(const RenderPassDesc& desc) override
             {
                 ARC_ASSERT(!m_inRenderPass, "Render passes do not nest");
-                ARC_ASSERT(desc.color.texture != nullptr);
-                ARC_ASSERT(hasFlag(desc.color.texture->desc().usage, TextureUsage::RenderTarget),
-                           "'{}' is not a render target", desc.color.texture->desc().debugName);
+                validateRenderPass(desc);
                 desc.color.texture->setState(ResourceState::RenderTarget);
+                if (desc.depth.texture)
+                    desc.depth.texture->setState(ResourceState::DepthWrite);
                 m_inRenderPass = true;
             }
 
@@ -140,6 +140,7 @@ namespace arc::rhi
             void setPipeline(Pipeline& pipeline) override
             {
                 ARC_ASSERT(m_inRenderPass, "setPipeline outside a render pass");
+                validatePipelineForPass(pipeline.desc());
                 m_pipeline = &pipeline;
             }
 

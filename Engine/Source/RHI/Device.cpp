@@ -30,9 +30,15 @@ namespace arc::rhi
             case Format::Unknown:          return 0;
             case Format::RGBA8_UNORM:
             case Format::RGBA8_UNORM_SRGB:
-            case Format::BGRA8_UNORM:      return 4;
+            case Format::BGRA8_UNORM:
+            case Format::D32_FLOAT:        return 4;
         }
         return 0;
+    }
+
+    bool isDepthFormat(Format format)
+    {
+        return format == Format::D32_FLOAT;
     }
 
     uint32_t fullMipCount(Extent2D size)
@@ -57,6 +63,7 @@ namespace arc::rhi
             case ResourceState::ConstantBuffer: return "ConstantBuffer";
             case ResourceState::ShaderRead:     return "ShaderRead";
             case ResourceState::RenderTarget:   return "RenderTarget";
+            case ResourceState::DepthWrite:     return "DepthWrite";
             case ResourceState::Present:        return "Present";
         }
         return "Unknown";
@@ -88,6 +95,11 @@ namespace arc::rhi
                        "Texture '{}' asks for {} mip levels; its size allows 1 to {}", desc.debugName,
                        desc.mipLevels, fullMipCount(desc.size));
             ARC_ASSERT(desc.usage != TextureUsage::None, "Texture '{}' has no usage", desc.debugName);
+            const bool depthUsage = hasFlag(desc.usage, TextureUsage::DepthStencil);
+            ARC_ASSERT(depthUsage == isDepthFormat(desc.format),
+                       "Texture '{}': DepthStencil usage and a depth format go together", desc.debugName);
+            ARC_ASSERT(!depthUsage || (desc.usage == TextureUsage::DepthStencil && desc.mipLevels == 1),
+                       "Texture '{}': a depth target has a single mip level and no other usage", desc.debugName);
         }
 
         void validateSamplerDesc(const SamplerDesc& desc)

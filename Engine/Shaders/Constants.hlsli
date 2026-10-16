@@ -8,7 +8,9 @@
 // storage order), applied as mul(matrix, columnVector).
 cbuffer ViewConstants : register(b0)
 {
-    float4x4 viewProjection;   // World space to clip space.
+    float4x4 viewProjection;          // World space to clip space.
+    float4x4 inverseViewProjection;   // Clip space back to world space, for reconstructing rays.
+    float3 cameraPosition;            // World space.
 };
 
 #endif

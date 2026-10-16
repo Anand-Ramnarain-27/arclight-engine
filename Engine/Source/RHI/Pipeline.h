@@ -22,11 +22,21 @@ namespace arc::rhi
         uint32_t offset = 0;         // Bytes from the start of the vertex.
     };
 
-    /// The layout of the single interleaved vertex buffer a pipeline reads.
+    /// The layout of the single interleaved vertex buffer a pipeline reads. A pipeline with no
+    /// attributes reads no vertex buffer; its vertex shader builds positions from SV_VertexID.
     struct VertexLayout
     {
         uint32_t stride = 0;         // Bytes per vertex.
         std::vector<VertexAttribute> attributes{};
+    };
+
+    struct DepthState
+    {
+        /// Off: every fragment passes and nothing is written, as if the pass had no depth target.
+        bool test = false;
+        /// Only meaningful with `test`.
+        bool write = false;
+        CompareOp compare = CompareOp::Always;
     };
 
     /// Everything fixed when a pipeline is created. Changing any of it means another pipeline.
@@ -38,6 +48,13 @@ namespace arc::rhi
 
         /// Must match the format of the render target the pipeline draws into.
         Format colorFormat = Format::BGRA8_UNORM;
+
+        /// Must match the pass's depth target, or be Unknown for passes without one. A pipeline that
+        /// ignores depth in a pass that has a target still names the target's format, with
+        /// `depth.test` off: the format is part of the pipeline on both APIs.
+        Format depthFormat = Format::Unknown;
+        DepthState depth{};
+        BlendMode blend = BlendMode::Opaque;
 
         CullMode cullMode = CullMode::Back;
         /// Counter-clockwise front faces: the convention of a right-handed world (see Math.h)

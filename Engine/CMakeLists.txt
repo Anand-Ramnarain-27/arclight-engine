@@ -46,6 +46,8 @@ add_library(ArclightEngine STATIC
     Source/RHI/Null/NullBackend.cpp
     Source/Renderer/Renderer.h
     Source/Renderer/Renderer.cpp
+    Source/Renderer/Camera.h
+    Source/Renderer/Camera.cpp
     Source/Renderer/ShaderLibrary.h
     Source/Renderer/ShaderLibrary.cpp
     Source/Renderer/ShaderConstants.h
@@ -105,6 +107,7 @@ target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image)
 arclight_set_warnings(ArclightEngine)
 
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Textured.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Grid.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

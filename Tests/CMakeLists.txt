@@ -4,6 +4,7 @@ add_executable(ArclightTests
     Source/ResourceLifetimeTests.cpp
     Source/UploadRingTests.cpp
     Source/MathTests.cpp
+    Source/CameraTests.cpp
     Source/TimeTests.cpp
     Source/RHITests.cpp
     Source/TextureTests.cpp

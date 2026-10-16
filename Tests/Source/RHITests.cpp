@@ -6,6 +6,7 @@
 #include "RHI/Pipeline.h"
 #include "RHI/Shader.h"
 #include "RHI/ShaderUtils.h"
+#include "RHI/Texture.h"
 
 #include <doctest/doctest.h>
 
@@ -118,4 +119,52 @@ TEST_CASE("A pipeline keeps the description it was created from")
     CHECK(pipeline->desc().vertexLayout.attributes.size() == 2);
     CHECK(pipeline->desc().vertexLayout.attributes[1].semantic == "COLOR");
     CHECK(pipeline->desc().frontCounterClockwise);
+}
+
+TEST_CASE("A depth target goes to DepthWrite when a render pass uses it")
+{
+    auto device = createNullDevice({});
+    REQUIRE(device);
+
+    CHECK(isDepthFormat(Format::D32_FLOAT));
+    CHECK_FALSE(isDepthFormat(Format::RGBA8_UNORM));
+    CHECK(bytesPerPixel(Format::D32_FLOAT) == 4);
+
+    auto color = device->createTexture(
+        {.size = {8, 8}, .format = Format::RGBA8_UNORM, .usage = TextureUsage::RenderTarget, .debugName = "Color"});
+    auto depth = device->createTexture(
+        {.size = {8, 8}, .format = Format::D32_FLOAT, .usage = TextureUsage::DepthStencil, .debugName = "Depth"});
+    REQUIRE(color);
+    REQUIRE(depth);
+    CHECK(depth->state() == ResourceState::Common);
+
+    const std::byte dxilHeader[8]{std::byte{'D'}, std::byte{'X'}, std::byte{'B'}, std::byte{'C'}};
+    auto vertexShader = device->createShader({.stage = ShaderStage::Vertex, .bytecode = dxilHeader, .entryPoint = "VSMain"});
+    auto pixelShader = device->createShader({.stage = ShaderStage::Pixel, .bytecode = dxilHeader, .entryPoint = "PSMain"});
+    REQUIRE(vertexShader);
+    REQUIRE(pixelShader);
+
+    // No vertex attributes: the pipeline draws without a vertex buffer.
+    PipelineDesc pipelineDesc;
+    pipelineDesc.vertexShader = vertexShader.get();
+    pipelineDesc.pixelShader = pixelShader.get();
+    pipelineDesc.colorFormat = Format::RGBA8_UNORM;
+    pipelineDesc.depthFormat = Format::D32_FLOAT;
+    pipelineDesc.depth = {.test = true, .write = true, .compare = CompareOp::GreaterEqual};
+    pipelineDesc.debugName = "Depth Test";
+    auto pipeline = device->createPipeline(pipelineDesc);
+    REQUIRE(pipeline);
+
+    device->submitImmediate([&](CommandList& commandList) {
+        RenderPassDesc pass;
+        pass.color.texture = color.get();
+        pass.depth.texture = depth.get();
+        pass.depth.clearDepth = 0.0f;
+        commandList.beginRenderPass(pass);
+        commandList.setPipeline(*pipeline);
+        commandList.draw(3);
+        commandList.endRenderPass();
+    });
+    CHECK(color->state() == ResourceState::RenderTarget);
+    CHECK(depth->state() == ResourceState::DepthWrite);
 }

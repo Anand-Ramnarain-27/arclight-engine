@@ -25,8 +25,28 @@ namespace arc::rhi::metal
             case Format::RGBA8_UNORM:      return MTLPixelFormatRGBA8Unorm;
             case Format::RGBA8_UNORM_SRGB: return MTLPixelFormatRGBA8Unorm_sRGB;
             case Format::BGRA8_UNORM:      return MTLPixelFormatBGRA8Unorm;
+            case Format::D32_FLOAT:        return MTLPixelFormatDepth32Float;
         }
         return MTLPixelFormatInvalid;
+    }
+
+    namespace
+    {
+        MTLCompareFunction toMTLCompare(CompareOp op)
+        {
+            switch (op)
+            {
+                case CompareOp::Never:        return MTLCompareFunctionNever;
+                case CompareOp::Less:         return MTLCompareFunctionLess;
+                case CompareOp::LessEqual:    return MTLCompareFunctionLessEqual;
+                case CompareOp::Equal:        return MTLCompareFunctionEqual;
+                case CompareOp::GreaterEqual: return MTLCompareFunctionGreaterEqual;
+                case CompareOp::Greater:      return MTLCompareFunctionGreater;
+                case CompareOp::NotEqual:     return MTLCompareFunctionNotEqual;
+                case CompareOp::Always:       return MTLCompareFunctionAlways;
+            }
+            return MTLCompareFunctionAlways;
+        }
     }
 
     MetalDevice::~MetalDevice()
@@ -121,7 +141,6 @@ namespace arc::rhi::metal
 
     std::unique_ptr<Texture> MetalDevice::createTextureImpl(const TextureDesc& desc)
     {
-
         MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
                                                                                               width:desc.size.width
                                                                                              height:desc.size.height
@@ -132,7 +151,7 @@ namespace arc::rhi::metal
         MTLTextureUsage usage = MTLTextureUsageUnknown;
         if (hasFlag(desc.usage, TextureUsage::Sampled))
             usage |= MTLTextureUsageShaderRead;
-        if (hasFlag(desc.usage, TextureUsage::RenderTarget))
+        if (hasFlag(desc.usage, TextureUsage::RenderTarget) || hasFlag(desc.usage, TextureUsage::DepthStencil))
             usage |= MTLTextureUsageRenderTarget;
         descriptor.usage = usage;
 
@@ -232,7 +251,15 @@ namespace arc::rhi::metal
         ARC_ASSERT(desc.vertexShader && desc.vertexShader->stage() == ShaderStage::Vertex);
         ARC_ASSERT(desc.pixelShader && desc.pixelShader->stage() == ShaderStage::Pixel);
 
-        MTLVertexDescriptor* vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
+        // Without attributes there is no vertex descriptor at all: Metal rejects a buffer layout
+        // with a zero stride.
+        MTLVertexDescriptor* vertexDescriptor = nil;
+        if (!desc.vertexLayout.attributes.empty())
+        {
+            vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
+            vertexDescriptor.layouts[kVertexBufferIndex].stride = desc.vertexLayout.stride;
+            vertexDescriptor.layouts[kVertexBufferIndex].stepFunction = MTLVertexStepFunctionPerVertex;
+        }
         for (NSUInteger i = 0; i < desc.vertexLayout.attributes.size(); ++i)
         {
             const VertexAttribute& attribute = desc.vertexLayout.attributes[i];
@@ -242,8 +269,6 @@ namespace arc::rhi::metal
             vertexDescriptor.attributes[i].offset = attribute.offset;
             vertexDescriptor.attributes[i].bufferIndex = kVertexBufferIndex;
         }
-        vertexDescriptor.layouts[kVertexBufferIndex].stride = desc.vertexLayout.stride;
-        vertexDescriptor.layouts[kVertexBufferIndex].stepFunction = MTLVertexStepFunctionPerVertex;
 
         MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
         descriptor.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
@@ -251,6 +276,16 @@ namespace arc::rhi::metal
         descriptor.fragmentFunction = static_cast<const MetalShader*>(desc.pixelShader)->function();
         descriptor.vertexDescriptor = vertexDescriptor;
         descriptor.colorAttachments[0].pixelFormat = toMTLPixelFormat(desc.colorFormat);
+        descriptor.depthAttachmentPixelFormat = toMTLPixelFormat(desc.depthFormat);
+        if (desc.blend == BlendMode::AlphaBlend)
+        {
+            MTLRenderPipelineColorAttachmentDescriptor* color = descriptor.colorAttachments[0];
+            color.blendingEnabled = YES;
+            color.sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+            color.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+            color.sourceAlphaBlendFactor = MTLBlendFactorOne;
+            color.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        }
 
         NSError* error = nil;
         id<MTLRenderPipelineState> state = [m_device newRenderPipelineStateWithDescriptor:descriptor error:&error];
@@ -260,7 +295,18 @@ namespace arc::rhi::metal
                           error ? error.localizedDescription.UTF8String : "unknown error");
             return nullptr;
         }
-        return std::make_unique<MetalPipeline>(desc, state);
+
+        MTLDepthStencilDescriptor* depthDescriptor = [[MTLDepthStencilDescriptor alloc] init];
+        depthDescriptor.depthCompareFunction = toMTLCompare(desc.depth.test ? desc.depth.compare : CompareOp::Always);
+        depthDescriptor.depthWriteEnabled = desc.depth.test && desc.depth.write;
+        depthDescriptor.label = descriptor.label;
+        id<MTLDepthStencilState> depthState = [m_device newDepthStencilStateWithDescriptor:depthDescriptor];
+        if (!depthState)
+        {
+            ARC_LOG_ERROR("Failed to create the depth state of Metal pipeline '{}'", desc.debugName);
+            return nullptr;
+        }
+        return std::make_unique<MetalPipeline>(desc, state, depthState);
     }
 
     void MetalDevice::submitImmediate(const std::function<void(CommandList&)>& record)

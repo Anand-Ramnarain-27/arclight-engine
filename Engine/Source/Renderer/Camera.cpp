@@ -1,0 +1,31 @@
+#include "Renderer/Camera.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace arc
+{
+    void Camera::lookAlong(const Vec3& direction)
+    {
+        const Vec3 d = normalize(direction);
+        if (lengthSquared(d) == 0.0f)
+            return;
+        // forward = (-sin(yaw) cos(pitch), sin(pitch), -cos(yaw) cos(pitch)); see rotation().
+        pitch = std::clamp(std::asin(std::clamp(d.y, -1.0f, 1.0f)), -kMaxPitch, kMaxPitch);
+        if (d.x != 0.0f || d.z != 0.0f)
+            yaw = std::atan2(-d.x, -d.z);
+    }
+
+    Mat4 Camera::view() const
+    {
+        // The camera's transform is translation(position) * rotation; its inverse undoes the
+        // translation first and then the rotation. A unit quaternion's inverse is its conjugate.
+        return Mat4::rotation(conjugate(rotation())) * Mat4::translation(-position);
+    }
+
+    Mat4 Camera::projection(float aspect) const
+    {
+        return reversedZ ? Mat4::perspectiveReversedZ(verticalFov, aspect, nearZ)
+                         : Mat4::perspective(verticalFov, aspect, nearZ, farZ);
+    }
+}

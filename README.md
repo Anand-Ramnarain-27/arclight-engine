@@ -25,6 +25,7 @@ Phase 2 (meshes, textures, camera, viewport) is in progress. Done so far:
 - **Resource lifetimes.** Buffers, textures and pipelines can be destroyed while the GPU still uses them: D3D12 keeps them in a fence-tagged deferred release queue, and Metal's command buffers retain them. Resources have generational handles (`Device::find()` returns nullptr once a resource is gone), leaks are reported by name at shutdown, and System Info shows live resource counts.
 - **Constants.** `setConstants(slot, data)` binds cbuffers b0–b2 from a per-frame upload ring (root CBVs on D3D12, buffer slots on Metal). The demo's camera and per-draw transforms now come from constants.
 - **Scene viewport.** The scene renders into its own texture, shown in a dockable *Scene* panel at the panel's pixel size; any device texture can be shown in ImGui through `ImGuiModule::textureId()`.
+- **Editor camera.** Depth buffers with reversed-Z (switchable, to compare), a fly / orbit / pan camera in the Scene panel, an infinite anti-aliased grid, an axis gizmo, and a z-fighting test in the texture demo.
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
@@ -71,6 +72,8 @@ Passes, resources and pipelines carry debug names, so captures show "Texture Dem
 
 **Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it, F11 captures a GPU frame. Panels are listed under View; View > Reset Layout restores the default docking layout (the Scene panel in the centre).
 
+**Scene camera** (with the pointer over the Scene panel): right drag to look around, with W A S D to fly and Q / E to go down / up (Shift for 4x speed, wheel for fly speed); Alt + left drag to orbit; middle drag or Alt + Shift + left drag to pan; wheel to dolly; F to focus on the origin. Click an end of the axis gizmo to view along that axis. The *Camera* button holds the camera and grid settings.
+
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 
 ## Repository layout
@@ -89,13 +92,13 @@ Engine/Source/       ArclightEngine static library
     D3D12/               Direct3D 12 backend (Windows)
     Metal/               Metal backend (macOS, Objective-C++)
     Null/                No-GPU backend (headless builds and unit tests)
-  Renderer/            Device + swapchain ownership, frame bracketing
+  Renderer/            Device, swapchain and scene target ownership, frame bracketing, camera, textures
   Application/         Application, main loop, modules
   UI/                  Dear ImGui integration
 Engine/Shaders/      HLSL shaders, compiled at build time into bin/<Config>/Shaders/
 Editor/Source/       Arclight editor executable
   Panels/              Dockable editor panels
-  Scene/               Placeholder scene (the triangle) until the scene viewport exists
+  Scene/               Editor camera and grid, and the texture demo (placeholder scene until glTF loading)
 Tests/Source/        Unit tests (doctest)
 Game/                Runtime working directory (imgui.ini)
   Assets/              Files the editor loads; shipped next to the executable in the release zip

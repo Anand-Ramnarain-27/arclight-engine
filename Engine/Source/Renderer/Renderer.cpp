@@ -56,7 +56,7 @@ namespace arc
 
         // The Scene panel resizes it to fit as soon as it is drawn.
         setSceneSize(swapchainDesc.size);
-        return m_sceneTarget != nullptr;
+        return m_sceneTarget != nullptr && m_sceneDepth != nullptr;
     }
 
     void Renderer::shutdown()
@@ -66,6 +66,7 @@ namespace arc
             m_device->waitIdle();
         m_shaders.reset();
         m_sceneTarget.reset();
+        m_sceneDepth.reset();
         m_swapchain.reset();
         m_device.reset();
     }
@@ -149,13 +150,16 @@ namespace arc
 
     bool Renderer::beginScenePass(std::string_view debugName)
     {
-        if (!m_sceneTarget)
+        if (!m_sceneTarget || !m_sceneDepth)
             return false;
 
         rhi::RenderPassDesc pass;
         pass.color.texture = m_sceneTarget.get();
         pass.color.load = m_sceneCleared ? rhi::LoadOp::Load : rhi::LoadOp::Clear;
         pass.color.clearColor = m_clearColor;
+        pass.depth.texture = m_sceneDepth.get();
+        pass.depth.load = m_sceneCleared ? rhi::LoadOp::Load : rhi::LoadOp::Clear;
+        pass.depth.clearDepth = m_sceneCamera.clearDepth();
         pass.debugName = debugName;
         commandList().beginRenderPass(pass);
 
@@ -186,13 +190,31 @@ namespace arc
             m_sceneTarget->desc().size.height == pixelSize.height)
             return;
 
-        // Frames in flight may still read the old target; the device keeps it until they finish.
+        // Frames in flight may still read the old targets; the device keeps them until they finish.
         m_sceneTarget = m_device->createTexture({
             .size = pixelSize,
             .format = sceneFormat(),
             .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::Sampled,
             .debugName = "Scene Target",
         });
+        m_sceneDepth = m_device->createTexture({
+            .size = pixelSize,
+            .format = sceneDepthFormat(),
+            .usage = rhi::TextureUsage::DepthStencil,
+            .debugName = "Scene Depth",
+        });
+    }
+
+    ViewConstants Renderer::sceneViewConstants() const
+    {
+        const Extent2D size = sceneSize();
+        const float aspect = size.height > 0 ? static_cast<float>(size.width) / static_cast<float>(size.height) : 1.0f;
+
+        ViewConstants constants;
+        constants.viewProjection = m_sceneCamera.projection(aspect) * m_sceneCamera.view();
+        constants.inverseViewProjection = inverse(constants.viewProjection);
+        constants.cameraPosition = m_sceneCamera.position;
+        return constants;
     }
 
     Extent2D Renderer::sceneSize() const

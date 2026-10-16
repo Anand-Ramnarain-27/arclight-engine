@@ -5,7 +5,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Phase 2 in progress: textures, resource lifetimes, constants, scene viewport.
+Phase 2 in progress: textures, resource lifetimes, constants, scene viewport, editor camera.
+
+### Added (editor camera)
+- Depth buffers: the `D32_FLOAT` format, `TextureUsage::DepthStencil`, the `DepthWrite` resource state, and `RenderPassDesc::depth` (load/store and clear depth). D3D12 creates depth-stencil views in a DSV heap; Metal sets the pass's depth attachment.
+- Pipeline depth and blend state: `PipelineDesc::depthFormat`, `depth` (test, write, `CompareOp`) and `blend` (`Opaque` or straight `AlphaBlend`). On Metal the depth test is a separate `MTLDepthStencilState`, set with the pipeline.
+- Pipelines with no vertex attributes, which draw without a vertex buffer (e.g. a full-screen triangle from `SV_VertexID`).
+- Shared render pass checks: a depth target must match the colour target's size, and a pipeline's colour and depth formats must match the pass it is used in.
+- `Renderer/Camera`: position, yaw and pitch, field of view and near plane, view and projection matrices, and a `reversedZ` switch (on by default) with the matching `clearDepth()` and `depthCompare()`.
+- The scene target gets a depth target of the same size (`Renderer::sceneDepthFormat()`); scene passes clear it with the scene camera's clear depth. `Renderer::setSceneCamera()` and `sceneViewConstants()`.
+- `ViewConstants` gains `inverseViewProjection` and `cameraPosition`.
+- Editor camera (`Editor/Source/Scene/EditorCamera`): fly (right drag + WASD/QE), orbit (Alt + left drag), pan (middle drag, or Alt + Shift + left drag), dolly (wheel), F to focus on the origin.
+- The Scene panel takes the mouse and keyboard from the UI while the pointer is over it or a drag that started there is held. It adds an axis gizmo that turns the view to look along an axis when an end is clicked, and a *Camera* menu with field of view, near and far plane, Reversed-Z, fly speed and grid settings.
+- Infinite editor grid (`Engine/Shaders/Grid.hlsl`, `Editor/Source/Scene/EditorGrid`): one full-screen triangle, a ray-plane intersection per pixel, screen-space anti-aliased lines with major lines, red X and blue Z axes, fading with distance. Depth-tested against the scene with the hit point's depth, alpha-blended, never writing depth. Drawn by `EditorOverlayModule`, the last module.
+- Texture demo: a z-fighting test, two walls a small distance apart far down -Z, with distance and separation controls.
+- Unit tests for the camera (orientation, view, both depth conventions, and reversed-Z separating surfaces that standard depth cannot) and for depth render passes.
+
+### Changed (editor camera)
+- The texture demo is seen through the editor camera; its ground is 40 x 40 units around the origin, just below the grid. Its *Field of view* and *Height* controls are gone, and the corner quad uses a pipeline without depth testing.
+- Module order in the editor: ImGui, Editor, Texture Demo, Editor Overlays. The Editor's dock space must exist before other modules submit windows.
 
 ### Added (scene viewport)
 - Scene target: the renderer owns a RenderTarget + Sampled texture (`Renderer::sceneTexture()`, `sceneFormat()`), and `beginScenePass()` / `endScenePass()` draw into it. `Renderer::finishScene()`, called by the Application after every module's `render()`, clears it if nothing drew and moves it to ShaderRead for the UI.

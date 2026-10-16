@@ -12,6 +12,7 @@ namespace arc::rhi
 {
     class Buffer;
     class Pipeline;
+    struct PipelineDesc;
     class Sampler;
     class Texture;
     class UploadRing;
@@ -24,9 +25,21 @@ namespace arc::rhi
         ClearColor clearColor{};
     };
 
+    struct DepthAttachment
+    {
+        /// Null for a pass without depth. Must have DepthStencil usage and the same size as the
+        /// colour target.
+        Texture* texture = nullptr;
+        LoadOp load = LoadOp::Clear;
+        StoreOp store = StoreOp::Store;
+        /// 1 is the far plane with a standard projection, 0 with a reversed-Z one.
+        float clearDepth = 1.0f;
+    };
+
     struct RenderPassDesc
     {
         ColorAttachment color;
+        DepthAttachment depth{};
 
         /// Shown as the pass's name in GPU debuggers. May be empty.
         std::string_view debugName{};
@@ -39,7 +52,9 @@ namespace arc::rhi
     /// and barriers only outside a pass. Passes do not nest. On Metal a pass is a render command
     /// encoder, on D3D12 it sets the render targets and performs the load action.
     ///
-    /// beginRenderPass() moves the colour target to the RenderTarget state itself.
+    /// beginRenderPass() moves the colour target to the RenderTarget state, and the depth target to
+    /// DepthWrite, itself. Every pipeline set in a pass must have been created for the pass's colour
+    /// and depth formats.
     class CommandList
     {
     public:
@@ -146,10 +161,16 @@ namespace arc::rhi
                                         const Buffer& buffer, uint64_t bufferOffset, uint32_t rowPitch,
                                         ResourceState bufferState);
         static void validateTextureBinding(uint32_t slot, const Texture& texture);
+
+        /// Checks the attachments and remembers their formats for validatePipelineForPass().
+        void validateRenderPass(const RenderPassDesc& desc);
+        void validatePipelineForPass(const PipelineDesc& pipeline) const;
         static void validateSamplerBinding(uint32_t slot);
 
     private:
         std::vector<Buffer*> m_trackedBuffers;
+        Format m_passColorFormat = Format::Unknown;
+        Format m_passDepthFormat = Format::Unknown;
         UploadRing* m_uploadRing = nullptr;
         uint32_t m_uploadRegion = 0;
     };

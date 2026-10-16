@@ -67,9 +67,13 @@ namespace arc::rhi
         /// encodes when rendering. For colour textures such as albedo, never for data such as normals.
         RGBA8_UNORM_SRGB,
         BGRA8_UNORM,
+        /// 32-bit float depth, no stencil. For DepthStencil textures only: sampling depth needs a
+        /// typeless resource with a separate shader view on D3D12, which nothing uses yet.
+        D32_FLOAT,
     };
 
     [[nodiscard]] uint32_t bytesPerPixel(Format format);
+    [[nodiscard]] bool isDepthFormat(Format format);
 
     enum class LoadOp
     {
@@ -122,6 +126,8 @@ namespace arc::rhi
         None         = 0,
         Sampled      = 1 << 0,
         RenderTarget = 1 << 1,
+        /// A depth target for render passes. Requires a depth format, and excludes the other usages.
+        DepthStencil = 1 << 2,
     };
 
     [[nodiscard]] constexpr TextureUsage operator|(TextureUsage a, TextureUsage b)
@@ -147,6 +153,8 @@ namespace arc::rhi
         ConstantBuffer,
         ShaderRead,
         RenderTarget,
+        /// A depth target being tested and written by a render pass.
+        DepthWrite,
         Present,
     };
 
@@ -193,6 +201,30 @@ namespace arc::rhi
         None,
         Front,
         Back,
+    };
+
+    /// How a depth test compares the incoming fragment's depth with the stored one; the fragment
+    /// passes when `incoming <op> stored` holds.
+    enum class CompareOp
+    {
+        Never,
+        Less,
+        LessEqual,
+        Equal,
+        GreaterEqual,
+        Greater,
+        NotEqual,
+        Always,
+    };
+
+    /// How a pipeline combines its output with the colour already in the target.
+    enum class BlendMode
+    {
+        /// Overwrites the target.
+        Opaque,
+        /// Straight (non-premultiplied) alpha: rgb = src.rgb * src.a + dst.rgb * (1 - src.a). The
+        /// target's alpha becomes src.a + dst.a * (1 - src.a).
+        AlphaBlend,
     };
 
     struct ClearColor

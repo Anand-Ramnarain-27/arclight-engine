@@ -107,12 +107,21 @@ namespace arc::rhi::metal
     class MetalPipeline final : public Pipeline
     {
     public:
-        MetalPipeline(const PipelineDesc& desc, id<MTLRenderPipelineState> state) : Pipeline(desc), m_state(state) {}
+        MetalPipeline(const PipelineDesc& desc, id<MTLRenderPipelineState> state, id<MTLDepthStencilState> depthState)
+            : Pipeline(desc)
+            , m_state(state)
+            , m_depthState(depthState)
+        {
+        }
 
         [[nodiscard]] id<MTLRenderPipelineState> state() const { return m_state; }
 
+        /// Depth testing is a separate object on Metal, set on the encoder next to the pipeline state.
+        [[nodiscard]] id<MTLDepthStencilState> depthState() const { return m_depthState; }
+
     private:
         id<MTLRenderPipelineState> m_state = nil;
+        id<MTLDepthStencilState> m_depthState = nil;
     };
 
     class MetalCommandList final : public CommandList

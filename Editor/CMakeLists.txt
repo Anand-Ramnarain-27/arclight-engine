@@ -13,6 +13,10 @@ add_executable(Arclight
     Source/Panels/ScenePanel.cpp
     Source/Panels/SystemInfoPanel.h
     Source/Panels/SystemInfoPanel.cpp
+    Source/Scene/EditorCamera.h
+    Source/Scene/EditorCamera.cpp
+    Source/Scene/EditorGrid.h
+    Source/Scene/EditorGrid.cpp
     Source/Scene/TextureDemoModule.h
     Source/Scene/TextureDemoModule.cpp
 )

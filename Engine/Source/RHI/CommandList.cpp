@@ -2,6 +2,7 @@
 
 #include "Core/Assert.h"
 #include "RHI/Buffer.h"
+#include "RHI/Pipeline.h"
 #include "RHI/Texture.h"
 #include "RHI/UploadRing.h"
 
@@ -72,5 +73,34 @@ namespace arc::rhi
     void CommandList::validateSamplerBinding(uint32_t slot)
     {
         ARC_ASSERT(slot < kMaxSamplerSlots, "Sampler slot {} is out of range", slot);
+    }
+
+    void CommandList::validateRenderPass(const RenderPassDesc& desc)
+    {
+        ARC_ASSERT(desc.color.texture != nullptr, "A render pass needs a colour target");
+        const TextureDesc& color = desc.color.texture->desc();
+        ARC_ASSERT(hasFlag(color.usage, TextureUsage::RenderTarget), "'{}' is not a render target", color.debugName);
+        m_passColorFormat = color.format;
+        m_passDepthFormat = Format::Unknown;
+
+        if (const Texture* depthTexture = desc.depth.texture)
+        {
+            const TextureDesc& depth = depthTexture->desc();
+            ARC_ASSERT(hasFlag(depth.usage, TextureUsage::DepthStencil), "'{}' is not a depth target", depth.debugName);
+            ARC_ASSERT(depth.size.width == color.size.width && depth.size.height == color.size.height,
+                       "Depth target '{}' is {}x{}, colour target '{}' is {}x{}", depth.debugName, depth.size.width,
+                       depth.size.height, color.debugName, color.size.width, color.size.height);
+            ARC_ASSERT(desc.depth.clearDepth >= 0.0f && desc.depth.clearDepth <= 1.0f);
+            m_passDepthFormat = depth.format;
+        }
+    }
+
+    void CommandList::validatePipelineForPass(const PipelineDesc& pipeline) const
+    {
+        ARC_ASSERT(pipeline.colorFormat == m_passColorFormat,
+                   "Pipeline '{}' was created for another colour format than this pass's target", pipeline.debugName);
+        ARC_ASSERT(pipeline.depthFormat == m_passDepthFormat,
+                   "Pipeline '{}' was created for {} depth target than this pass has", pipeline.debugName,
+                   pipeline.depthFormat == Format::Unknown ? "no" : "another");
     }
 }

@@ -52,12 +52,10 @@ namespace arc::rhi::metal
     void MetalCommandList::beginRenderPass(const RenderPassDesc& desc)
     {
         ARC_ASSERT(m_renderEncoder == nil, "Render passes do not nest");
-        ARC_ASSERT(desc.color.texture != nullptr);
+        validateRenderPass(desc);
         endBlitEncoder();
 
         auto& target = static_cast<MetalTexture&>(*desc.color.texture);
-        ARC_ASSERT(hasFlag(target.desc().usage, TextureUsage::RenderTarget), "'{}' is not a render target",
-                   target.desc().debugName);
         // Metal tracks the hazard itself; the state is kept so the RHI's rules hold on every backend.
         target.setState(ResourceState::RenderTarget);
         const ClearColor& c = desc.color.clearColor;
@@ -67,6 +65,14 @@ namespace arc::rhi::metal
         pass.colorAttachments[0].loadAction = toMTLLoadAction(desc.color.load);
         pass.colorAttachments[0].storeAction = toMTLStoreAction(desc.color.store);
         pass.colorAttachments[0].clearColor = MTLClearColorMake(c.r, c.g, c.b, c.a);
+        if (auto* depth = static_cast<MetalTexture*>(desc.depth.texture))
+        {
+            depth->setState(ResourceState::DepthWrite);
+            pass.depthAttachment.texture = depth->native();
+            pass.depthAttachment.loadAction = toMTLLoadAction(desc.depth.load);
+            pass.depthAttachment.storeAction = toMTLStoreAction(desc.depth.store);
+            pass.depthAttachment.clearDepth = desc.depth.clearDepth;
+        }
 
         m_renderEncoder = [m_commandBuffer renderCommandEncoderWithDescriptor:pass];
         if (!desc.debugName.empty())
@@ -103,10 +109,12 @@ namespace arc::rhi::metal
     void MetalCommandList::setPipeline(Pipeline& pipeline)
     {
         ARC_ASSERT(m_renderEncoder != nil, "setPipeline outside a render pass");
+        validatePipelineForPass(pipeline.desc());
         const auto& metalPipeline = static_cast<const MetalPipeline&>(pipeline);
         const PipelineDesc& desc = metalPipeline.desc();
 
         [m_renderEncoder setRenderPipelineState:metalPipeline.state()];
+        [m_renderEncoder setDepthStencilState:metalPipeline.depthState()];
         // Culling and winding are encoder state on Metal but part of the pipeline in D3D12, so
         // they are applied together with the pipeline to keep the RHI's meaning.
         [m_renderEncoder setCullMode:desc.cullMode == CullMode::None  ? MTLCullModeNone

@@ -98,7 +98,7 @@ namespace arc::rhi::d3d12
 
         /// Takes ownership of the views, which are freed with the texture.
         D3D12Texture(D3D12Device& device, ComPtr<ID3D12Resource> resource, const TextureDesc& desc,
-                     const D3D12Descriptor& srv, const D3D12Descriptor& rtv);
+                     const D3D12Descriptor& srv, const D3D12Descriptor& rtv, const D3D12Descriptor& dsv);
         ~D3D12Texture() override;
 
         void reset(ComPtr<ID3D12Resource> resource, const TextureDesc& desc, ResourceState state);
@@ -113,11 +113,15 @@ namespace arc::rhi::d3d12
         /// Zero if the texture cannot be a render target.
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
 
+        /// Zero if the texture cannot be a depth target.
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
+
     private:
         ComPtr<ID3D12Resource> m_resource;
         D3D12Device* m_device = nullptr;   // Null for backbuffers, whose views the swapchain owns.
         D3D12Descriptor m_srvDescriptor;
         D3D12Descriptor m_rtvDescriptor;
+        D3D12Descriptor m_dsvDescriptor;
     };
 
     class D3D12Sampler final : public Sampler
@@ -340,6 +344,7 @@ namespace arc::rhi::d3d12
         [[nodiscard]] D3D12DescriptorHeap& cpuSrvHeap() { return m_cpuSrvHeap; }
         [[nodiscard]] D3D12DescriptorHeap& cpuSamplerHeap() { return m_cpuSamplerHeap; }
         [[nodiscard]] D3D12DescriptorHeap& rtvHeap() { return m_rtvHeap; }
+        [[nodiscard]] D3D12DescriptorHeap& dsvHeap() { return m_dsvHeap; }
 
         /// The two heaps bound on every command list. Only one CBV/SRV/UAV heap and one sampler heap
         /// can be bound at a time, so everything shaders read, ImGui included, comes from these.
@@ -406,6 +411,7 @@ namespace arc::rhi::d3d12
         D3D12DescriptorHeap m_cpuSrvHeap;
         D3D12DescriptorHeap m_cpuSamplerHeap;
         D3D12DescriptorHeap m_rtvHeap;
+        D3D12DescriptorHeap m_dsvHeap;
         D3D12DescriptorHeap m_shaderVisibleSrvHeap;
         D3D12DescriptorHeap m_shaderVisibleSamplerHeap;
         D3D12Descriptor m_nullSrv;

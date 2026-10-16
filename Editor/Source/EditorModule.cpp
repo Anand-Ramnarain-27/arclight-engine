@@ -22,7 +22,7 @@ namespace arc
     EditorModule::EditorModule(Application& app, ImGuiModule& imgui)
         : Module(app)
     {
-        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui));
+        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui, m_camera, m_grid));
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
         m_panels.push_back(std::make_unique<PerformancePanel>(app));
@@ -31,6 +31,21 @@ namespace arc
 
     // Defined here, where Panel's derived types are complete, for the unique_ptr destructors.
     EditorModule::~EditorModule() = default;
+
+    bool EditorModule::init()
+    {
+        return m_grid.init(app().renderer());
+    }
+
+    void EditorModule::shutdown()
+    {
+        m_grid.shutdown();
+    }
+
+    void EditorModule::renderSceneOverlays()
+    {
+        m_grid.render(app().renderer());
+    }
 
     void EditorModule::update(const FrameTime& /*time*/)
     {
@@ -45,6 +60,10 @@ namespace arc
 
         if (m_showImGuiDemo)
             ImGui::ShowDemoWindow(&m_showImGuiDemo);
+
+        // After the Scene panel, which moves the camera. Also when the panel is closed, so settings
+        // keep applying.
+        app().renderer().setSceneCamera(m_camera.camera());
 
         drawAboutPopup();
     }

@@ -26,6 +26,22 @@ namespace arc::rhi::d3d12
             return static_cast<D3D12_FILTER>((bit(desc.minFilter) << 4) | (bit(desc.magFilter) << 2) | bit(desc.mipFilter));
         }
 
+        D3D12_COMPARISON_FUNC toD3D12Compare(CompareOp op)
+        {
+            switch (op)
+            {
+                case CompareOp::Never:        return D3D12_COMPARISON_FUNC_NEVER;
+                case CompareOp::Less:         return D3D12_COMPARISON_FUNC_LESS;
+                case CompareOp::LessEqual:    return D3D12_COMPARISON_FUNC_LESS_EQUAL;
+                case CompareOp::Equal:        return D3D12_COMPARISON_FUNC_EQUAL;
+                case CompareOp::GreaterEqual: return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+                case CompareOp::Greater:      return D3D12_COMPARISON_FUNC_GREATER;
+                case CompareOp::NotEqual:     return D3D12_COMPARISON_FUNC_NOT_EQUAL;
+                case CompareOp::Always:       return D3D12_COMPARISON_FUNC_ALWAYS;
+            }
+            return D3D12_COMPARISON_FUNC_ALWAYS;
+        }
+
         void CALLBACK onDebugMessage(D3D12_MESSAGE_CATEGORY /*category*/, D3D12_MESSAGE_SEVERITY severity,
                                      D3D12_MESSAGE_ID id, LPCSTR description, void* /*context*/)
         {
@@ -402,7 +418,6 @@ namespace arc::rhi::d3d12
 
     std::unique_ptr<Texture> D3D12Device::createTextureImpl(const TextureDesc& desc)
     {
-
         D3D12_RESOURCE_DESC resourceDesc{};
         resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         resourceDesc.Width = desc.size.width;
@@ -416,6 +431,10 @@ namespace arc::rhi::d3d12
         resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         if (hasFlag(desc.usage, TextureUsage::RenderTarget))
             resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        // A depth target that is never sampled may skip the shader-readable layout, which lets the
+        // driver keep it compressed.
+        if (hasFlag(desc.usage, TextureUsage::DepthStencil))
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
 
         D3D12_HEAP_PROPERTIES heap{};
         heap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -449,7 +468,16 @@ namespace arc::rhi::d3d12
             m_device->CreateRenderTargetView(resource.Get(), nullptr, rtv.cpu);
         }
 
-        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, rtv);
+        D3D12Descriptor dsv;
+        if (hasFlag(desc.usage, TextureUsage::DepthStencil))
+        {
+            dsv = m_dsvHeap.allocate();
+            if (!dsv.valid())
+                return nullptr;
+            m_device->CreateDepthStencilView(resource.Get(), nullptr, dsv.cpu);
+        }
+
+        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, rtv, dsv);
     }
 
     std::unique_ptr<Sampler> D3D12Device::createSamplerImpl(const SamplerDesc& desc)
@@ -519,6 +547,9 @@ namespace arc::rhi::d3d12
                m_rtvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
                                                .persistentCount = 256,
                                                .debugName = "RTV Heap"}) &&
+               m_dsvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
+                                               .persistentCount = 64,
+                                               .debugName = "DSV Heap"}) &&
                m_shaderVisibleSrvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
                                                             .persistentCount = 1024,
                                                             .transientCountPerRegion = 8192,
@@ -631,14 +662,16 @@ namespace arc::rhi::d3d12
         pso.VS = static_cast<const D3D12Shader*>(desc.vertexShader)->bytecode();
         pso.PS = static_cast<const D3D12Shader*>(desc.pixelShader)->bytecode();
 
-        // Opaque: no blending, all channels written. The blend factors are set to their
-        // pass-through values even though blending is off, because the debug layer validates them.
+        // For Opaque the blend factors are still set, to their pass-through values, because the
+        // debug layer validates them even with blending off.
         D3D12_RENDER_TARGET_BLEND_DESC& blend = pso.BlendState.RenderTarget[0];
-        blend.SrcBlend = D3D12_BLEND_ONE;
-        blend.DestBlend = D3D12_BLEND_ZERO;
+        const bool alphaBlend = desc.blend == BlendMode::AlphaBlend;
+        blend.BlendEnable = alphaBlend ? TRUE : FALSE;
+        blend.SrcBlend = alphaBlend ? D3D12_BLEND_SRC_ALPHA : D3D12_BLEND_ONE;
+        blend.DestBlend = alphaBlend ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_ZERO;
         blend.BlendOp = D3D12_BLEND_OP_ADD;
         blend.SrcBlendAlpha = D3D12_BLEND_ONE;
-        blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+        blend.DestBlendAlpha = alphaBlend ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_ZERO;
         blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
         blend.LogicOp = D3D12_LOGIC_OP_NOOP;
         blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
@@ -651,9 +684,10 @@ namespace arc::rhi::d3d12
         pso.RasterizerState.FrontCounterClockwise = desc.frontCounterClockwise ? TRUE : FALSE;
         pso.RasterizerState.DepthClipEnable = TRUE;
 
-        // No depth buffer yet; depth testing arrives with the 3D camera.
-        pso.DepthStencilState.DepthEnable = FALSE;
-        pso.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        pso.DepthStencilState.DepthEnable = desc.depth.test ? TRUE : FALSE;
+        pso.DepthStencilState.DepthWriteMask = desc.depth.test && desc.depth.write ? D3D12_DEPTH_WRITE_MASK_ALL
+                                                                                    : D3D12_DEPTH_WRITE_MASK_ZERO;
+        pso.DepthStencilState.DepthFunc = toD3D12Compare(desc.depth.test ? desc.depth.compare : CompareOp::Always);
         pso.DepthStencilState.StencilEnable = FALSE;
         const D3D12_DEPTH_STENCILOP_DESC keep{D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_KEEP,
                                               D3D12_COMPARISON_FUNC_ALWAYS};
@@ -664,7 +698,7 @@ namespace arc::rhi::d3d12
         pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         pso.NumRenderTargets = 1;
         pso.RTVFormats[0] = toDxgiFormat(desc.colorFormat);
-        pso.DSVFormat = DXGI_FORMAT_UNKNOWN;
+        pso.DSVFormat = toDxgiFormat(desc.depthFormat);
         pso.SampleDesc.Count = 1;
 
         ComPtr<ID3D12PipelineState> state;
