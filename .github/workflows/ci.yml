@@ -1,0 +1,63 @@
+name: CI
+
+# Configures, builds, tests and packages both platforms with the same workflow presets as a release.
+# Release zips are only published by release.yml; here they are kept as workflow artifacts.
+on:
+  push:
+    branches: [ main, phase-3 ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request cancels the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.preset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Pinned because the presets use the Visual Studio 2022 generator; windows-latest ships VS 2026.
+          - os: windows-2022
+            preset: windows-release
+          # Apple silicon runner, matching CMAKE_OSX_ARCHITECTURES=arm64 in the preset.
+          - os: macos-15
+            preset: macos-release
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Microsoft publishes no macOS build of DXC; the Vulkan SDK bundles one. Same steps as release.yml.
+      - name: Install the Vulkan SDK (DXC for macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -fsSL "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.zip" -o "$RUNNER_TEMP/vulkan-sdk.zip"
+          unzip -q "$RUNNER_TEMP/vulkan-sdk.zip" -d "$RUNNER_TEMP"
+          installer=$(ls -d "$RUNNER_TEMP"/vulkansdk-macOS-*.app/Contents/MacOS/vulkansdk-macOS-* \
+                            "$RUNNER_TEMP"/InstallVulkan*.app/Contents/MacOS/InstallVulkan* 2>/dev/null | head -n 1)
+          if [ -z "$installer" ]; then
+            echo "::error::No Vulkan SDK installer found in the zip. Contents:"
+            ls "$RUNNER_TEMP"
+            exit 1
+          fi
+          "$installer" --root "$HOME/VulkanSDK/ci" --accept-licenses --default-answer --confirm-command install copy_only=1
+          if [ ! -x "$HOME/VulkanSDK/ci/macOS/bin/dxc" ]; then
+            echo "::error::Vulkan SDK installed but dxc is missing from $HOME/VulkanSDK/ci/macOS/bin"
+            exit 1
+          fi
+          echo "VULKAN_SDK=$HOME/VulkanSDK/ci/macOS" >> "$GITHUB_ENV"
+
+      - name: Configure, build, test and package
+        run: cmake --workflow --preset ${{ matrix.preset }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.preset }}
+          path: build/packages/*.zip
+          if-no-files-found: error

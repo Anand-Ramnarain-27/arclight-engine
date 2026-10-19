@@ -114,6 +114,16 @@ TEST_CASE("glTF: interleaved attributes, 8-bit indices and a node hierarchy")
     CHECK(near(model->instances[0].world.transformPoint({1, 0, 0}), {3, 2, 3}));
     CHECK(near(model->bounds.min, {1, 2, 3}));
     CHECK(near(model->bounds.max, {3, 4, 3}));
+
+    // The hierarchy is also kept as nodes with local transforms, parents first.
+    REQUIRE(model->nodes.size() == 2);
+    CHECK(model->nodes[0].name == "Parent");
+    CHECK(model->nodes[0].parent == -1);
+    CHECK(model->nodes[0].mesh == -1);
+    CHECK(near(model->nodes[0].translation, {1, 2, 3}));
+    CHECK(model->nodes[1].parent == 0);
+    CHECK(model->nodes[1].mesh == 0);
+    CHECK(near(model->nodes[1].scale, {2, 2, 2}));
 }
 
 TEST_CASE("glTF: primitives without normals get flat normals")

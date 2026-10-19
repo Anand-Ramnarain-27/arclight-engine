@@ -1,6 +1,6 @@
 #include "Application/Application.h"
 #include "EditorModule.h"
-#include "Scene/ModelViewerModule.h"
+#include "Scene/SceneModule.h"
 #include "Scene/TextureDemoModule.h"
 #include "UI/ImGuiModule.h"
 
@@ -32,13 +32,14 @@ int main(int argc, char* argv[])
 
     arc::Application app(std::move(desc));
 
-    // ImGuiModule must come first: it starts the ImGui frame that the others draw into. The
-    // EditorModule's dock space must exist before other modules submit windows, and the overlays
-    // are drawn over everything the modules before them put in the scene.
+    // ImGuiModule must come first: it starts the ImGui frame that the others draw into. The scene
+    // has no UI and must be initialised before the editor imports into it. The EditorModule's dock
+    // space must exist before other modules submit windows, and the overlays are drawn over
+    // everything the modules before them put in the scene.
     arc::ImGuiModule& imgui = app.addModule<arc::ImGuiModule>();
-    arc::EditorModule& editor = app.addModule<arc::EditorModule>(imgui);
+    arc::SceneModule& scene = app.addModule<arc::SceneModule>();
+    arc::EditorModule& editor = app.addModule<arc::EditorModule>(imgui, scene);
     app.addModule<arc::TextureDemoModule>();
-    app.addModule<arc::ModelViewerModule>();
     app.addModule<arc::EditorOverlayModule>(editor);
 
     return app.run();

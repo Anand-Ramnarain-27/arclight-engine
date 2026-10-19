@@ -35,6 +35,14 @@ math(EXPR stb_image_notice_length "${stb_image_notice_end} - ${stb_image_notice_
 string(SUBSTRING "${stb_image_header}" ${stb_image_notice_start} ${stb_image_notice_length} stb_image_notice)
 file(WRITE "${CMAKE_BINARY_DIR}/Generated/stb_image.txt" "${stb_image_notice}")
 install(FILES "${CMAKE_BINARY_DIR}/Generated/stb_image.txt" DESTINATION ThirdPartyLicenses)
+# The RenderDoc in-app API header (MIT) is compiled into the Windows build; its notice opens the header.
+if(WIN32)
+    file(READ "${renderdoc_api_SOURCE_DIR}/renderdoc_app.h" renderdoc_header LIMIT 4096)
+    string(FIND "${renderdoc_header}" "*/" renderdoc_notice_end)
+    string(SUBSTRING "${renderdoc_header}" 0 ${renderdoc_notice_end} renderdoc_notice)
+    file(WRITE "${CMAKE_BINARY_DIR}/Generated/RenderDoc.txt" "${renderdoc_notice}*/\n")
+    install(FILES "${CMAKE_BINARY_DIR}/Generated/RenderDoc.txt" DESTINATION ThirdPartyLicenses)
+endif()
 
 # findAssetPath() looks for Assets/ in the working directory first (Game/ when run from an IDE),
 # then next to the executable, which is where the package puts it.

@@ -59,6 +59,7 @@ namespace arc
         model->m_primitives = data.primitives;
         model->m_meshes = data.meshes;
         model->m_instances = data.instances;
+        model->m_nodes = data.nodes;
         model->m_materials = data.materials;
         model->m_bounds = data.bounds;
         model->m_vertexCount = static_cast<uint32_t>(data.vertices.size());
@@ -113,6 +114,24 @@ namespace arc
         return index >= 0 && static_cast<size_t>(index) < m_textureSamplers.size()
                    ? m_textureSamplers[static_cast<size_t>(index)]
                    : nullptr;
+    }
+
+    Aabb Model::meshBounds(uint32_t mesh) const
+    {
+        Aabb bounds;
+        if (mesh < m_meshes.size())
+            for (uint32_t i = 0; i < m_meshes[mesh].primitiveCount; ++i)
+                bounds.expand(m_primitives[m_meshes[mesh].firstPrimitive + i].bounds);
+        return bounds;
+    }
+
+    uint32_t Model::meshTriangleCount(uint32_t mesh) const
+    {
+        uint32_t triangles = 0;
+        if (mesh < m_meshes.size())
+            for (uint32_t i = 0; i < m_meshes[mesh].primitiveCount; ++i)
+                triangles += m_primitives[m_meshes[mesh].firstPrimitive + i].indexCount / 3;
+        return triangles;
     }
 
     uint32_t Model::textureCount() const

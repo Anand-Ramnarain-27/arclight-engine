@@ -2,9 +2,15 @@ add_executable(Arclight
     Source/Main.cpp
     Source/EditorModule.h
     Source/EditorModule.cpp
+    Source/EditorSelection.h
+    Source/EditorSelection.cpp
     Source/Panels/Panel.h
     Source/Panels/ConsolePanel.h
     Source/Panels/ConsolePanel.cpp
+    Source/Panels/HierarchyPanel.h
+    Source/Panels/HierarchyPanel.cpp
+    Source/Panels/InspectorPanel.h
+    Source/Panels/InspectorPanel.cpp
     Source/Panels/PerformancePanel.h
     Source/Panels/PerformancePanel.cpp
     Source/Panels/PlaybackPanel.h
@@ -17,8 +23,6 @@ add_executable(Arclight
     Source/Scene/EditorCamera.cpp
     Source/Scene/EditorGrid.h
     Source/Scene/EditorGrid.cpp
-    Source/Scene/ModelViewerModule.h
-    Source/Scene/ModelViewerModule.cpp
     Source/Scene/TextureDemoModule.h
     Source/Scene/TextureDemoModule.cpp
 )

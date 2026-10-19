@@ -22,7 +22,8 @@ namespace arc
     ///     normalized integers of KHR_mesh_quantization), with or without a byte stride, sparse or
     ///     not. Primitives without normals get flat normals, as the glTF specification requires.
     ///   - 8, 16 and 32-bit indices, all widened to 32 bits.
-    ///   - The default scene's node hierarchy, flattened into mesh instances with complete transforms.
+    ///   - The default scene's node hierarchy, both as nodes with local transforms and flattened into
+    ///     mesh instances with complete transforms.
     ///   - Materials: base colour factor and texture, metallic and roughness factors, alpha mode and
     ///     cutoff, double-sidedness. Samplers.
     ///

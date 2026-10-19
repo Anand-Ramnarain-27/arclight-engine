@@ -20,6 +20,35 @@ namespace arc
         return yaw * pitch * roll;
     }
 
+    Quat Quat::fromRotationMatrix(const Mat4& m)
+    {
+        // Shepperd's method: solve for the largest of |w|, |x|, |y|, |z| first, so the division
+        // is by the largest denominator and precision holds near 180-degree rotations.
+        const float trace = m(0, 0) + m(1, 1) + m(2, 2);
+        Quat q;
+        if (trace > 0.0f)
+        {
+            const float s = std::sqrt(trace + 1.0f) * 2.0f;
+            q = {(m(2, 1) - m(1, 2)) / s, (m(0, 2) - m(2, 0)) / s, (m(1, 0) - m(0, 1)) / s, 0.25f * s};
+        }
+        else if (m(0, 0) > m(1, 1) && m(0, 0) > m(2, 2))
+        {
+            const float s = std::sqrt(1.0f + m(0, 0) - m(1, 1) - m(2, 2)) * 2.0f;
+            q = {0.25f * s, (m(0, 1) + m(1, 0)) / s, (m(0, 2) + m(2, 0)) / s, (m(2, 1) - m(1, 2)) / s};
+        }
+        else if (m(1, 1) > m(2, 2))
+        {
+            const float s = std::sqrt(1.0f + m(1, 1) - m(0, 0) - m(2, 2)) * 2.0f;
+            q = {(m(0, 1) + m(1, 0)) / s, 0.25f * s, (m(1, 2) + m(2, 1)) / s, (m(0, 2) - m(2, 0)) / s};
+        }
+        else
+        {
+            const float s = std::sqrt(1.0f + m(2, 2) - m(0, 0) - m(1, 1)) * 2.0f;
+            q = {(m(0, 2) + m(2, 0)) / s, (m(1, 2) + m(2, 1)) / s, 0.25f * s, (m(1, 0) - m(0, 1)) / s};
+        }
+        return normalize(q);
+    }
+
     Vec3 Quat::toEuler() const
     {
         // For R = Ry(yaw) * Rx(pitch) * Rz(roll): R(1,2) = -sin(pitch),

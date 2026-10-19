@@ -5,6 +5,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+Phase 3: engine architecture.
+
+### Added
+
+#### Scene
+- `Scene/Scene`, `GameObject`, `Transform` and `Component`: objects with a name, a 64-bit `Uuid`, an active flag, a transform and owned components, in an ordered hierarchy under a hidden root. World matrices are cached and invalidated down the hierarchy when a local value or the parent changes.
+- `GameObject::setParent()` with an optional sibling index, keeping the world transform by default and refusing cycles. `Transform::setWorldMatrix()`.
+- Objects are referred to across frames by `GameObjectHandle` (a generational handle; `Scene::find()` returns nullptr once the object is gone). `Scene::destroy()` is deferred to `flushDestroyed()`, so nothing is removed while the hierarchy is being walked.
+- `Scene::duplicate()`: a deep copy with new UUIDs, cloning every component through `Component::clone()`.
+- Components declare `ARC_COMPONENT(Class, "Name")` for their type and clone(); `GameObject::addComponent<T>()`, `getComponent<T>()` and `removeComponent()`. Types are compared by address, without RTTI.
+- `MeshComponent`: one mesh of a shared `Model`. `hierarchyBounds()` for the world bounds of an object and its children.
+- `Scene/SceneModule`: owns the scene, updates components, and draws every active mesh in one scene pass. Models are cached by path and shared while in use.
+- `instantiateModel()`: a model's glTF node hierarchy becomes GameObjects under an object named after the model.
+- `ModelData::nodes` and `Model::nodes()`: the importer now also keeps the node hierarchy with local translation, rotation and scale (node matrices are decomposed). `Model::meshBounds()` and `meshTriangleCount()`.
+- `MeshRenderer::draw()` takes a list of `MeshDrawItem`s (model, mesh, world matrix) from any number of models.
+- Math: `decompose()` (matrix to translation, rotation and scale, with mirrors as negative X scale) and `Quat::fromRotationMatrix()`.
+- Editor: *Hierarchy* panel (selection, drag and drop to reparent or reorder, context menu, double-click to frame), *Inspector* panel (name, active flag, transform with Euler angles in degrees, component editors, Add Component), *GameObject* menu, *File > Import Model*, Delete and Ctrl+D (Cmd+D) shortcuts, and F to frame the selection in the Scene view. Imported models are selected and framed.
+- Editor: the default layout is rebuilt once when `imgui.ini` predates a window, so new panels dock instead of floating.
+- Unit tests for UUIDs, decomposition, the transform hierarchy, reparenting and sibling order, deferred destruction, duplication, component updates and model instantiation.
+- Continuous integration (`.github/workflows/ci.yml`): pushes to the development branches and pull requests configure, build, test and package both platforms.
+- The RenderDoc in-app API licence notice ships in `ThirdPartyLicenses/` of the Windows release zip.
+
+### Changed
+- The *Model* panel and `ModelViewerModule` are replaced by the scene: models are imported into it at their real size and framed by the camera, instead of being scaled to fit. The shading debug view moved to the Scene panel's *View* menu.
+- `EditorCamera::update()` no longer handles F; the Scene panel frames the selection with `EditorCamera::frame()`, or calls `focusOnOrigin()` when nothing is selected.
+
+### Removed
+- `Source/`, the original Windows-only starter code that was kept for reference and was not part of the build.
+- `Game/WinPixEventRuntime.dll`, which nothing loaded: PIX captures use `WinPixGpuCapturer.dll` from the PIX installation.
+
 ## [0.3.0] - 2026-10-16
 
 Phase 2: textures, resource lifetimes, constants, scene viewport, editor camera, glTF models.

@@ -18,6 +18,7 @@ namespace arc
         // distance: a fixed step would crawl when far away and overshoot when close.
         constexpr float kDollyPerNotch = 0.85f;
         constexpr float kSpeedPerNotch = 1.2f;
+        constexpr float kFrameMargin = 1.15f;
         constexpr float kFastMultiplier = 4.0f;
     }
 
@@ -38,6 +39,27 @@ namespace arc
         const Vec3 focus = focusPoint();
         m_camera.lookAlong(direction);
         placeAroundFocus(focus);
+    }
+
+    void EditorCamera::frame(const Aabb& bounds, const Vec3& fallbackCenter)
+    {
+        const Vec3 center = bounds.isEmpty() ? fallbackCenter : bounds.center();
+        const float radius = bounds.isEmpty() ? 0.5f : std::max(length(bounds.size()) * 0.5f, kMinFocusDistance);
+        // The distance at which the bounding sphere just fits the vertical field of view, plus a margin.
+        m_focusDistance = radius / std::sin(m_camera.verticalFov * 0.5f) * kFrameMargin;
+        placeAroundFocus(center);
+    }
+
+    void EditorCamera::focusOnOrigin()
+    {
+        const float distance = length(m_camera.position);
+        if (distance < kMinFocusDistance)
+        {
+            reset();
+            return;
+        }
+        m_camera.lookAlong(-m_camera.position);
+        m_focusDistance = distance;
     }
 
     void EditorCamera::rotate(Vec2 mouseDelta)
@@ -113,19 +135,6 @@ namespace arc
             const Vec3 focus = focusPoint();
             m_focusDistance = std::max(m_focusDistance * std::pow(kDollyPerNotch, wheel), kMinFocusDistance);
             placeAroundFocus(focus);
-        }
-
-        // Turns toward the origin without moving, so the origin becomes the focus point.
-        if (input.wasPressed(Key::F))
-        {
-            const float distance = length(m_camera.position);
-            if (distance < kMinFocusDistance)
-            {
-                reset();
-                return;
-            }
-            m_camera.lookAlong(-m_camera.position);
-            m_focusDistance = distance;
         }
     }
 }

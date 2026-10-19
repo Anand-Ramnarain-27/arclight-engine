@@ -3,26 +3,48 @@
 #include "Application/Application.h"
 #include "Core/Log.h"
 #include "Panels/ConsolePanel.h"
+#include "Panels/HierarchyPanel.h"
+#include "Panels/InspectorPanel.h"
 #include "Panels/PerformancePanel.h"
 #include "Panels/PlaybackPanel.h"
 #include "Panels/ScenePanel.h"
 #include "Panels/SystemInfoPanel.h"
-
+#include "Platform/FileSystem.h"
 #include "RHI/Device.h"
+#include "Scene/MeshComponent.h"
+#include "Scene/SceneModule.h"
 
+#include <SDL3/SDL_events.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <cstring>
 #include <format>
 #include <string>
 #include <string_view>
 
 namespace arc
 {
-    EditorModule::EditorModule(Application& app, ImGuiModule& imgui)
-        : Module(app)
+    namespace
     {
-        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui, m_camera, m_grid));
+        // Windows that are not panels but are part of the default layout.
+        constexpr const char* kOtherLayoutWindows[] = {"Texture Demo"};
+
+        bool hasSavedSettings(const char* windowTitle)
+        {
+            return ImGui::FindWindowSettingsByID(ImHashStr(windowTitle)) != nullptr;
+        }
+    }
+
+    EditorModule::EditorModule(Application& app, ImGuiModule& imgui, SceneModule& scene)
+        : Module(app)
+        , m_scene(scene)
+        , m_selection(scene)
+    {
+        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid));
+        m_panels.push_back(std::make_unique<HierarchyPanel>(scene, m_selection, m_camera));
+        m_panels.push_back(std::make_unique<InspectorPanel>(scene, m_selection));
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
         m_panels.push_back(std::make_unique<PerformancePanel>(app));
@@ -34,12 +56,48 @@ namespace arc
 
     bool EditorModule::init()
     {
-        return m_grid.init(app().renderer());
+        if (!m_grid.init(app().renderer()))
+            return false;
+        app().addEventListener(*this);
+
+        const std::string samplePath = findAssetPath("Models/Lantern.glb");
+        if (samplePath.empty())
+            ARC_LOG_WARN("Assets/Models/Lantern.glb not found; re-run CMake to download it, or drop a glTF file on the window");
+        else
+            importModel(samplePath);
+        return true;
     }
 
     void EditorModule::shutdown()
     {
+        app().removeEventListener(*this);
         m_grid.shutdown();
+    }
+
+    void EditorModule::onPlatformEvent(const SDL_Event& event)
+    {
+        // Imported in update(), outside the event pump and outside any frame.
+        if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
+            m_pendingImport = event.drop.data;
+    }
+
+    void EditorModule::importModel(const std::string& path)
+    {
+        GameObject* object = m_scene.importModel(path);
+        if (!object)
+            return;
+        m_selection.select(object);
+        frameSelection();
+
+        const size_t length = std::min(path.size(), m_importPath.size() - 1);
+        std::memcpy(m_importPath.data(), path.data(), length);
+        m_importPath[length] = '\0';
+    }
+
+    void EditorModule::frameSelection()
+    {
+        if (const GameObject* selected = m_selection.object())
+            m_camera.frame(hierarchyBounds(*selected), selected->transform().worldPosition());
     }
 
     void EditorModule::renderSceneOverlays()
@@ -49,6 +107,13 @@ namespace arc
 
     void EditorModule::update(const FrameTime& /*time*/)
     {
+        if (!m_pendingImport.empty())
+        {
+            const std::string path = std::move(m_pendingImport);
+            m_pendingImport.clear();
+            importModel(path);
+        }
+
         handleShortcuts();
         logInputActivity();
 
@@ -65,6 +130,7 @@ namespace arc
         // keep applying.
         app().renderer().setSceneCamera(m_camera.camera());
 
+        drawImportPopup();
         drawAboutPopup();
     }
 
@@ -101,6 +167,17 @@ namespace arc
         if (input.wasPressed(Key::F11))
             requestGpuCapture();
 
+        // Through ImGui rather than Input: Input hides the keyboard while a panel has focus, and
+        // these must work from the Hierarchy too. Not while a text field is being edited, where
+        // Delete and Ctrl+D edit the text.
+        if (!ImGui::GetIO().WantTextInput && m_selection.object())
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+                m_selection.destroySelected();
+            else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D))
+                m_selection.duplicateSelected();
+        }
+
         // Equals is the unshifted '+' key on US and most European layouts.
         if (input.wasPressed(Key::Equals))
             clock.setTimeScale(clock.timeScale() * 2.0f);
@@ -135,7 +212,13 @@ namespace arc
         if (!m_layoutChecked || m_resetLayout)
         {
             const ImGuiDockNode* node = ImGui::DockBuilderGetNode(dockspaceId);
-            if (m_resetLayout || node == nullptr || node->IsLeafNode())
+            // A window with no saved settings is one added since imgui.ini was written; the layout is
+            // rebuilt once so it gets a place in the dock space instead of floating.
+            bool missingWindow = std::any_of(m_panels.begin(), m_panels.end(),
+                                             [](const auto& panel) { return !hasSavedSettings(panel->title()); });
+            for (const char* window : kOtherLayoutWindows)
+                missingWindow = missingWindow || !hasSavedSettings(window);
+            if (m_resetLayout || node == nullptr || node->IsLeafNode() || missingWindow)
                 buildDefaultLayout(dockspaceId);
             m_layoutChecked = true;
             m_resetLayout = false;
@@ -156,18 +239,20 @@ namespace arc
 
         ImGuiID center = dockspaceId;
         const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+        const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.2f, nullptr, &center);
         const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
         const ImGuiID top = ImGui::DockBuilderSplitNode(center, ImGuiDir_Up, 0.08f, nullptr, &center);
         ImGuiID rightTop = right;
-        const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(rightTop, ImGuiDir_Down, 0.45f, nullptr, &rightTop);
+        const ImGuiID rightBottom = ImGui::DockBuilderSplitNode(rightTop, ImGuiDir_Down, 0.4f, nullptr, &rightTop);
 
         ImGui::DockBuilderDockWindow("Scene", center);
+        ImGui::DockBuilderDockWindow("Hierarchy", left);
         ImGui::DockBuilderDockWindow("Playback", top);
         ImGui::DockBuilderDockWindow("Console", bottom);
-        ImGui::DockBuilderDockWindow("Texture Demo", rightTop);
-        ImGui::DockBuilderDockWindow("Model", rightTop);
+        ImGui::DockBuilderDockWindow("Inspector", rightTop);
         ImGui::DockBuilderDockWindow("Performance", rightBottom);
         ImGui::DockBuilderDockWindow("System Info", rightBottom);
+        ImGui::DockBuilderDockWindow("Texture Demo", rightBottom);
         ImGui::DockBuilderFinish(dockspaceId);
 
         for (auto& panel : m_panels)
@@ -181,10 +266,15 @@ namespace arc
 
         if (ImGui::BeginMenu("File"))
         {
+            if (ImGui::MenuItem("Import Model..."))
+                m_openImport = true;
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit"))
                 app().requestQuit();
             ImGui::EndMenu();
         }
+
+        drawGameObjectMenu();
 
         if (ImGui::BeginMenu("View"))
         {
@@ -219,6 +309,55 @@ namespace arc
         }
 
         ImGui::EndMainMenuBar();
+    }
+
+    void EditorModule::drawGameObjectMenu()
+    {
+        if (!ImGui::BeginMenu("GameObject"))
+            return;
+        GameObject* selected = m_selection.object();
+        if (ImGui::MenuItem("Create Empty"))
+            m_selection.createEmpty(nullptr);
+        if (ImGui::MenuItem("Create Empty Child", nullptr, false, selected != nullptr))
+            m_selection.createEmpty(selected);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, selected != nullptr))
+            m_selection.duplicateSelected();
+        if (ImGui::MenuItem("Delete", "Del", false, selected != nullptr))
+            m_selection.destroySelected();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Frame Selected", "F", false, selected != nullptr))
+            frameSelection();
+        ImGui::EndMenu();
+    }
+
+    void EditorModule::drawImportPopup()
+    {
+        if (m_openImport)
+        {
+            ImGui::OpenPopup("Import Model");
+            m_openImport = false;
+        }
+
+        ImGui::SetNextWindowSize({520.0f, 0.0f}, ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal("Import Model", nullptr))
+            return;
+        ImGui::TextUnformatted("Path to a .gltf or .glb file:");
+        if (ImGui::IsWindowAppearing())
+            ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(-1.0f);
+        const bool submitted =
+            ImGui::InputText("##Path", m_importPath.data(), m_importPath.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::TextDisabled("Or drop the file on the window.");
+        if (ImGui::Button("Import") || submitted)
+        {
+            m_pendingImport = m_importPath.data();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 
     void EditorModule::drawAboutPopup()

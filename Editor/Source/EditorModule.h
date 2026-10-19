@@ -1,21 +1,28 @@
 #pragma once
 
 #include "Application/Module.h"
+#include "EditorSelection.h"
 #include "Panels/Panel.h"
+#include "Platform/PlatformEvents.h"
 #include "Scene/EditorCamera.h"
 #include "Scene/EditorGrid.h"
 
+#include <array>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace arc
 {
     class ImGuiModule;
+    class SceneModule;
 
-    /// The editor: main menu, dockable panels, global shortcuts, and the Scene view's camera and grid.
+    /// The editor: main menu, dockable panels, the selection, global shortcuts, and the Scene view's
+    /// camera and grid. Imports the sample model into the scene at start-up, and any .gltf or .glb
+    /// file dropped on the window.
     ///
-    /// Must be added before any module with UI: the dock space has to exist before the windows it
-    /// hosts are submitted. The scene camera is handed to the Renderer in update(), so it applies to
+    /// Must be added after the SceneModule and before any module with UI: the dock space has to
+    /// exist before the windows it hosts are submitted. The scene camera is handed to the Renderer in update(), so it applies to
     /// the whole frame's rendering. The grid is drawn by EditorOverlayModule, which comes after the
     /// modules that draw the scene. Camera controls are listed in EditorCamera.h.
     ///
@@ -25,11 +32,13 @@ namespace arc
     ///   + / -       Double / halve the time scale
     ///   0           Reset the time scale to 1
     ///   F11         Capture a GPU frame (RenderDoc, PIX or Xcode, when attached)
-    class EditorModule final : public Module
+    ///   Delete      Delete the selected object
+    ///   Ctrl+D      Duplicate the selected object (Cmd+D on macOS)
+    class EditorModule final : public Module, public PlatformEventListener
     {
     public:
         /// `imgui` gives panels ImTextureIDs for engine textures, such as the scene target.
-        EditorModule(Application& app, ImGuiModule& imgui);
+        EditorModule(Application& app, ImGuiModule& imgui, SceneModule& scene);
         ~EditorModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Editor"; }
@@ -37,6 +46,8 @@ namespace arc
         [[nodiscard]] bool init() override;
         void update(const FrameTime& time) override;
         void shutdown() override;
+
+        void onPlatformEvent(const SDL_Event& event) override;
 
         /// Draws over the scene: the grid. Called by EditorOverlayModule.
         void renderSceneOverlays();
@@ -48,8 +59,14 @@ namespace arc
         void drawDockSpace();
         void buildDefaultLayout(unsigned int dockspaceId);
         void drawMainMenu();
+        void drawGameObjectMenu();
+        void drawImportPopup();
         void drawAboutPopup();
+        void importModel(const std::string& path);
+        void frameSelection();
 
+        SceneModule& m_scene;
+        EditorSelection m_selection;
         EditorCamera m_camera;
         EditorGrid m_grid;
         std::vector<std::unique_ptr<Panel>> m_panels;
@@ -57,6 +74,9 @@ namespace arc
         bool m_layoutChecked = false;
         bool m_resetLayout = false;
         bool m_openAbout = false;
+        bool m_openImport = false;
+        std::string m_pendingImport;
+        std::array<char, 1024> m_importPath{};
     };
 
     /// Draws the editor's overlays over the scene. A module of its own because modules render in

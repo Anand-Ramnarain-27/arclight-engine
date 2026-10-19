@@ -26,11 +26,12 @@ Phase 2 (meshes, textures, camera, viewport) is complete:
 - **Constants.** `setConstants(slot, data)` binds cbuffers b0–b2 from a per-frame upload ring (root CBVs on D3D12, buffer slots on Metal). The demo's camera and per-draw transforms now come from constants.
 - **Scene viewport.** The scene renders into its own texture, shown in a dockable *Scene* panel at the panel's pixel size; any device texture can be shown in ImGui through `ImGuiModule::textureId()`.
 - **Editor camera.** Depth buffers with reversed-Z (switchable, to compare), a fly / orbit / pan camera in the Scene panel, an infinite anti-aliased grid, an axis gizmo, and a z-fighting test in the texture demo.
-- **glTF models.** `.gltf` and `.glb` import with tinygltf (any accessor layout, sparse accessors, strips and fans, node hierarchies, flat normals when missing, base colour materials, samplers), uploaded into one vertex and one index buffer per model. The *Model* panel opens the sample Lantern at start-up; drop any glTF file on the window to open it, and switch the shading to base colour, normals or texture coordinates to check an import.
+- **glTF models.** `.gltf` and `.glb` import with tinygltf (any accessor layout, sparse accessors, strips and fans, node hierarchies, flat normals when missing, base colour materials, samplers), uploaded into one vertex and one index buffer per model. The sample Lantern is imported at start-up; drop any glTF file on the window to import it, and switch the shading to base colour, normals or texture coordinates to check an import.
+
+Phase 3 (engine architecture) is in progress:
+- **Scene.** GameObjects with a name, a UUID, an active flag, a transform and components, in a hierarchy with cached world matrices. Imported models keep their glTF node tree as objects with mesh components. A *Hierarchy* panel (select, drag and drop to reparent or reorder, create, duplicate, delete, double-click to frame) and an *Inspector* panel (name, active, position / rotation / scale, components, Add Component).
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
-
-The course's original Windows-only starter code is still in `Source/` as a reference while its pieces are rebuilt cross-platform. It is not part of the CMake build and will be removed once replaced.
 
 ## Building
 
@@ -95,17 +96,16 @@ Engine/Source/       ArclightEngine static library
     Null/                No-GPU backend (headless builds and unit tests)
   Renderer/            Device, swapchain and scene target ownership, frame bracketing, camera, textures,
                        glTF import, models and the mesh renderer
+  Scene/               GameObjects, transforms, components and the scene module that draws them
   Application/         Application, main loop, modules
   UI/                  Dear ImGui integration
 Engine/Shaders/      HLSL shaders, compiled at build time into bin/<Config>/Shaders/
 Editor/Source/       Arclight editor executable
   Panels/              Dockable editor panels
-  Scene/               Editor camera and grid, the model viewer and the texture demo (placeholders until
-                       the scene of Phase 3)
+  Scene/               Editor camera and grid, and the texture demo
 Tests/Source/        Unit tests (doctest)
 Game/                Runtime working directory (imgui.ini)
   Assets/              Files the editor loads; shipped next to the executable in the release zip
-Source/              Old course starter code (reference only, not built)
 ```
 
 ## Third-party libraries
@@ -121,12 +121,10 @@ Source/              Old course starter code (reference only, not built)
 | [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | Frame capture trigger (header only, Windows) | Fetched by CMake (pinned release + hash) |
 | [tinygltf](https://github.com/syoyo/tinygltf) (with its vendored [nlohmann/json](https://github.com/nlohmann/json)) | glTF 2.0 parsing | Fetched by CMake (pinned release tag) |
 
-Libraries from the old base (ImGuizmo, DirectXTex, WinPixEventRuntime) move into the new build as the roadmap reaches them. Each library is under its own license.
+Each library is under its own license.
 
 **Sample model:** *Lantern* from the [Khronos glTF sample assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Lantern), by Microsoft (CC0 1.0). Downloaded by CMake (pinned commit + hash) and placed in `Assets/Models/` next to the executable.
 
 ## License
 
 Arclight's own code (`Engine/`, `Editor/`, `Tests/`, `cmake/` and the build files) and its assets (`Game/Assets/`) are released under the [MIT License](LICENSE).
-
-`Source/` contains the course's starter code. It is kept as a reference only, is not part of the build, and is **not** covered by the MIT License.

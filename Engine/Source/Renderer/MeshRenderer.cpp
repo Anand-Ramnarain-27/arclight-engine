@@ -14,8 +14,10 @@
 
 #include <cmath>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace arc
 {
@@ -144,26 +146,36 @@ namespace arc
 
     void MeshRenderer::draw(Renderer& renderer, const Model& model, const Mat4& transform, DebugView debugView)
     {
+        std::vector<MeshDrawItem> items;
+        items.reserve(model.instances().size());
+        for (const MeshInstance& instance : model.instances())
+            items.push_back({.model = &model, .mesh = instance.mesh, .world = transform * instance.world, .debugName = model.name()});
+        draw(renderer, items, debugView);
+    }
+
+    void MeshRenderer::draw(Renderer& renderer, std::span<const MeshDrawItem> items, DebugView debugView)
+    {
         rhi::CommandList& commandList = renderer.commandList();
         const bool reversedZ = renderer.sceneCamera().reversedZ;
         const MaterialData defaultMaterial;
-
-        const rhi::ScopedDebugGroup modelGroup(commandList, model.name());
         commandList.setConstants(0, renderer.sceneViewConstants());
 
-        rhi::Pipeline* current = nullptr;
-        bool buffersBound = false;
+        rhi::Pipeline* currentPipeline = nullptr;
+        const Model* boundModel = nullptr;
 
-        // Two passes over the instances: opaque and masked first, then blended, so blended surfaces
+        // Two passes over the items: opaque and masked first, then blended, so blended surfaces
         // land on top of everything solid behind them.
         for (const bool blendPass : {false, true})
         {
-            for (const MeshInstance& instance : model.instances())
+            for (const MeshDrawItem& item : items)
             {
-                const MeshData& mesh = model.meshes()[instance.mesh];
-                const Mat4 world = transform * instance.world;
-                const bool mirrored = determinant(world) < 0.0f;
-                bool instanceConstantsSet = false;
+                const Model& model = *item.model;
+                if (item.mesh >= model.meshes().size())
+                    continue;
+                const MeshData& mesh = model.meshes()[item.mesh];
+                const bool mirrored = determinant(item.world) < 0.0f;
+                bool itemConstantsSet = false;
+                std::optional<rhi::ScopedDebugGroup> group;
 
                 for (uint32_t i = 0; i < mesh.primitiveCount; ++i)
                 {
@@ -173,34 +185,37 @@ namespace arc
                     if ((material.alphaMode == AlphaMode::Blend) != blendPass)
                         continue;
 
+                    if (!group)
+                        group.emplace(commandList, item.debugName);
+
                     rhi::Pipeline* wanted = m_pipelines[PipelineKey{.reversedZ = reversedZ,
                                                                     .doubleSided = material.doubleSided,
                                                                     .blend = blendPass,
                                                                     .mirrored = mirrored}
                                                             .index()]
                                                 .get();
-                    if (wanted != current)
+                    if (wanted != currentPipeline)
                     {
                         commandList.setPipeline(*wanted);
-                        current = wanted;
+                        currentPipeline = wanted;
                     }
                     // Buffer bindings survive pipeline changes; they need a pipeline set first only
                     // because the vertex stride comes from its layout.
-                    if (!buffersBound)
+                    if (boundModel != &model)
                     {
                         commandList.setVertexBuffer(model.vertexBuffer());
                         commandList.setIndexBuffer(model.indexBuffer(), rhi::IndexFormat::UInt32);
-                        buffersBound = true;
+                        boundModel = &model;
                     }
 
-                    if (!instanceConstantsSet)
+                    if (!itemConstantsSet)
                     {
                         commandList.setConstants(1, MeshDrawConstants{
-                                                        .world = world,
-                                                        .normalMatrix = normalMatrixOf(world),
+                                                        .world = item.world,
+                                                        .normalMatrix = normalMatrixOf(item.world),
                                                         .debugView = static_cast<uint32_t>(debugView),
                                                     });
-                        instanceConstantsSet = true;
+                        itemConstantsSet = true;
                     }
 
                     rhi::Texture* texture = m_whiteTexture.get();

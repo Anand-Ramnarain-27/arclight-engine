@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
+#include <string_view>
 
 namespace arc
 {
@@ -18,6 +20,16 @@ namespace arc
         class Sampler;
         class Texture;
     }
+
+    /// One mesh of a model, placed in the world.
+    struct MeshDrawItem
+    {
+        const Model* model = nullptr;
+        uint32_t mesh = 0;    // Into Model::meshes().
+        Mat4 world;           // Object space to world space.
+        /// Names the item's debug group in GPU captures. Must outlive the draw() call.
+        std::string_view debugName;
+    };
 
     /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene.
     ///
@@ -47,9 +59,13 @@ namespace arc
         [[nodiscard]] bool init(Renderer& renderer);
         void shutdown();
 
-        /// Records every instance of the model, with `transform` applied on top of the model's own
-        /// node transforms. Must be called inside a scene pass. Opaque and masked primitives are
-        /// drawn first, blended ones after them, unsorted.
+        /// Records the items. Must be called inside a scene pass. Every item's opaque and masked
+        /// primitives are drawn first, then the blended ones, in item order (not sorted by distance
+        /// yet).
+        void draw(Renderer& renderer, std::span<const MeshDrawItem> items, DebugView debugView);
+
+        /// Every instance of the model, with `transform` applied on top of the model's own node
+        /// transforms.
         void draw(Renderer& renderer, const Model& model, const Mat4& transform, DebugView debugView);
 
     private:
