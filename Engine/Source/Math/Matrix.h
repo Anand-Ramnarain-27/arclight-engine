@@ -3,6 +3,8 @@
 #include "Math/Quaternion.h"
 #include "Math/Vector.h"
 
+#include <optional>
+
 namespace arc
 {
     /// 4x4 float matrix, column-major, used with column vectors (v' = M * v).
@@ -117,4 +119,18 @@ namespace arc
     [[nodiscard]] Mat4 normalMatrix(const Mat4& model);
 
     [[nodiscard]] bool nearlyEqual(const Mat4& a, const Mat4& b, float epsilon = kEpsilon);
+
+    /// A transform split into translation * rotation * scale, the inverse of Mat4::trs().
+    struct Decomposed
+    {
+        Vec3 translation;
+        Quat rotation;
+        Vec3 scale = Vec3::one();
+    };
+
+    /// Splits an affine matrix into translation, rotation and scale. A mirroring matrix (negative
+    /// determinant) gets a negative X scale. Shear cannot be represented and is lost: the result is
+    /// exact only for matrices built from TRS products where every scale is uniform or aligned with
+    /// the rotation that follows it. Returns nothing if a scale axis is zero.
+    [[nodiscard]] std::optional<Decomposed> decompose(const Mat4& m);
 }

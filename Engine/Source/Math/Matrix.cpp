@@ -140,4 +140,23 @@ namespace arc
                 return false;
         return true;
     }
+
+    std::optional<Decomposed> decompose(const Mat4& m)
+    {
+        Vec3 axes[3] = {m.column(0).xyz(), m.column(1).xyz(), m.column(2).xyz()};
+        Vec3 scale{length(axes[0]), length(axes[1]), length(axes[2])};
+        if (scale.x <= kEpsilon || scale.y <= kEpsilon || scale.z <= kEpsilon)
+            return std::nullopt;
+
+        // A mirror is a negative scale on some axis; which one is ambiguous, so it is put on X.
+        if (dot(cross(axes[0], axes[1]), axes[2]) < 0.0f)
+            scale.x = -scale.x;
+
+        // Gram-Schmidt removes any shear left in the axes, so the rotation is orthonormal.
+        const Vec3 x = normalize(axes[0] / scale.x);
+        const Vec3 y = normalize(axes[1] - x * dot(x, axes[1]));
+        const Vec3 z = cross(x, y);
+        const Mat4 rotation{{x, 0.0f}, {y, 0.0f}, {z, 0.0f}, {0.0f, 0.0f, 0.0f, 1.0f}};
+        return Decomposed{m.translationPart(), Quat::fromRotationMatrix(rotation), scale};
+    }
 }

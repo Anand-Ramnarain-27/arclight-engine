@@ -4,6 +4,8 @@
 
 namespace arc
 {
+    class Mat4;
+
     /// Unit quaternion representing a rotation. (x, y, z) is the vector part, w the scalar part.
     struct Quat
     {
@@ -23,6 +25,10 @@ namespace arc
         /// Radians. Applied as yaw around Y, then pitch around the rotated X, then roll around
         /// the rotated Z (intrinsic Y-X-Z), which keeps the horizon level for cameras.
         [[nodiscard]] static Quat fromEuler(const Vec3& pitchYawRoll);
+
+        /// The rotation of a matrix whose upper 3x3 is orthonormal with determinant +1 (no scale,
+        /// no mirroring). Translation is ignored.
+        [[nodiscard]] static Quat fromRotationMatrix(const Mat4& m);
 
         /// Inverse of fromEuler. Pitch is in [-pi/2, pi/2]; at +-pi/2 roll is reported as 0.
         [[nodiscard]] Vec3 toEuler() const;

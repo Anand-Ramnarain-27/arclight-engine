@@ -83,6 +83,18 @@ namespace arc
         uint32_t mesh = 0;  // Into ModelData::meshes.
     };
 
+    /// A node of the glTF scene, kept with its hierarchy so a scene can recreate it as objects.
+    /// A node's matrix, when the file gives one, is decomposed into translation, rotation and scale.
+    struct NodeData
+    {
+        std::string name;
+        Vec3 translation;
+        Quat rotation;
+        Vec3 scale = Vec3::one();
+        int32_t parent = -1;   // Into ModelData::nodes; -1 for a root. Always lower than this node's index.
+        int32_t mesh = -1;     // Into ModelData::meshes; -1 for a node without one.
+    };
+
     struct ModelData
     {
         std::string name;
@@ -95,6 +107,8 @@ namespace arc
         std::vector<Primitive> primitives;
         std::vector<MeshData> meshes;
         std::vector<MeshInstance> instances;
+        /// The default scene's nodes, parents before children.
+        std::vector<NodeData> nodes;
         std::vector<MaterialData> materials;
         std::vector<TextureData> textures;
         /// Decoded RGBA8. Only images used by a material slot that is drawn are decoded; the rest

@@ -448,32 +448,35 @@ namespace arc
             model.primitives.push_back(primitive);
         }
 
-        Mat4 localTransform(const tinygltf::Node& node)
+        Decomposed localTransform(const tinygltf::Node& node)
         {
             const auto f = [](double value) { return static_cast<float>(value); };
             if (node.matrix.size() == 16)
             {
                 // Column-major, like Mat4.
                 const std::vector<double>& m = node.matrix;
-                return {{f(m[0]), f(m[1]), f(m[2]), f(m[3])},
-                        {f(m[4]), f(m[5]), f(m[6]), f(m[7])},
-                        {f(m[8]), f(m[9]), f(m[10]), f(m[11])},
-                        {f(m[12]), f(m[13]), f(m[14]), f(m[15])}};
+                const Mat4 matrix{{f(m[0]), f(m[1]), f(m[2]), f(m[3])},
+                                  {f(m[4]), f(m[5]), f(m[6]), f(m[7])},
+                                  {f(m[8]), f(m[9]), f(m[10]), f(m[11])},
+                                  {f(m[12]), f(m[13]), f(m[14]), f(m[15])}};
+                // glTF requires node matrices to be decomposable to TRS, apart from zero scale, which
+                // files use to hide nodes.
+                if (const std::optional<Decomposed> trs = decompose(matrix))
+                    return *trs;
+                return {matrix.translationPart(), Quat::identity(), Vec3::zero()};
             }
 
-            Vec3 translation;
-            Quat rotation;
-            Vec3 scale = Vec3::one();
+            Decomposed trs;
             if (node.translation.size() == 3)
-                translation = {f(node.translation[0]), f(node.translation[1]), f(node.translation[2])};
+                trs.translation = {f(node.translation[0]), f(node.translation[1]), f(node.translation[2])};
             if (node.rotation.size() == 4)   // x, y, z, w, as Quat stores them.
-                rotation = normalize(Quat{f(node.rotation[0]), f(node.rotation[1]), f(node.rotation[2]), f(node.rotation[3])});
+                trs.rotation = normalize(Quat{f(node.rotation[0]), f(node.rotation[1]), f(node.rotation[2]), f(node.rotation[3])});
             if (node.scale.size() == 3)
-                scale = {f(node.scale[0]), f(node.scale[1]), f(node.scale[2])};
-            return Mat4::trs(translation, rotation, scale);
+                trs.scale = {f(node.scale[0]), f(node.scale[1]), f(node.scale[2])};
+            return trs;
         }
 
-        void importNode(Importer& importer, int nodeIndex, const Mat4& parentWorld, int depth)
+        void importNode(Importer& importer, int nodeIndex, int32_t parent, const Mat4& parentWorld, int depth)
         {
             const tinygltf::Model& gltf = importer.gltf;
             if (nodeIndex < 0 || static_cast<size_t>(nodeIndex) >= gltf.nodes.size())
@@ -489,20 +492,31 @@ namespace arc
             }
 
             const tinygltf::Node& node = gltf.nodes[static_cast<size_t>(nodeIndex)];
-            const Mat4 world = parentWorld * localTransform(node);
+            const Decomposed local = localTransform(node);
+            const Mat4 world = parentWorld * Mat4::trs(local.translation, local.rotation, local.scale);
 
             ModelData& model = importer.model;
+            NodeData nodeData{
+                .name = node.name,
+                .translation = local.translation,
+                .rotation = local.rotation,
+                .scale = local.scale,
+                .parent = parent,
+            };
             if (node.mesh >= 0 && static_cast<size_t>(node.mesh) < model.meshes.size())
             {
                 const auto meshIndex = static_cast<uint32_t>(node.mesh);
+                nodeData.mesh = node.mesh;
                 model.instances.push_back({node.name, world, meshIndex});
                 const MeshData& mesh = model.meshes[meshIndex];
                 for (uint32_t i = 0; i < mesh.primitiveCount; ++i)
                     model.bounds.expand(model.primitives[mesh.firstPrimitive + i].bounds.transformed(world));
             }
+            const auto self = static_cast<int32_t>(model.nodes.size());
+            model.nodes.push_back(std::move(nodeData));
 
             for (const int child : node.children)
-                importNode(importer, child, world, depth + 1);
+                importNode(importer, child, self, world, depth + 1);
         }
 
         void importScene(Importer& importer)
@@ -528,7 +542,7 @@ namespace arc
             }
 
             for (const int root : roots)
-                importNode(importer, root, Mat4::identity(), 0);
+                importNode(importer, root, -1, Mat4::identity(), 0);
         }
 
         rhi::SamplerDesc toSamplerDesc(const tinygltf::Sampler* sampler)

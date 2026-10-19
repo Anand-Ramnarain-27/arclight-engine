@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Math/Aabb.h"
 #include "Math/Math.h"
 #include "Renderer/Camera.h"
 
@@ -16,7 +17,8 @@ namespace arc
     ///   Middle drag           Pan
     ///   Alt + Shift + left    Pan, for trackpads without a middle button
     ///   Wheel                 Dolly toward or away from the focus point
-    ///   F                     Focus on the world origin
+    ///   F                     Frame the selection (handled by the Scene panel), or focus on
+    ///                         the world origin when nothing is selected
     ///
     /// The focus point sits focusDistance() in front of the camera. Orbiting and dollying move the
     /// camera around it; flying and looking move it with the camera.
@@ -33,7 +35,8 @@ namespace arc
 
         EditorCamera();
 
-        /// Applies this frame's input. Call only while the scene viewport owns the input.
+        /// Applies this frame's input. Call only while the scene viewport owns the input. F is left to
+        /// the caller, which knows what is selected.
         /// `viewportHeight` is in pixels, like Input's mouse movement, so panning moves the point
         /// under the cursor by exactly as far as the cursor moved.
         void update(const Input& input, float deltaSeconds, float viewportHeight);
@@ -43,6 +46,13 @@ namespace arc
 
         /// Keeps the focus point and swings the camera around it to look along `direction`.
         void viewAlong(const Vec3& direction);
+
+        /// Keeps the view direction and moves the camera so the bounds fill the view, focused on
+        /// their centre. Empty bounds frame a unit-sized region around `fallbackCenter` instead.
+        void frame(const Aabb& bounds, const Vec3& fallbackCenter);
+
+        /// Turns toward the world origin without moving, so it becomes the focus point.
+        void focusOnOrigin();
 
         [[nodiscard]] Camera& camera() { return m_camera; }
         [[nodiscard]] const Camera& camera() const { return m_camera; }

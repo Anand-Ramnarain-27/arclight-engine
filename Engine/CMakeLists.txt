@@ -63,6 +63,21 @@ add_library(ArclightEngine STATIC
     Source/Renderer/Image.cpp
     Source/Renderer/TextureLoader.h
     Source/Renderer/TextureLoader.cpp
+    Source/Scene/Uuid.h
+    Source/Scene/Uuid.cpp
+    Source/Scene/Component.h
+    Source/Scene/Transform.h
+    Source/Scene/Transform.cpp
+    Source/Scene/GameObject.h
+    Source/Scene/GameObject.cpp
+    Source/Scene/Scene.h
+    Source/Scene/Scene.cpp
+    Source/Scene/MeshComponent.h
+    Source/Scene/MeshComponent.cpp
+    Source/Scene/ModelInstantiation.h
+    Source/Scene/ModelInstantiation.cpp
+    Source/Scene/SceneModule.h
+    Source/Scene/SceneModule.cpp
     Source/Application/Module.h
     Source/Application/Application.h
     Source/Application/Application.cpp

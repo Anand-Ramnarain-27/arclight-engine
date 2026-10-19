@@ -1,10 +1,13 @@
 #include "Panels/ScenePanel.h"
 
 #include "Application/Application.h"
+#include "EditorSelection.h"
 #include "RHI/Device.h"
 #include "RHI/Texture.h"
 #include "Scene/EditorCamera.h"
 #include "Scene/EditorGrid.h"
+#include "Scene/MeshComponent.h"
+#include "Scene/SceneModule.h"
 #include "UI/ImGuiModule.h"
 
 #include <imgui.h>
@@ -24,7 +27,7 @@ namespace arc
             "Alt + left drag: orbit\n"
             "Middle drag or Alt + Shift + left drag: pan\n"
             "Wheel: dolly\n"
-            "F: focus on the origin";
+            "F: frame the selection, or focus on the origin";
 
         const char* modeName(EditorCamera::Mode mode)
         {
@@ -90,6 +93,13 @@ namespace arc
             input.setCaptured(ImGui::GetIO().WantTextInput, false);
             // Input measures the mouse in pixels, so the viewport height is passed in pixels too.
             m_camera.update(input, m_app.frameTime().realDelta, static_cast<float>(pixels.height));
+            if (input.wasPressed(Key::F))
+            {
+                if (const GameObject* selected = m_selection.object())
+                    m_camera.frame(hierarchyBounds(*selected), selected->transform().worldPosition());
+                else
+                    m_camera.focusOnOrigin();
+            }
         }
 
         ImGui::SetCursorScreenPos(origin + ImVec2{8.0f, 6.0f});
@@ -98,7 +108,7 @@ namespace arc
                             rhi::backendName(renderer.device().adapterInfo().backend));
 
         ImGui::SetCursorScreenPos(origin + ImVec2{8.0f, 8.0f + ImGui::GetTextLineHeightWithSpacing()});
-        if (ImGui::SmallButton("Camera"))
+        if (ImGui::SmallButton("View"))
             ImGui::OpenPopup("Scene Settings");
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
@@ -153,6 +163,12 @@ namespace arc
         ImGui::SliderFloat("Fade distance", &m_grid.fadeDistance, 10.0f, 1000.0f, "%.0f",
                            ImGuiSliderFlags_Logarithmic);
         ImGui::SliderFloat("Opacity", &m_grid.opacity, 0.0f, 1.0f, "%.2f");
+
+        ImGui::SeparatorText("Shading");
+        int view = static_cast<int>(m_scene.debugView);
+        if (ImGui::Combo("Shading", &view, "Lit\0Base colour\0Normals\0Texture coordinates\0"))
+            m_scene.debugView = static_cast<MeshRenderer::DebugView>(view);
+        ImGui::TextDisabled("%u meshes drawn", m_scene.drawnMeshCount());
 
         ImGui::EndPopup();
     }
