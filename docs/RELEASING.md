@@ -2,12 +2,6 @@
 
 Releases are built by GitHub Actions, not on your PC. Every step below happens in GitHub Desktop or on github.com, so no terminal is needed.
 
-## One-time setup
-
-The release workflow must be on `main`: `.github/workflows/release.yml`.
-
-To add it on github.com: open the repo, then **Add file > Create new file**. Type `.github/workflows/release.yml` as the name (typing `/` creates the folders), paste the file's contents, and click **Commit changes**. Then, in GitHub Desktop, click **Fetch origin** and **Pull origin** so your PC has it too.
-
 ## Every release
 
 ### 1. Prepare the version (in your editor, then GitHub Desktop)

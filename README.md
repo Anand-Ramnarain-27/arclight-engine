@@ -33,8 +33,6 @@ Phase 3 (engine architecture) is in progress:
 
 Prebuilt Windows and macOS zips are on the [Releases](https://github.com/Anand-Ramnarain-27/arclight-engine/releases) page. Changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
-The course's original Windows-only starter code is still in `Source/` as a reference while its pieces are rebuilt cross-platform. It is not part of the CMake build and will be removed once replaced.
-
 ## Building
 
 Requirements:
@@ -108,7 +106,6 @@ Editor/Source/       Arclight editor executable
 Tests/Source/        Unit tests (doctest)
 Game/                Runtime working directory (imgui.ini)
   Assets/              Files the editor loads; shipped next to the executable in the release zip
-Source/              Old course starter code (reference only, not built)
 ```
 
 ## Third-party libraries
@@ -124,12 +121,10 @@ Source/              Old course starter code (reference only, not built)
 | [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | Frame capture trigger (header only, Windows) | Fetched by CMake (pinned release + hash) |
 | [tinygltf](https://github.com/syoyo/tinygltf) (with its vendored [nlohmann/json](https://github.com/nlohmann/json)) | glTF 2.0 parsing | Fetched by CMake (pinned release tag) |
 
-Libraries from the old base (ImGuizmo, DirectXTex, WinPixEventRuntime) move into the new build as the roadmap reaches them. Each library is under its own license.
+Each library is under its own license.
 
 **Sample model:** *Lantern* from the [Khronos glTF sample assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Lantern), by Microsoft (CC0 1.0). Downloaded by CMake (pinned commit + hash) and placed in `Assets/Models/` next to the executable.
 
 ## License
 
 Arclight's own code (`Engine/`, `Editor/`, `Tests/`, `cmake/` and the build files) and its assets (`Game/Assets/`) are released under the [MIT License](LICENSE).
-
-`Source/` contains the course's starter code. It is kept as a reference only, is not part of the build, and is **not** covered by the MIT License.

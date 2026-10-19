@@ -1,15 +1,14 @@
-# ---------------------------------------------------------------
-# Arclight .gitignore
-# Rule of thumb: commit source and inputs, never build output or
-# per-user IDE state. Third-party binaries we *depend on* (e.g.
-# WinPixEventRuntime .lib/.dll) are kept, so we never blanket-ignore
-# *.lib / *.dll / bin/.
-# ---------------------------------------------------------------
+# Commit source and build inputs; never build output, per-user IDE state or captures.
 
-# --- Our build output (OutDir/IntDir in the .vcxproj) ---
-Source/build/
+# --- Build output (CMake presets write to build/) ---
 /build/
 /out/
+
+# --- CMake ---
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
 
 # --- Visual Studio ---
 .vs/
@@ -19,22 +18,6 @@ Source/build/
 *.VC.db
 *.VC.opendb
 ipch/
-*.ipch
-*.tlog
-*.ilk
-*.idb
-*.iobj
-*.ipdb
-*.exp
-
-# DirectXTex builds its own .lib into this folder
-Source/3rdParty/DirectXTex/Bin/
-
-# --- CMake (for when we move to CMake for Windows + Mac) ---
-CMakeUserPresets.json
-CMakeCache.txt
-CMakeFiles/
-cmake-build-*/
 
 # --- Xcode / macOS ---
 DerivedData/
@@ -42,8 +25,11 @@ xcuserdata/
 *.xcuserstate
 .DS_Store
 
-# --- Editors / tools ---
-.vscode/
+# --- Editors ---
+# Shared VS Code settings may be committed; everything else in .vscode/ is per-user.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.swp
 

@@ -24,10 +24,16 @@ Phase 3: engine architecture.
 - Editor: *Hierarchy* panel (selection, drag and drop to reparent or reorder, context menu, double-click to frame), *Inspector* panel (name, active flag, transform with Euler angles in degrees, component editors, Add Component), *GameObject* menu, *File > Import Model*, Delete and Ctrl+D (Cmd+D) shortcuts, and F to frame the selection in the Scene view. Imported models are selected and framed.
 - Editor: the default layout is rebuilt once when `imgui.ini` predates a window, so new panels dock instead of floating.
 - Unit tests for UUIDs, decomposition, the transform hierarchy, reparenting and sibling order, deferred destruction, duplication, component updates and model instantiation.
+- Continuous integration (`.github/workflows/ci.yml`): pushes to the development branches and pull requests configure, build, test and package both platforms.
+- The RenderDoc in-app API licence notice ships in `ThirdPartyLicenses/` of the Windows release zip.
 
 ### Changed
 - The *Model* panel and `ModelViewerModule` are replaced by the scene: models are imported into it at their real size and framed by the camera, instead of being scaled to fit. The shading debug view moved to the Scene panel's *View* menu.
 - `EditorCamera::update()` no longer handles F; the Scene panel frames the selection with `EditorCamera::frame()`, or calls `focusOnOrigin()` when nothing is selected.
+
+### Removed
+- `Source/`, the original Windows-only starter code that was kept for reference and was not part of the build.
+- `Game/WinPixEventRuntime.dll`, which nothing loaded: PIX captures use `WinPixGpuCapturer.dll` from the PIX installation.
 
 ## [0.3.0] - 2026-10-16
 
