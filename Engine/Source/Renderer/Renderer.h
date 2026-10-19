@@ -104,8 +104,8 @@ namespace arc
         [[nodiscard]] ViewConstants sceneViewConstants() const;
 
         /// The colour format of the scene target, for pipelines that draw into it. Not sRGB: shaders
-        /// write display-ready values (see LinearToSrgb in Common.hlsli) until the HDR target and
-        /// tone mapping of Phase 4.
+        /// write display-ready values (see LinearToSrgb in Common.hlsli) until an HDR target and
+        /// tone mapping are added.
         [[nodiscard]] static constexpr rhi::Format sceneFormat() { return rhi::Format::RGBA8_UNORM; }
 
         [[nodiscard]] rhi::Device& device() { return *m_device; }

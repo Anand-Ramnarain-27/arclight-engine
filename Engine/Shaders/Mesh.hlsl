@@ -1,5 +1,5 @@
 // Meshes imported from glTF: a base colour (factor times texture) under placeholder lighting, a
-// fixed directional light and a sky/ground ambient, until the lighting of Phase 4.
+// fixed directional light and a sky/ground ambient, until physically based lighting is added.
 
 #include "Common.hlsli"
 #include "Constants.hlsli"

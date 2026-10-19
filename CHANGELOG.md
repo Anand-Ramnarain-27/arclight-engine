@@ -26,10 +26,12 @@ Phase 3: engine architecture.
 - Unit tests for UUIDs, decomposition, the transform hierarchy, reparenting and sibling order, deferred destruction, duplication, component updates and model instantiation.
 - Continuous integration (`.github/workflows/ci.yml`): pushes to the development branches and pull requests configure, build, test and package both platforms.
 - The RenderDoc in-app API licence notice ships in `ThirdPartyLicenses/` of the Windows release zip.
+- `docs/ROADMAP.md`: the milestones after this one, including stylized rendering alongside PBR.
 
 ### Changed
 - The *Model* panel and `ModelViewerModule` are replaced by the scene: models are imported into it at their real size and framed by the camera, instead of being scaled to fit. The shading debug view moved to the Scene panel's *View* menu.
 - `EditorCamera::update()` no longer handles F; the Scene panel frames the selection with `EditorCamera::frame()`, or calls `focusOnOrigin()` when nothing is selected.
+- README rewritten: highlights, platform status, architecture, build steps, editor controls and credits.
 
 ### Removed
 - `Source/`, the original Windows-only starter code that was kept for reference and was not part of the build.
