@@ -6,6 +6,7 @@
 #include "Platform/PlatformEvents.h"
 #include "Scene/EditorCamera.h"
 #include "Scene/EditorGrid.h"
+#include "Scene/SelectionOutline.h"
 
 #include <array>
 #include <memory>
@@ -22,9 +23,15 @@ namespace arc
     /// file dropped on the window.
     ///
     /// Must be added after the SceneModule and before any module with UI: the dock space has to
+<<<<<<< Updated upstream
     /// exist before the windows it hosts are submitted. The scene camera is handed to the Renderer in update(), so it applies to
     /// the whole frame's rendering. The grid is drawn by EditorOverlayModule, which comes after the
     /// modules that draw the scene. Camera controls are listed in EditorCamera.h.
+=======
+    /// exist before the windows it hosts are submitted. The scene camera is handed to the Renderer
+    /// in update(), so it applies to the whole frame's rendering. The grid and the selection outline are
+    /// drawn by EditorOverlayModule, which comes after the modules that draw the scene. Camera controls are listed in EditorCamera.h.
+>>>>>>> Stashed changes
     ///
     ///   F5          Play / Pause
     ///   Shift+F5    Stop
@@ -49,7 +56,7 @@ namespace arc
 
         void onPlatformEvent(const SDL_Event& event) override;
 
-        /// Draws over the scene: the grid. Called by EditorOverlayModule.
+        /// Draws over the scene: the grid, then the selection outline. Called by EditorOverlayModule.
         void renderSceneOverlays();
 
     private:
@@ -69,6 +76,7 @@ namespace arc
         EditorSelection m_selection;
         EditorCamera m_camera;
         EditorGrid m_grid;
+        SelectionOutline m_outline;
         std::vector<std::unique_ptr<Panel>> m_panels;
         bool m_showImGuiDemo = false;
         bool m_layoutChecked = false;

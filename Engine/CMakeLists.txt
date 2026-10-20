@@ -15,6 +15,8 @@ add_library(ArclightEngine STATIC
     Source/Math/Matrix.h
     Source/Math/Matrix.cpp
     Source/Math/Aabb.h
+    Source/Math/Ray.h
+    Source/Math/Ray.cpp
     Source/Platform/Window.h
     Source/Platform/Window.cpp
     Source/Platform/Input.h
@@ -74,6 +76,8 @@ add_library(ArclightEngine STATIC
     Source/Scene/Scene.cpp
     Source/Scene/MeshComponent.h
     Source/Scene/MeshComponent.cpp
+    Source/Scene/Raycast.h
+    Source/Scene/Raycast.cpp
     Source/Scene/ModelInstantiation.h
     Source/Scene/ModelInstantiation.cpp
     Source/Scene/SceneModule.h
@@ -132,6 +136,8 @@ arclight_set_warnings(ArclightEngine)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Textured.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Grid.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Mesh.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/SelectionMask.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Outline.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

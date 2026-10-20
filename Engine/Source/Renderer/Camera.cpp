@@ -28,4 +28,13 @@ namespace arc
         return reversedZ ? Mat4::perspectiveReversedZ(verticalFov, aspect, nearZ)
                          : Mat4::perspective(verticalFov, aspect, nearZ, farZ);
     }
+
+    Ray Camera::viewportRay(Vec2 ndc, float aspect) const
+    {
+        // The projection's inverse for a direction: at view depth 1 the image spans tan(fov / 2)
+        // up and aspect times that across, whatever the near plane or depth convention.
+        const float halfHeight = std::tan(verticalFov * 0.5f);
+        const Vec3 direction = forward() + right() * (ndc.x * halfHeight * aspect) + up() * (ndc.y * halfHeight);
+        return {position, normalize(direction)};
+    }
 }

@@ -74,7 +74,23 @@ Passes, resources and pipelines carry debug names, so captures show "Texture Dem
 
 **Editor controls:** F5 play/pause, Shift+F5 stop, F6 step one frame, +/- change time scale, 0 resets it, F11 captures a GPU frame. Panels are listed under View; View > Reset Layout restores the default docking layout (the Scene panel in the centre).
 
+<<<<<<< Updated upstream
 **Scene camera** (with the pointer over the Scene panel): right drag to look around, with W A S D to fly and Q / E to go down / up (Shift for 4x speed, wheel for fly speed); Alt + left drag to orbit; middle drag or Alt + Shift + left drag to pan; wheel to dolly; F to focus on the origin. Click an end of the axis gizmo to view along that axis. The *Camera* button holds the camera and grid settings.
+=======
+| Control | Action |
+|---|---|
+| Right drag | Look around |
+| Right drag + W A S D | Fly; Q / E move down / up; hold Shift for 4x speed |
+| Right drag + mouse wheel | Change the fly speed |
+| Alt + left drag | Orbit around the focus point |
+| Middle drag, or Alt + Shift + left drag | Pan |
+| Mouse wheel | Dolly toward or away from the focus point |
+| Left click | Select the object under the pointer; empty space clears the selection |
+| W / E / R | Move / rotate / scale gizmo on the selection |
+| Ctrl while dragging a gizmo (Cmd on macOS) | Toggle snapping for that drag |
+| F | Frame the selection (the origin if nothing is selected) |
+| Click an axis end of the view gizmo (top right) | View along that axis |
+>>>>>>> Stashed changes
 
 Everything generated goes into `build/`, which is not committed. The project files are generated from CMake: change `CMakeLists.txt`, not the `.sln` or `.xcodeproj`.
 
@@ -112,6 +128,7 @@ Game/                Runtime working directory (imgui.ini)
 
 | Library | Use | How it's included |
 |---|---|---|
+<<<<<<< Updated upstream
 | [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input | Fetched by CMake (pinned release + hash) |
 | [Dear ImGui](https://github.com/ocornut/imgui) (docking) | Editor UI | Fetched by CMake (pinned release tag) |
 | [doctest](https://github.com/doctest/doctest) | Unit tests | Fetched by CMake (pinned release tag) |
@@ -120,6 +137,18 @@ Game/                Runtime working directory (imgui.ini)
 | [stb_image](https://github.com/nothings/stb) | PNG/JPEG/TGA/BMP decoding | Fetched by CMake (pinned commit + hash) |
 | [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | Frame capture trigger (header only, Windows) | Fetched by CMake (pinned release + hash) |
 | [tinygltf](https://github.com/syoyo/tinygltf) (with its vendored [nlohmann/json](https://github.com/nlohmann/json)) | glTF 2.0 parsing | Fetched by CMake (pinned release tag) |
+=======
+| [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input, file I/O | [zlib](https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt) |
+| [Dear ImGui](https://github.com/ocornut/imgui) (docking branch) | Editor UI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) |
+| [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | Transform gizmos in the Scene view | [MIT](https://github.com/CedricGuillemet/ImGuizmo/blob/master/LICENSE) |
+| [stb_image](https://github.com/nothings/stb) | PNG, JPEG, TGA and BMP decoding | [Public domain or MIT](https://github.com/nothings/stb/blob/master/LICENSE) |
+| [tinygltf](https://github.com/syoyo/tinygltf) | glTF 2.0 parsing | [MIT](https://github.com/syoyo/tinygltf/blob/release/LICENSE) |
+| [nlohmann/json](https://github.com/nlohmann/json) (included with tinygltf) | JSON parsing | [MIT](https://github.com/nlohmann/json/blob/develop/LICENSE.MIT) |
+| [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | GPU capture trigger (Windows, header only) | [MIT](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md) |
+| [doctest](https://github.com/doctest/doctest) | Unit tests | [MIT](https://github.com/doctest/doctest/blob/master/LICENSE.txt) |
+| [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) | HLSL compiler (build tool) | [NCSA](https://github.com/microsoft/DirectXShaderCompiler/blob/main/LICENSE.TXT) |
+| [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | SPIR-V to Metal Shading Language (build tool, macOS) | [Apache 2.0](https://github.com/KhronosGroup/SPIRV-Cross/blob/main/LICENSE) |
+>>>>>>> Stashed changes
 
 Each library is under its own license.
 

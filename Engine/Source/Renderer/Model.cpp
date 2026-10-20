@@ -60,6 +60,10 @@ namespace arc
         model->m_meshes = data.meshes;
         model->m_instances = data.instances;
         model->m_nodes = data.nodes;
+        model->m_indices = data.indices;
+        model->m_positions.reserve(data.vertices.size());
+        for (const MeshVertex& vertex : data.vertices)
+            model->m_positions.push_back(vertex.position);
         model->m_materials = data.materials;
         model->m_bounds = data.bounds;
         model->m_vertexCount = static_cast<uint32_t>(data.vertices.size());

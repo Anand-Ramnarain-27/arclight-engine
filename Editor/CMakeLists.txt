@@ -23,12 +23,16 @@ add_executable(Arclight
     Source/Scene/EditorCamera.cpp
     Source/Scene/EditorGrid.h
     Source/Scene/EditorGrid.cpp
+    Source/Scene/SelectionOutline.h
+    Source/Scene/SelectionOutline.cpp
+    Source/Scene/TransformGizmo.h
+    Source/Scene/TransformGizmo.cpp
     Source/Scene/TextureDemoModule.h
     Source/Scene/TextureDemoModule.cpp
 )
 
 target_include_directories(Arclight PRIVATE Source)
-target_link_libraries(Arclight PRIVATE ArclightEngine imgui)
+target_link_libraries(Arclight PRIVATE ArclightEngine imgui imguizmo)
 arclight_set_warnings(Arclight)
 
 # Compiled shaders are loaded from a Shaders/ folder next to the executable, which

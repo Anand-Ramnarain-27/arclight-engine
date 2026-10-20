@@ -27,6 +27,16 @@ Phase 3: engine architecture.
 - Continuous integration (`.github/workflows/ci.yml`): pushes to the development branches and pull requests configure, build, test and package both platforms.
 - The RenderDoc in-app API licence notice ships in `ThirdPartyLicenses/` of the Windows release zip.
 
+#### Picking, gizmos and the selection outline
+- `Math/Ray`: rays, `intersectRayAabb()` (slab method) and `intersectRayTriangle()` (Möller–Trumbore, both faces). `Camera::viewportRay()` turns a point of the image into a world-space ray.
+- `Scene/Raycast`: `raycast(scene, ray)` returns the nearest triangle of any enabled mesh of an active object, testing mesh bounds, then primitive bounds, then triangles in object space.
+- `Model::positions()` and `indices()`: a CPU copy of the geometry for queries such as picking.
+- Editor: click in the Scene view to select what is under the pointer, or empty space to clear the selection; the Hierarchy expands to show it.
+- Editor: move, rotate and scale gizmos ([ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo), pinned to a commit) with W / E / R, world or local axes, and snapping (a toolbar toggle, inverted while Ctrl is held; steps in *View > Gizmo*).
+- Editor: an outline around the selected object and its children (`SelectionOutline`, `SelectionMask.hlsl`, `Outline.hlsl`): silhouettes into a mask, then a full-screen pass marks pixels just outside it. Colour and thickness in *View > Selection outline*.
+- ImGuizmo's licence notice ships in `ThirdPartyLicenses/`.
+- Unit tests for ray-box and ray-triangle intersection, viewport rays and scene raycasts.
+
 ### Changed
 - The *Model* panel and `ModelViewerModule` are replaced by the scene: models are imported into it at their real size and framed by the camera, instead of being scaled to fit. The shading debug view moved to the Scene panel's *View* menu.
 - `EditorCamera::update()` no longer handles F; the Scene panel frames the selection with `EditorCamera::frame()`, or calls `focusOnOrigin()` when nothing is selected.

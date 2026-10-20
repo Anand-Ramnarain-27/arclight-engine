@@ -13,6 +13,7 @@
 #include "RHI/Device.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/SceneModule.h"
+#include "Scene/TransformGizmo.h"
 
 #include <SDL3/SDL_events.h>
 #include <imgui.h>
@@ -42,7 +43,7 @@ namespace arc
         , m_scene(scene)
         , m_selection(scene)
     {
-        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid));
+        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid, m_outline));
         m_panels.push_back(std::make_unique<HierarchyPanel>(scene, m_selection, m_camera));
         m_panels.push_back(std::make_unique<InspectorPanel>(scene, m_selection));
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
@@ -56,7 +57,7 @@ namespace arc
 
     bool EditorModule::init()
     {
-        if (!m_grid.init(app().renderer()))
+        if (!m_grid.init(app().renderer()) || !m_outline.init(app().renderer()))
             return false;
         app().addEventListener(*this);
 
@@ -71,6 +72,7 @@ namespace arc
     void EditorModule::shutdown()
     {
         app().removeEventListener(*this);
+        m_outline.shutdown();
         m_grid.shutdown();
     }
 
@@ -103,6 +105,7 @@ namespace arc
     void EditorModule::renderSceneOverlays()
     {
         m_grid.render(app().renderer());
+        m_outline.render(app().renderer(), m_selection.object());
     }
 
     void EditorModule::update(const FrameTime& /*time*/)
@@ -117,6 +120,7 @@ namespace arc
         handleShortcuts();
         logInputActivity();
 
+        TransformGizmo::beginFrame();
         drawMainMenu();
         drawDockSpace();
         for (auto& panel : m_panels)
@@ -129,6 +133,8 @@ namespace arc
         // After the Scene panel, which moves the camera. Also when the panel is closed, so settings
         // keep applying.
         app().renderer().setSceneCamera(m_camera.camera());
+        // The Scene panel has given the scene target its size for this frame.
+        m_outline.prepare(app().renderer());
 
         drawImportPopup();
         drawAboutPopup();

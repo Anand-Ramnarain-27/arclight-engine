@@ -20,6 +20,7 @@ install(FILES
 # SDL3 and Dear ImGui are linked statically, so their notices ship with the binary.
 install(FILES ${sdl3_SOURCE_DIR}/LICENSE.txt  DESTINATION ThirdPartyLicenses RENAME SDL3.txt)
 install(FILES ${imgui_SOURCE_DIR}/LICENSE.txt DESTINATION ThirdPartyLicenses RENAME DearImGui.txt)
+install(FILES ${imguizmo_SOURCE_DIR}/LICENSE DESTINATION ThirdPartyLicenses RENAME ImGuizmo.txt)
 install(FILES ${tinygltf_SOURCE_DIR}/LICENSE DESTINATION ThirdPartyLicenses RENAME tinygltf.txt)
 # nlohmann/json, vendored by tinygltf, carries its MIT notice in the comment that opens json.hpp.
 file(READ "${tinygltf_SOURCE_DIR}/json.hpp" nlohmann_json_header LIMIT 4096)

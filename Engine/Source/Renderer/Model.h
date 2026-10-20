@@ -40,6 +40,11 @@ namespace arc
         [[nodiscard]] const std::vector<MeshData>& meshes() const { return m_meshes; }
         [[nodiscard]] const std::vector<MeshInstance>& instances() const { return m_instances; }
         [[nodiscard]] const std::vector<NodeData>& nodes() const { return m_nodes; }
+
+        /// A CPU copy of every vertex position and index, as in the GPU buffers, for picking and other
+        /// queries that cannot read GPU memory. Primitive::baseVertex applies to these indices too.
+        [[nodiscard]] const std::vector<Vec3>& positions() const { return m_positions; }
+        [[nodiscard]] const std::vector<uint32_t>& indices() const { return m_indices; }
         [[nodiscard]] const std::vector<MaterialData>& materials() const { return m_materials; }
         [[nodiscard]] const Aabb& bounds() const { return m_bounds; }
 
@@ -67,6 +72,8 @@ namespace arc
         std::vector<MeshData> m_meshes;
         std::vector<MeshInstance> m_instances;
         std::vector<NodeData> m_nodes;
+        std::vector<Vec3> m_positions;
+        std::vector<uint32_t> m_indices;
         std::vector<MaterialData> m_materials;
         std::vector<std::unique_ptr<rhi::Texture>> m_textures;
         /// Textures with the same sampling settings share a sampler: D3D12's sampler descriptors are
