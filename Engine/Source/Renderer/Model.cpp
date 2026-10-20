@@ -74,8 +74,8 @@ namespace arc
                 model->m_triangleCount += data.primitives[mesh.firstPrimitive + i].indexCount / 3;
         }
 
-        // Only base colour textures are drawn so far (Phase 4 adds the rest), and they hold colour,
-        // so they are created as sRGB: the GPU decodes them to linear before filtering.
+        // Only base colour textures are drawn so far, and they hold colour, so they are created as
+        // sRGB: the GPU decodes them to linear before filtering.
         std::vector<bool> isBaseColor(data.textures.size(), false);
         for (const MaterialData& material : data.materials)
             if (material.baseColorTexture >= 0)

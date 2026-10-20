@@ -25,8 +25,7 @@ namespace arc
     /// -Z; with too little depth precision they flicker through each other. The Texture Demo window
     /// holds every setting.
     ///
-    /// Every shape is one unit quad drawn with different per-draw constants (b1). Placeholder until
-    /// glTF meshes can be loaded (2.6).
+    /// Every shape is one unit quad drawn with different per-draw constants (b1).
     class TextureDemoModule final : public Module
     {
     public:

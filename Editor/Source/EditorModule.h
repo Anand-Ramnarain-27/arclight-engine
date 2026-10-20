@@ -23,15 +23,9 @@ namespace arc
     /// file dropped on the window.
     ///
     /// Must be added after the SceneModule and before any module with UI: the dock space has to
-<<<<<<< Updated upstream
-    /// exist before the windows it hosts are submitted. The scene camera is handed to the Renderer in update(), so it applies to
-    /// the whole frame's rendering. The grid is drawn by EditorOverlayModule, which comes after the
-    /// modules that draw the scene. Camera controls are listed in EditorCamera.h.
-=======
     /// exist before the windows it hosts are submitted. The scene camera is handed to the Renderer
     /// in update(), so it applies to the whole frame's rendering. The grid and the selection outline are
     /// drawn by EditorOverlayModule, which comes after the modules that draw the scene. Camera controls are listed in EditorCamera.h.
->>>>>>> Stashed changes
     ///
     ///   F5          Play / Pause
     ///   Shift+F5    Stop

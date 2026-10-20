@@ -34,8 +34,8 @@ namespace arc
         Blend = 2,
     };
 
-    /// The glTF metallic-roughness material. Only the base colour is drawn until Phase 4; the other
-    /// factors are kept so nothing needs re-importing then.
+    /// The glTF metallic-roughness material. Only the base colour is drawn so far; the other factors
+    /// are kept so models need no re-import once physically based lighting uses them.
     struct MaterialData
     {
         std::string name;
