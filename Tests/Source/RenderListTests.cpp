@@ -136,15 +136,16 @@ TEST_CASE("Models use 16-bit indices where every index fits")
 
     const auto model = Model::create(*device, pool, data);
     REQUIRE(model);
-    const auto& draws = model->primitiveDraws();
-    REQUIRE(draws.size() == 2);
-    CHECK(draws[0].indexFormat == rhi::IndexFormat::UInt16);
-    CHECK(draws[1].indexFormat == rhi::IndexFormat::UInt32);
-    CHECK(draws[1].baseVertex == 3);
+    const auto& lods = model->primitiveLods();
+    REQUIRE(lods.size() == 2);
+    const PrimitiveDraw* draws[2] = {&lods[0].levels[0], &lods[1].levels[0]};
+    CHECK(draws[0]->indexFormat == rhi::IndexFormat::UInt16);
+    CHECK(draws[1]->indexFormat == rhi::IndexFormat::UInt32);
+    CHECK(draws[1]->baseVertex == 3);
 
     // The 16-bit indices really are in the pool's 16-bit buffer, at the draw's offset.
     const std::vector<std::byte> bytes = rhi::readbackBuffer(*device, pool.indexBuffer(model->geometryBlock(), rhi::IndexFormat::UInt16),
-                                                             uint64_t{draws[0].firstIndex} * 2, 6);
+                                                             uint64_t{draws[0]->firstIndex} * 2, 6);
     REQUIRE(bytes.size() == 6);
     uint16_t indices[3]{};
     std::memcpy(indices, bytes.data(), sizeof(indices));

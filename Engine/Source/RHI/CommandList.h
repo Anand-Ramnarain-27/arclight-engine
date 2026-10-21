@@ -109,17 +109,18 @@ namespace arc::rhi
         /// (Readback buffers always are).
         virtual void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) = 0;
 
-        /// Copies one whole mip level from a buffer into a texture. Row r of the image starts at
-        /// srcOffset + r * srcRowPitch. srcOffset must be a multiple of kTextureCopyOffsetAlignment
-        /// and srcRowPitch a multiple of kTextureCopyRowAlignment. The texture must be in CopyDest
-        /// state and the buffer in CopySource state. Not allowed inside a render pass.
-        virtual void copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
-                                         uint32_t srcRowPitch) = 0;
+        /// Copies one whole mip level of one array layer (a cube face; 0 for a 2D texture) from a
+        /// buffer into a texture. Row r of the image starts at srcOffset + r * srcRowPitch. srcOffset
+        /// must be a multiple of kTextureCopyOffsetAlignment and srcRowPitch a multiple of
+        /// kTextureCopyRowAlignment. The texture must be in CopyDest state and the buffer in
+        /// CopySource state. Not allowed inside a render pass.
+        virtual void copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src,
+                                         uint64_t srcOffset, uint32_t srcRowPitch) = 0;
 
         /// The reverse of copyBufferToTexture(), with the same layout rules. The texture must be in
         /// CopySource state and the buffer in CopyDest state.
         virtual void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
-                                         uint32_t mipLevel) = 0;
+                                         uint32_t mipLevel, uint32_t arrayLayer) = 0;
 
         /// Moves a GPU-only buffer into the given state; does nothing if it is already there.
         /// Every buffer is back in Common at the start of each submission, so a buffer's first
@@ -157,9 +158,9 @@ namespace arc::rhi
         virtual void bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset) = 0;
 
         /// Asserts the rules shared by every backend; the backends call these first.
-        static void validateTextureCopy(const Texture& texture, uint32_t mipLevel, ResourceState textureState,
-                                        const Buffer& buffer, uint64_t bufferOffset, uint32_t rowPitch,
-                                        ResourceState bufferState);
+        static void validateTextureCopy(const Texture& texture, uint32_t mipLevel, uint32_t arrayLayer,
+                                        ResourceState textureState, const Buffer& buffer, uint64_t bufferOffset,
+                                        uint32_t rowPitch, ResourceState bufferState);
         static void validateTextureBinding(uint32_t slot, const Texture& texture);
 
         /// Checks the attachments and remembers their formats for validatePipelineForPass().

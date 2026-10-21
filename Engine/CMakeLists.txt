@@ -18,6 +18,8 @@ add_library(ArclightEngine STATIC
     Source/Math/Matrix.cpp
     Source/Math/Aabb.h
     Source/Math/Ray.h
+    Source/Math/Frustum.h
+    Source/Math/Frustum.cpp
     Source/Math/Ray.cpp
     Source/Platform/Window.h
     Source/Platform/Window.cpp
@@ -60,6 +62,12 @@ add_library(ArclightEngine STATIC
     Source/Renderer/GeometryPool.cpp
     Source/Renderer/Model.h
     Source/Renderer/Model.cpp
+    Source/Renderer/LodGenerator.h
+    Source/Renderer/LodGenerator.cpp
+    Source/Renderer/CubeMap.h
+    Source/Renderer/CubeMap.cpp
+    Source/Renderer/Skybox.h
+    Source/Renderer/Skybox.cpp
     Source/Renderer/RenderList.h
     Source/Renderer/RenderList.cpp
     Source/Renderer/MeshRenderer.h
@@ -135,7 +143,7 @@ target_compile_definitions(ArclightEngine PUBLIC ARCLIGHT_VERSION="${PROJECT_VER
 
 # PRIVATE: no engine header includes SDL, ImGui or a graphics API header, so none of them
 # leak to engine users through the engine.
-target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image tinygltf)
+target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image tinygltf meshoptimizer)
 
 arclight_set_warnings(ArclightEngine)
 
@@ -144,6 +152,7 @@ arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Grid.hlsl VER
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Mesh.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/SelectionMask.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Outline.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Skybox.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

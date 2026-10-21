@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Math/Aabb.h"
 #include "Math/Math.h"
 
 #include <cstdint>
@@ -20,12 +21,30 @@ namespace arc
         bool mirrored = false;
     };
 
+    /// How detailed each primitive is drawn. A primitive's simplified levels each have an error, the
+    /// distance the surface may have moved; seen from the camera, that error covers some number of
+    /// pixels, and the coarsest level whose error stays under `maxErrorPixels` is chosen.
+    struct LodPolicy
+    {
+        Vec3 cameraPosition;
+        /// Pixels covered by one world unit at a distance of one world unit: the viewport height in
+        /// pixels over 2 tan(verticalFov / 2).
+        float pixelsPerUnit = 1000.0f;
+        float maxErrorPixels = 1.0f;
+        /// Draws every primitive at this level (or its coarsest, if it has fewer); -1 chooses.
+        int forcedLevel = -1;
+
+        /// The level for a primitive with `errors` (object space) at `bounds` under `world`.
+        [[nodiscard]] uint32_t select(std::span<const float> errors, const Aabb& bounds, const Mat4& world) const;
+    };
+
     /// One primitive to draw: one draw call.
     struct RenderItem
     {
         const Model* model = nullptr;
         uint32_t primitive = 0;   // Into model->primitives().
         uint32_t transform = 0;   // Into RenderList::transforms().
+        uint32_t lod = 0;         // Into model->primitiveLods()[primitive].levels.
         /// Opaque items are drawn in ascending key order; see RenderList::sort().
         uint64_t sortKey = 0;
         /// World units along the camera's forward axis to the primitive's bounds centre.
@@ -46,8 +65,8 @@ namespace arc
     public:
         void clear();
 
-        /// Adds every primitive of the model's mesh.
-        void addMesh(const Model& model, uint32_t mesh, const Mat4& world);
+        /// Adds every primitive of the model's mesh, each at the level of detail `lods` chooses.
+        void addMesh(const Model& model, uint32_t mesh, const Mat4& world, const LodPolicy& lods = {});
 
         /// Computes view depths and sort keys, then sorts both queues. With `sortOpaque` false the
         /// opaque queue keeps the order items were added in, to compare the state changes.

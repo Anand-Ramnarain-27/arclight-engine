@@ -232,10 +232,10 @@ namespace arc::rhi::d3d12
         void drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex,
                          uint32_t firstInstance) override;
         void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override;
-        void copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
+        void copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src, uint64_t srcOffset,
                                  uint32_t srcRowPitch) override;
-        void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
-                                 uint32_t mipLevel) override;
+        void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src, uint32_t mipLevel,
+                                 uint32_t arrayLayer) override;
         void barrier(Buffer& buffer, ResourceState state) override;
         void barrier(Texture& texture, ResourceState state) override;
         void pushDebugGroup(std::string_view name) override;

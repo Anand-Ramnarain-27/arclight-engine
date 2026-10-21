@@ -3,6 +3,7 @@
 #include "Renderer/GeometryPool.h"
 #include "Renderer/ModelData.h"
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,11 +27,21 @@ namespace arc
         int32_t baseVertex = 0;    // Into the block's vertex buffer; added to every index.
     };
 
+    /// A primitive's levels of detail as draws: level 0 is full detail, each further level coarser.
+    struct PrimitiveLods
+    {
+        std::array<PrimitiveDraw, 1 + kMaxLodLevels> levels{};
+        /// Object-space deviation from full detail, per level; 0 for level 0.
+        std::array<float, 1 + kMaxLodLevels> errors{};
+        uint32_t count = 1;
+    };
+
     /// A model on the GPU: its vertices and indices in a GeometryPool block, the textures its
     /// materials draw with, and the CPU-side description of what to draw. Drawn by MeshRenderer.
     ///
     /// A primitive whose indices all fit in 16 bits has them stored as 16-bit, which halves its
-    /// index memory and bandwidth; the others keep 32-bit indices.
+    /// index memory and bandwidth; the others keep 32-bit indices. Each primitive's simplified
+    /// levels (Primitive::lods) are uploaded too, as more index ranges over the same vertices.
     class Model
     {
     public:
@@ -49,7 +60,7 @@ namespace arc
         /// The pool block holding every primitive's vertices and indices.
         [[nodiscard]] uint32_t geometryBlock() const { return m_allocation.block; }
         /// Indexed like primitives().
-        [[nodiscard]] const std::vector<PrimitiveDraw>& primitiveDraws() const { return m_draws; }
+        [[nodiscard]] const std::vector<PrimitiveLods>& primitiveLods() const { return m_lods; }
         /// Unique among the models created in this run; used to group draws by model in sort keys.
         [[nodiscard]] uint32_t id() const { return m_id; }
 
@@ -86,7 +97,7 @@ namespace arc
         uint32_t m_id = 0;
         GeometryPool* m_geometry = nullptr;
         GeometryAllocation m_allocation;
-        std::vector<PrimitiveDraw> m_draws;
+        std::vector<PrimitiveLods> m_lods;
         std::vector<Primitive> m_primitives;
         std::vector<MeshData> m_meshes;
         std::vector<MeshInstance> m_instances;

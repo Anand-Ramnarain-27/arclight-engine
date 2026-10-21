@@ -76,6 +76,18 @@ target_include_directories(tinygltf SYSTEM PUBLIC ${tinygltf_SOURCE_DIR})
 target_compile_definitions(tinygltf PUBLIC TINYGLTF_NO_STB_IMAGE TINYGLTF_NO_STB_IMAGE_WRITE TINYGLTF_NO_FS)
 set_target_properties(tinygltf PROPERTIES FOLDER "ThirdParty")
 
+# meshoptimizer: mesh simplification for the generated levels of detail (MIT). Only the library is
+# built; its demo and gltfpack are off by default.
+# Keeps its headers and static library out of the Arclight release package.
+set(MESHOPT_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(meshoptimizer
+    GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
+    GIT_TAG        v1.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(meshoptimizer)
+set_target_properties(meshoptimizer PROPERTIES FOLDER "ThirdParty")
+
 # The sample model the editor opens at start-up: "Lantern" from the Khronos glTF sample assets,
 # CC0 (Microsoft), pinned to a commit of the repository.
 FetchContent_Declare(sample_lantern

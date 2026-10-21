@@ -146,7 +146,7 @@ namespace arc
         m_defaultSampler.reset();
     }
 
-    RenderStats MeshRenderer::draw(Renderer& renderer, const RenderList& list, DebugView debugView)
+    RenderStats MeshRenderer::draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView)
     {
         RenderStats stats;
         rhi::CommandList& commandList = renderer.commandList();
@@ -170,7 +170,7 @@ namespace arc
             {
                 const Model& model = *item.model;
                 const Primitive& primitive = model.primitives()[item.primitive];
-                const PrimitiveDraw& draw = model.primitiveDraws()[item.primitive];
+                const PrimitiveDraw& draw = model.primitiveLods()[item.primitive].levels[item.lod];
                 const RenderTransform& placement = list.transforms()[item.transform];
                 const MaterialData& itemMaterial =
                     primitive.material >= 0 ? model.materials()[static_cast<size_t>(primitive.material)] : defaultMaterial;
@@ -248,19 +248,17 @@ namespace arc
 
                 commandList.drawIndexed(draw.indexCount, 1, draw.firstIndex, draw.baseVertex);
                 ++stats.draws;
+                ++stats.drawsPerLod[item.lod];
                 stats.triangles += draw.indexCount / 3;
             }
         };
 
-        if (!list.opaque().empty())
+        const bool blendedQueue = queue == Queue::Blended;
+        const std::span<const RenderItem> queueItems = blendedQueue ? list.blended() : list.opaque();
+        if (!queueItems.empty())
         {
-            const rhi::ScopedDebugGroup group(commandList, "Opaque");
-            drawQueue(list.opaque(), false);
-        }
-        if (!list.blended().empty())
-        {
-            const rhi::ScopedDebugGroup group(commandList, "Blended");
-            drawQueue(list.blended(), true);
+            const rhi::ScopedDebugGroup group(commandList, blendedQueue ? "Blended" : "Opaque");
+            drawQueue(queueItems, blendedQueue);
         }
         return stats;
     }

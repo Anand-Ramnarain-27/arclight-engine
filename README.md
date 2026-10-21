@@ -28,7 +28,7 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 - **Editor viewport.** The scene renders to a texture shown in a dockable panel, with a fly/orbit/pan camera, reversed-Z depth with an infinite far plane, and an anti-aliased infinite grid. ([Editor/Source/Panels/ScenePanel.cpp](Editor/Source/Panels/ScenePanel.cpp), [Engine/Shaders/Grid.hlsl](Engine/Shaders/Grid.hlsl))
 - **glTF 2.0 import.** Sparse accessors, triangle strips and fans, alpha modes, double-sided and mirrored meshes, with every offset and index bounds-checked, because model files are untrusted input. ([Renderer/GltfImporter.cpp](Engine/Source/Renderer/GltfImporter.cpp))
 - **Scene and editor tooling.** GameObjects with components in a transform hierarchy, edited through Hierarchy and Inspector panels. ([Engine/Source/Scene](Engine/Source/Scene), [Editor/Source/Panels](Editor/Source/Panels))
-- **Reproducible builds.** CMake presets, pinned dependencies, 78 unit test cases with doctest, and GitHub Actions building, testing and packaging both platforms. ([CMakePresets.json](CMakePresets.json), [.github/workflows](.github/workflows))
+- **Reproducible builds.** CMake presets, pinned dependencies, 92 unit test cases with doctest, and GitHub Actions building, testing and packaging both platforms. ([CMakePresets.json](CMakePresets.json), [.github/workflows](.github/workflows))
 
 ## Platform status
 
@@ -46,7 +46,9 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Scene viewport, editor camera, reversed-Z, grid | Working | Working |
 | glTF 2.0 model import | Working | Working |
 | Scene, Hierarchy and Inspector | Working | Working |
-| Mouse picking and gizmos | Planned | Planned |
+| Mouse picking, gizmos and selection outline | Working | Working |
+| Pooled geometry and sorted render list | Working | Working |
+| Frustum culling, levels of detail, skybox | Working | Working |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -75,6 +77,7 @@ The editor and engine systems are modules that the application initialises in or
 - **HLSL everywhere.** Shaders are written once in HLSL. DXC produces DXIL for Direct3D 12, and SPIR-V that SPIRV-Cross turns into Metal Shading Language, keeping HLSL register numbers as Metal binding indices. Everything is compiled at build time, so a shader error is a build error.
 - **One set of conventions.** Right-handed, +Y up, column vectors stored column-major, radians, and counter-clockwise front faces. These match glTF, HLSL constant buffers and Metal's `float4x4`, so models and matrices need no conversion ([Math/Math.h](Engine/Source/Math/Math.h)).
 - **A sorted render list over pooled geometry.** Every model's vertices and indices live in a few large shared buffers (16-bit indices wherever they fit), and each frame the scene becomes a flat list of draws. Opaque draws are sorted by pipeline, geometry, material and then front to back, so state changes happen once per group; blended draws are sorted back to front. The Scene panel's View menu shows the draw and state-change counts, with sorting on or off.
+- **Culling down the hierarchy.** Each frame the hierarchy is flattened into a depth-first list with the bounds of every subtree, so a group of objects outside the view is rejected with one test, and a group fully inside it skips the tests below it. Meshes are tested as oriented boxes, which stay tight when an object is rotated. Imported meshes get simplified levels of detail (meshoptimizer), chosen by how many pixels their error would cover on screen.
 - **Reversed-Z by default.** Depth is stored as 1 at the near plane and 0 at infinity, which spreads floating-point precision almost evenly with distance and greatly reduces z-fighting on distant geometry. It can be switched off in the Scene panel's camera settings to compare, using the z-fighting test in the Texture Demo panel.
 
 ## Building
@@ -156,6 +159,8 @@ The sample *Lantern* model opens at start-up. To import another model, choose **
 | + / - / 0 | Double / halve / reset the time scale |
 | F11 | Capture a GPU frame (when started from RenderDoc, with `--pix`, or from Xcode) |
 
+The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`.
+
 In the Hierarchy panel, drag objects onto each other to reparent them, or between rows to reorder them; right-click for create, duplicate and delete. **View > Reset Layout** restores the default docking layout.
 
 ## Project layout
@@ -195,7 +200,7 @@ GitHub Actions runs two workflows:
 | ✔︎ | **Foundations** (0.1.0): build, window, input, timing, math, editor shell |
 | ✔︎ | **Rendering hardware interface** (0.2.0): Direct3D 12 and Metal backends, shaders, pipelines, GPU capture |
 | ✔︎ | **Meshes, textures, camera and viewport** (0.3.0): textures, resource lifetimes, scene viewport, editor camera, glTF |
-| In progress | **Engine architecture**: scene and Hierarchy/Inspector (done); next, mouse picking and gizmos, then frustum culling, an asset pipeline and scene serialization |
+| In progress | **Engine architecture**: scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail (done); next, an asset pipeline and scene serialization |
 | Planned | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
 | Planned | **Advanced rendering**: shadows, deferred and Forward+ shading, post-processing |
 | Planned | **Compute, VFX, animation and gameplay**: job system, Tracy profiling, particles, skinning, Jolt physics, navigation, audio |
@@ -214,6 +219,7 @@ Third-party code, all downloaded by CMake at pinned versions:
 | [Dear ImGui](https://github.com/ocornut/imgui) (docking branch) | Editor UI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | Transform gizmos in the Scene view | [MIT](https://github.com/CedricGuillemet/ImGuizmo/blob/master/LICENSE) |
 | [stb_image](https://github.com/nothings/stb) | PNG, JPEG, TGA and BMP decoding | [Public domain or MIT](https://github.com/nothings/stb/blob/master/LICENSE) |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Mesh simplification for levels of detail | [MIT](https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md) |
 | [tinygltf](https://github.com/syoyo/tinygltf) | glTF 2.0 parsing | [MIT](https://github.com/syoyo/tinygltf/blob/release/LICENSE) |
 | [nlohmann/json](https://github.com/nlohmann/json) (included with tinygltf) | JSON parsing | [MIT](https://github.com/nlohmann/json/blob/develop/LICENSE.MIT) |
 | [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | GPU capture trigger (Windows, header only) | [MIT](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md) |

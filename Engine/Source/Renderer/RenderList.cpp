@@ -30,7 +30,32 @@ namespace arc
         m_transforms.clear();
     }
 
-    void RenderList::addMesh(const Model& model, uint32_t mesh, const Mat4& world)
+    uint32_t LodPolicy::select(std::span<const float> errors, const Aabb& bounds, const Mat4& world) const
+    {
+        const auto levels = static_cast<uint32_t>(errors.size());
+        if (forcedLevel >= 0)
+            return std::min(static_cast<uint32_t>(forcedLevel), levels - 1);
+        if (levels <= 1 || bounds.isEmpty())
+            return 0;
+
+        // The largest axis scale turns object-space error into world units without underestimating.
+        const float scale = std::max({length(world.column(0).xyz()), length(world.column(1).xyz()), length(world.column(2).xyz())});
+        const Vec3 centre = world.transformPoint(bounds.center());
+        const float radius = length(bounds.size()) * 0.5f * scale;
+        // Distance to the nearest point of the bounding sphere: inside it, the error is right in front
+        // of the camera, so the full detail is kept.
+        const float nearest = distance(centre, cameraPosition) - radius;
+        if (nearest <= 0.0f)
+            return 0;
+
+        uint32_t chosen = 0;
+        for (uint32_t level = 1; level < levels; ++level)
+            if (errors[level] * scale * pixelsPerUnit / nearest <= maxErrorPixels)
+                chosen = level;
+        return chosen;
+    }
+
+    void RenderList::addMesh(const Model& model, uint32_t mesh, const Mat4& world, const LodPolicy& lods)
     {
         if (mesh >= model.meshes().size())
             return;
@@ -43,7 +68,9 @@ namespace arc
             const uint32_t primitive = data.firstPrimitive + i;
             const int32_t material = model.primitives()[primitive].material;
             const bool blended = material >= 0 && model.materials()[static_cast<size_t>(material)].alphaMode == AlphaMode::Blend;
-            (blended ? m_blended : m_opaque).push_back({.model = &model, .primitive = primitive, .transform = transform});
+            const PrimitiveLods& levels = model.primitiveLods()[primitive];
+            const uint32_t lod = lods.select(std::span(levels.errors.data(), levels.count), model.primitives()[primitive].bounds, world);
+            (blended ? m_blended : m_opaque).push_back({.model = &model, .primitive = primitive, .transform = transform, .lod = lod});
         }
     }
 

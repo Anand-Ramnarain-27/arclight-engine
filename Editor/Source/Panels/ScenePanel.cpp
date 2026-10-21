@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iterator>
 #include <optional>
 
 namespace arc
@@ -52,6 +53,13 @@ namespace arc
 
     void ScenePanel::draw(bool* open)
     {
+        if (m_pendingProceduralSky)
+            m_scene.skybox().useProceduralSky(m_app.renderer());
+        else if (!m_pendingSkyboxFolder.empty())
+            m_scene.skybox().load(m_app.renderer(), m_pendingSkyboxFolder);
+        m_pendingProceduralSky = false;
+        m_pendingSkyboxFolder.clear();
+
         ImGui::SetNextWindowSize({960.0f, 540.0f}, ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
         const bool visible = ImGui::Begin(title(), open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -266,6 +274,43 @@ namespace arc
         ImGui::TextDisabled("%u draws, %u triangles", stats.draws, stats.triangles);
         ImGui::TextDisabled("%u pipeline changes, %u buffer binds", stats.pipelineChanges, stats.bufferBinds);
         ImGui::TextDisabled("%u texture binds, %u constant uploads", stats.textureBinds, stats.constantUploads);
+
+        ImGui::SeparatorText("Visibility");
+        ImGui::Checkbox("Frustum culling", &m_scene.frustumCulling);
+        ImGui::SameLine();
+        ImGui::Checkbox("Freeze", &m_scene.freezeCulling);
+        ImGui::SetItemTooltip("Keeps culling and level-of-detail choices where the camera is now. Fly out to see "
+                              "what is and is not drawn.");
+        const CullingStats& culling = m_scene.cullingStats();
+        ImGui::TextDisabled("%u of %u meshes culled", culling.meshesCulled, culling.meshes);
+        ImGui::TextDisabled("%u objects tested, %u subtrees culled whole, %u meshes tested", culling.objectsTested,
+                            culling.subtreesCulled, culling.meshesTested);
+
+        ImGui::SeparatorText("Level of detail");
+        ImGui::SliderFloat("Max error", &m_scene.lodErrorPixels, 0.25f, 32.0f, "%.2f px", ImGuiSliderFlags_Logarithmic);
+        ImGui::SetItemTooltip("Each primitive is drawn at its coarsest level whose simplification error covers at "
+                              "most this many pixels on screen.");
+        const char* lodNames[] = {"Automatic", "0 (full detail)", "1", "2", "3"};
+        int lodChoice = m_scene.forcedLod + 1;
+        if (ImGui::Combo("Level", &lodChoice, lodNames, static_cast<int>(std::size(lodNames))))
+            m_scene.forcedLod = lodChoice - 1;
+        ImGui::TextDisabled("Draws per level: %u / %u / %u / %u", stats.drawsPerLod[0], stats.drawsPerLod[1],
+                            stats.drawsPerLod[2], stats.drawsPerLod[3]);
+
+        ImGui::SeparatorText("Sky");
+        Skybox& skybox = m_scene.skybox();
+        ImGui::Checkbox("Show sky", &skybox.visible);
+        ImGui::SliderFloat("Intensity", &skybox.intensity, 0.0f, 2.0f, "%.2f");
+        ImGui::TextDisabled("Showing: %s", skybox.source().c_str());
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        ImGui::InputTextWithHint("##SkyFolder", "Folder with px, nx, py, ny, pz, nz", m_skyboxFolder.data(),
+                                 m_skyboxFolder.size());
+        ImGui::SameLine();
+        if (ImGui::Button("Load"))
+            m_pendingSkyboxFolder = m_skyboxFolder.data();
+        ImGui::SameLine();
+        if (ImGui::Button("Procedural"))
+            m_pendingProceduralSky = true;
 
         ImGui::SeparatorText("Gizmo");
         ImGui::SliderFloat("Move step", &m_gizmo.translateSnap, 0.01f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic);

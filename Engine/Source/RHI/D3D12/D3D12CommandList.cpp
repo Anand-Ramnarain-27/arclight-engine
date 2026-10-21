@@ -249,17 +249,18 @@ namespace arc::rhi::d3d12
                                  static_cast<D3D12Buffer&>(src).resource(), srcOffset, size);
     }
 
-    void D3D12CommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
-                                               uint32_t srcRowPitch)
+    void D3D12CommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src,
+                                               uint64_t srcOffset, uint32_t srcRowPitch)
     {
         ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
-        validateTextureCopy(dst, mipLevel, ResourceState::CopyDest, src, srcOffset, srcRowPitch, ResourceState::CopySource);
+        validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
+                            ResourceState::CopySource);
 
         const Extent2D size = mipSize(dst.desc().size, mipLevel);
         D3D12_TEXTURE_COPY_LOCATION destination{};
         destination.pResource = static_cast<D3D12Texture&>(dst).resource();
         destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        destination.SubresourceIndex = mipLevel;
+        destination.SubresourceIndex = subresourceIndex(dst.desc(), mipLevel, arrayLayer);
 
         D3D12_TEXTURE_COPY_LOCATION source{};
         source.pResource = static_cast<D3D12Buffer&>(src).resource();
@@ -271,10 +272,11 @@ namespace arc::rhi::d3d12
     }
 
     void D3D12CommandList::copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
-                                               uint32_t mipLevel)
+                                               uint32_t mipLevel, uint32_t arrayLayer)
     {
         ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
-        validateTextureCopy(src, mipLevel, ResourceState::CopySource, dst, dstOffset, dstRowPitch, ResourceState::CopyDest);
+        validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
+                            ResourceState::CopyDest);
 
         const Extent2D size = mipSize(src.desc().size, mipLevel);
         D3D12_TEXTURE_COPY_LOCATION destination{};
@@ -286,7 +288,7 @@ namespace arc::rhi::d3d12
         D3D12_TEXTURE_COPY_LOCATION source{};
         source.pResource = static_cast<D3D12Texture&>(src).resource();
         source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        source.SubresourceIndex = mipLevel;
+        source.SubresourceIndex = subresourceIndex(src.desc(), mipLevel, arrayLayer);
 
         m_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
     }

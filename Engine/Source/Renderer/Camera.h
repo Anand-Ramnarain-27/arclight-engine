@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Math.h"
+#include "Math/Frustum.h"
 #include "Math/Ray.h"
 #include "RHI/RHITypes.h"
 
@@ -50,6 +51,9 @@ namespace arc
         /// in normalised device coordinates, [-1, 1] across the view with +Y up; `aspect` is width /
         /// height. The direction has unit length, so t is a distance.
         [[nodiscard]] Ray viewportRay(Vec2 ndc, float aspect) const;
+
+        /// World space. With reversedZ the projection reaches infinity, so there is no far plane.
+        [[nodiscard]] Frustum frustum(float aspect) const;
 
         [[nodiscard]] float clearDepth() const { return reversedZ ? 0.0f : 1.0f; }
 

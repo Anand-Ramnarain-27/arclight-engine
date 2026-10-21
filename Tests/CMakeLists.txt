@@ -9,6 +9,7 @@ add_executable(ArclightTests
     Source/SceneTests.cpp
     Source/RaycastTests.cpp
     Source/RenderListTests.cpp
+    Source/VisibilityTests.cpp
     Source/TimeTests.cpp
     Source/RHITests.cpp
     Source/TextureTests.cpp

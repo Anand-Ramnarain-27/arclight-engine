@@ -164,7 +164,7 @@ namespace arc
             const MeshData& mesh = item.model->meshes()[item.mesh];
             for (uint32_t i = 0; i < mesh.primitiveCount; ++i)
             {
-                const PrimitiveDraw& draw = item.model->primitiveDraws()[mesh.firstPrimitive + i];
+                const PrimitiveDraw& draw = item.model->primitiveLods()[mesh.firstPrimitive + i].levels[0];
                 rhi::Buffer& indices = geometry.indexBuffer(item.model->geometryBlock(), draw.indexFormat);
                 if (&indices != indexBuffer)
                 {

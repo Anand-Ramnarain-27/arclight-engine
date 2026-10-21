@@ -39,12 +39,13 @@ namespace arc::rhi
         buffer.setState(state);
     }
 
-    void CommandList::validateTextureCopy(const Texture& texture, uint32_t mipLevel, ResourceState textureState,
-                                          const Buffer& buffer, uint64_t bufferOffset, uint32_t rowPitch,
-                                          ResourceState bufferState)
+    void CommandList::validateTextureCopy(const Texture& texture, uint32_t mipLevel, uint32_t arrayLayer,
+                                          ResourceState textureState, const Buffer& buffer, uint64_t bufferOffset,
+                                          uint32_t rowPitch, ResourceState bufferState)
     {
         const TextureDesc& desc = texture.desc();
         ARC_ASSERT(mipLevel < desc.mipLevels, "'{}' has no mip level {}", desc.debugName, mipLevel);
+        ARC_ASSERT(arrayLayer < arrayLayerCount(desc), "'{}' has no array layer {}", desc.debugName, arrayLayer);
         ARC_ASSERT(texture.state() == textureState, "Texture '{}' is in state {}, expected {}", desc.debugName,
                    resourceStateName(texture.state()), resourceStateName(textureState));
         ARC_ASSERT(buffer.state() == bufferState, "Buffer '{}' is in state {}, expected {}", buffer.desc().debugName,

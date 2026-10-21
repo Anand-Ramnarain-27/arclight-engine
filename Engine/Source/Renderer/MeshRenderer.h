@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Math.h"
+#include "Renderer/ModelData.h"
 
 #include <array>
 #include <cstddef>
@@ -31,6 +32,21 @@ namespace arc
         uint32_t bufferBinds = 0;          // Vertex and index buffers.
         uint32_t textureBinds = 0;         // Texture and sampler pairs.
         uint32_t constantUploads = 0;      // Per-object and per-material cbuffers.
+        std::array<uint32_t, 1 + kMaxLodLevels> drawsPerLod{};
+
+        [[nodiscard]] RenderStats operator+(const RenderStats& other) const
+        {
+            RenderStats sum{draws + other.draws,
+                            triangles + other.triangles,
+                            pipelineChanges + other.pipelineChanges,
+                            bufferBinds + other.bufferBinds,
+                            textureBinds + other.textureBinds,
+                            constantUploads + other.constantUploads,
+                            {}};
+            for (size_t i = 0; i < sum.drawsPerLod.size(); ++i)
+                sum.drawsPerLod[i] = drawsPerLod[i] + other.drawsPerLod[i];
+            return sum;
+        }
     };
 
     /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene.
@@ -61,9 +77,16 @@ namespace arc
         [[nodiscard]] bool init(Renderer& renderer);
         void shutdown();
 
-        /// Records the opaque queue, then the blended one, each in its debug group. Must be called
-        /// inside a scene pass, with the list already sorted.
-        RenderStats draw(Renderer& renderer, const RenderList& list, DebugView debugView);
+        enum class Queue
+        {
+            Opaque,
+            Blended,
+        };
+
+        /// Records one of the list's queues in a debug group named after it. Must be called inside a
+        /// scene pass, with the list already sorted; the opaque queue goes first, and anything that
+        /// should cover only empty pixels (the sky) between the two.
+        RenderStats draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView);
 
     private:
         struct PipelineKey

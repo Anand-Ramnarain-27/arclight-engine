@@ -43,29 +43,43 @@ namespace arc
 
         // Indices are relative to the primitive's first vertex, so a primitive with at most 65536
         // vertices can always use 16-bit indices. Checking the largest index catches the rest too.
+        // Simplified levels index the same vertices, so the full-detail level decides for all.
         std::vector<uint16_t> indices16;
         std::vector<uint32_t> indices32;
-        std::vector<PrimitiveDraw> draws;
-        draws.reserve(data.primitives.size());
+        std::vector<PrimitiveLods> lods;
+        lods.reserve(data.primitives.size());
         for (const Primitive& primitive : data.primitives)
         {
-            const auto begin = data.indices.begin() + primitive.firstIndex;
-            const auto end = begin + primitive.indexCount;
-            const uint32_t largest = primitive.indexCount > 0 ? *std::max_element(begin, end) : 0;
-            PrimitiveDraw draw{.indexCount = primitive.indexCount, .baseVertex = static_cast<int32_t>(primitive.baseVertex)};
-            if (largest <= std::numeric_limits<uint16_t>::max())
+            const auto first = data.indices.begin() + primitive.firstIndex;
+            const uint32_t largest = primitive.indexCount > 0 ? *std::max_element(first, first + primitive.indexCount) : 0;
+            const bool use16 = largest <= std::numeric_limits<uint16_t>::max();
+
+            PrimitiveLods levels;
+            levels.count = 1 + primitive.lodCount;
+            for (uint32_t level = 0; level < levels.count; ++level)
             {
-                draw.indexFormat = rhi::IndexFormat::UInt16;
-                draw.firstIndex = static_cast<uint32_t>(indices16.size());
-                for (auto it = begin; it != end; ++it)
-                    indices16.push_back(static_cast<uint16_t>(*it));
+                const uint32_t firstIndex = level == 0 ? primitive.firstIndex : primitive.lods[level - 1].firstIndex;
+                const uint32_t indexCount = level == 0 ? primitive.indexCount : primitive.lods[level - 1].indexCount;
+                levels.errors[level] = level == 0 ? 0.0f : primitive.lods[level - 1].error;
+
+                const auto begin = data.indices.begin() + firstIndex;
+                const auto end = begin + indexCount;
+                PrimitiveDraw& draw = levels.levels[level];
+                draw = {.indexCount = indexCount, .baseVertex = static_cast<int32_t>(primitive.baseVertex)};
+                if (use16)
+                {
+                    draw.indexFormat = rhi::IndexFormat::UInt16;
+                    draw.firstIndex = static_cast<uint32_t>(indices16.size());
+                    for (auto it = begin; it != end; ++it)
+                        indices16.push_back(static_cast<uint16_t>(*it));
+                }
+                else
+                {
+                    draw.firstIndex = static_cast<uint32_t>(indices32.size());
+                    indices32.insert(indices32.end(), begin, end);
+                }
             }
-            else
-            {
-                draw.firstIndex = static_cast<uint32_t>(indices32.size());
-                indices32.insert(indices32.end(), begin, end);
-            }
-            draws.push_back(draw);
+            lods.push_back(levels);
         }
 
         const std::optional<GeometryAllocation> allocation =
@@ -79,12 +93,14 @@ namespace arc
             return nullptr;
         }
         // Offsets so far were within the model's own ranges; the pool's ranges start further in.
-        for (PrimitiveDraw& draw : draws)
-        {
-            draw.firstIndex += draw.indexFormat == rhi::IndexFormat::UInt16 ? allocation->indices16.offset
-                                                                            : allocation->indices32.offset;
-            draw.baseVertex += static_cast<int32_t>(allocation->vertices.offset);
-        }
+        for (PrimitiveLods& levels : lods)
+            for (uint32_t level = 0; level < levels.count; ++level)
+            {
+                PrimitiveDraw& draw = levels.levels[level];
+                draw.firstIndex += draw.indexFormat == rhi::IndexFormat::UInt16 ? allocation->indices16.offset
+                                                                                : allocation->indices32.offset;
+                draw.baseVertex += static_cast<int32_t>(allocation->vertices.offset);
+            }
 
         static uint32_t nextId = 1;
         std::unique_ptr<Model> model(new Model());
@@ -92,7 +108,7 @@ namespace arc
         model->m_id = nextId++;
         model->m_geometry = &geometry;
         model->m_allocation = *allocation;
-        model->m_draws = std::move(draws);
+        model->m_lods = std::move(lods);
 
         model->m_primitives = data.primitives;
         model->m_meshes = data.meshes;

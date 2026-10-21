@@ -41,14 +41,30 @@ Phase 3: engine architecture.
 #### Render list and geometry pool
 - `Core/RangeAllocator`: first-fit suballocation from a list of free ranges, merging freed neighbours.
 - `Renderer/GeometryPool`, owned by the Renderer: every model's vertices and indices in shared blocks of a vertex buffer and a 16-bit and a 32-bit index buffer. A model that fits in no block gets a new one, at least its size. Freed ranges are reused only after the frames in flight that may read them have finished.
-- Models store a primitive's indices as 16-bit when every index fits, and 32-bit otherwise (`Model::primitiveDraws()`).
+- Models store a primitive's indices as 16-bit when every index fits, and 32-bit otherwise.
 - `Renderer/RenderList`: the frame's draws as a flat list built from the scene. Opaque and masked primitives are sorted by a 64-bit key (pipeline state, geometry block, model, material, then view depth front to back); blended primitives are sorted back to front.
 - `MeshRenderer::draw()` draws a render list in *Opaque* and *Blended* debug groups, changes pipeline, buffers, textures and constants only when they differ from the previous draw, and returns `RenderStats`.
 - Editor: draw, triangle and state-change counts and a *Sort draws* toggle in the Scene panel's *View* menu; geometry pool usage in System Info.
 - Unit tests for the range allocator, the geometry pool's blocks and deferred reuse, 16-bit index selection and render list ordering.
 
+#### Visibility, levels of detail and the skybox
+- `Math/Frustum`: planes from the camera's position, axes, field of view and clip distances, and `classify()` for an `Aabb` or an oriented `Obb` (outside, intersecting or inside). With reversed-Z the far plane is at infinity and is left out.
+- `Camera::frustum()`.
+- Hierarchical frustum culling in `SceneModule`: each frame the active hierarchy becomes a flat depth-first list of nodes with the bounds of their subtree. A subtree outside the frustum is skipped whole, one inside it is drawn without further tests, and only meshes of intersecting nodes are tested, as oriented boxes.
+- Discrete levels of detail: `generateLods()` (`Renderer/LodGenerator`, using [meshoptimizer](https://github.com/zeux/meshoptimizer)) adds up to three simplified index ranges per primitive when a model is imported, each with its geometric error. `LodPolicy` picks the coarsest level whose error, projected at the object's distance, stays under a pixel threshold.
+- `Model::primitiveLods()`: every level of a primitive as a draw into the geometry pool.
+- Cube textures in the RHI: `TextureType::Cube` with six array layers, and `subresourceIndex()` and `arrayLayerCount()` helpers. Cube views on Direct3D 12 and Metal.
+- `Renderer/CubeMap`: the face and texel direction convention, and `worldToCube()` from Arclight's right-handed space to the left-handed cube space.
+- `Renderer/Skybox` and `Skybox.hlsl`: a full-screen triangle at the far depth, drawn after opaque geometry and before blended geometry, from six face images (`px`, `nx`, `py`, `ny`, `pz`, `nz`) or a procedural sky whose sun matches the scene's light.
+- Editor: *Visibility* (culling toggle, freeze culling to inspect it from another viewpoint, culling counts), *Level of detail* (error threshold, forced level, draws per level) and *Sky* (show, intensity, load a folder of faces or use the procedural sky) in the Scene panel's *View* menu.
+- meshoptimizer's licence notice ships in `ThirdPartyLicenses/`.
+- Unit tests for frustum classification, oriented box culling, cube face directions, cube texture upload and readback, level-of-detail generation and level selection.
+
 ### Changed
 - `Model::create()` takes the `GeometryPool` to upload into; models no longer own vertex and index buffers.
+- `Model::primitiveDraws()` is replaced by `primitiveLods()`, and `RenderList::addMesh()` takes an optional `LodPolicy`.
+- `MeshRenderer::draw()` draws one queue (`Opaque` or `Blended`) per call, so the skybox can be drawn between them.
+- `CommandList::copyBufferToTexture()` and `copyTextureToBuffer()` take an array layer, and `uploadTexture()` takes data for every mip level of every layer.
 - `MeshDrawItem` and the per-model `MeshRenderer::draw()` overloads are replaced by `RenderList`.
 - The *Model* panel and `ModelViewerModule` are replaced by the scene: models are imported into it at their real size and framed by the camera, instead of being scaled to fit. The shading debug view moved to the Scene panel's *View* menu.
 - `EditorCamera::update()` no longer handles F; the Scene panel frames the selection with `EditorCamera::frame()`, or calls `focusOnOrigin()` when nothing is selected.

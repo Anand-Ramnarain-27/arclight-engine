@@ -267,15 +267,37 @@ namespace arc::rhi
         bool vsync = true;
     };
 
+    enum class TextureType
+    {
+        Texture2D,
+        /// Six square faces, sampled with a direction (TextureCube in HLSL). Faces are array layers
+        /// in the order +X, -X, +Y, -Y, +Z, -Z, as on D3D12 and Metal.
+        Cube,
+    };
+
     struct TextureDesc
     {
-        Extent2D size;               // Pixels, of mip level 0.
+        Extent2D size;               // Pixels, of mip level 0. Square for a cube.
         Format format = Format::Unknown;
         /// 1 for no mipmaps; at most fullMipCount(size).
         uint32_t mipLevels = 1;
         TextureUsage usage = TextureUsage::Sampled;
+        TextureType type = TextureType::Texture2D;
         std::string debugName{};
     };
+
+    /// 6 for a cube, 1 otherwise.
+    [[nodiscard]] constexpr uint32_t arrayLayerCount(const TextureDesc& desc)
+    {
+        return desc.type == TextureType::Cube ? 6 : 1;
+    }
+
+    /// Mip levels of all array layers numbered one after the other, layer by layer, as D3D12 numbers
+    /// subresources: the index of (mip, layer) is mip + layer * mipLevels.
+    [[nodiscard]] constexpr uint32_t subresourceIndex(const TextureDesc& desc, uint32_t mipLevel, uint32_t arrayLayer)
+    {
+        return mipLevel + arrayLayer * desc.mipLevels;
+    }
 
     /// Number of levels in a complete mip chain down to 1x1: floor(log2(max(width, height))) + 1.
     [[nodiscard]] uint32_t fullMipCount(Extent2D size);

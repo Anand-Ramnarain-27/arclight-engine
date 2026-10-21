@@ -23,19 +23,20 @@ namespace arc::rhi
     TextureCopyLayout computeTextureCopyLayout(const TextureDesc& desc)
     {
         TextureCopyLayout layout;
-        layout.levels.reserve(desc.mipLevels);
+        layout.levels.reserve(uint64_t{desc.mipLevels} * arrayLayerCount(desc));
 
         uint64_t offset = 0;
-        for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
-        {
-            TextureCopyLayout::Level level;
-            level.size = mipSize(desc.size, mip);
-            level.rowBytes = level.size.width * bytesPerPixel(desc.format);
-            level.rowPitch = static_cast<uint32_t>(alignUp(level.rowBytes, kTextureCopyRowAlignment));
-            level.offset = alignUp(offset, kTextureCopyOffsetAlignment);
-            offset = level.offset + uint64_t{level.rowPitch} * level.size.height;
-            layout.levels.push_back(level);
-        }
+        for (uint32_t layer = 0; layer < arrayLayerCount(desc); ++layer)
+            for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+            {
+                TextureCopyLayout::Level level;
+                level.size = mipSize(desc.size, mip);
+                level.rowBytes = level.size.width * bytesPerPixel(desc.format);
+                level.rowPitch = static_cast<uint32_t>(alignUp(level.rowBytes, kTextureCopyRowAlignment));
+                level.offset = alignUp(offset, kTextureCopyOffsetAlignment);
+                offset = level.offset + uint64_t{level.rowPitch} * level.size.height;
+                layout.levels.push_back(level);
+            }
         layout.totalSize = offset;
         return layout;
     }
@@ -43,8 +44,9 @@ namespace arc::rhi
     bool uploadTexture(Device& device, Texture& texture, std::span<const std::span<const std::byte>> levels)
     {
         const TextureDesc& desc = texture.desc();
-        ARC_ASSERT(levels.size() == desc.mipLevels, "'{}' has {} mip levels but {} were given", desc.debugName,
-                   desc.mipLevels, levels.size());
+        const uint32_t subresources = desc.mipLevels * arrayLayerCount(desc);
+        ARC_ASSERT(levels.size() == subresources, "'{}' has {} subresources but {} were given", desc.debugName,
+                   subresources, levels.size());
 
         const TextureCopyLayout layout = computeTextureCopyLayout(desc);
         auto staging = device.createBuffer({
@@ -56,24 +58,27 @@ namespace arc::rhi
             return false;
 
         auto* bytes = static_cast<std::byte*>(staging->mappedData());
-        for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+        for (uint32_t index = 0; index < subresources; ++index)
         {
-            const TextureCopyLayout::Level& level = layout.levels[mip];
-            ARC_ASSERT(levels[mip].size() == uint64_t{level.rowBytes} * level.size.height,
-                       "Mip level {} of '{}' should be {} bytes, got {}", mip, desc.debugName,
-                       uint64_t{level.rowBytes} * level.size.height, levels[mip].size());
+            const TextureCopyLayout::Level& level = layout.levels[index];
+            ARC_ASSERT(levels[index].size() == uint64_t{level.rowBytes} * level.size.height,
+                       "Subresource {} of '{}' should be {} bytes, got {}", index, desc.debugName,
+                       uint64_t{level.rowBytes} * level.size.height, levels[index].size());
             for (uint32_t row = 0; row < level.size.height; ++row)
                 std::memcpy(bytes + level.offset + uint64_t{row} * level.rowPitch,
-                            levels[mip].data() + uint64_t{row} * level.rowBytes, level.rowBytes);
+                            levels[index].data() + uint64_t{row} * level.rowBytes, level.rowBytes);
         }
 
         const ResourceState finalState =
             hasFlag(desc.usage, TextureUsage::Sampled) ? ResourceState::ShaderRead : ResourceState::Common;
         device.submitImmediate([&](CommandList& commandList) {
             commandList.barrier(texture, ResourceState::CopyDest);
-            for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
-                commandList.copyBufferToTexture(texture, mip, *staging, layout.levels[mip].offset,
-                                                layout.levels[mip].rowPitch);
+            for (uint32_t layer = 0; layer < arrayLayerCount(desc); ++layer)
+                for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+                {
+                    const TextureCopyLayout::Level& level = layout.levels[subresourceIndex(desc, mip, layer)];
+                    commandList.copyBufferToTexture(texture, mip, layer, *staging, level.offset, level.rowPitch);
+                }
             commandList.barrier(texture, finalState);
         });
 
@@ -81,12 +86,12 @@ namespace arc::rhi
         return true;
     }
 
-    std::vector<std::byte> readbackTexture(Device& device, Texture& texture, uint32_t mipLevel)
+    std::vector<std::byte> readbackTexture(Device& device, Texture& texture, uint32_t mipLevel, uint32_t arrayLayer)
     {
         const TextureDesc& desc = texture.desc();
-        ARC_ASSERT(mipLevel < desc.mipLevels);
+        ARC_ASSERT(mipLevel < desc.mipLevels && arrayLayer < arrayLayerCount(desc));
 
-        const TextureCopyLayout::Level level = computeTextureCopyLayout(desc).levels[mipLevel];
+        const TextureCopyLayout::Level level = computeTextureCopyLayout(desc).levels[subresourceIndex(desc, mipLevel, arrayLayer)];
         auto readback = device.createBuffer({
             .size = uint64_t{level.rowPitch} * level.size.height,
             .memory = MemoryType::Readback,
@@ -98,7 +103,7 @@ namespace arc::rhi
         const ResourceState previousState = texture.state();
         device.submitImmediate([&](CommandList& commandList) {
             commandList.barrier(texture, ResourceState::CopySource);
-            commandList.copyTextureToBuffer(*readback, 0, level.rowPitch, texture, mipLevel);
+            commandList.copyTextureToBuffer(*readback, 0, level.rowPitch, texture, mipLevel, arrayLayer);
             commandList.barrier(texture, previousState);
         });
 

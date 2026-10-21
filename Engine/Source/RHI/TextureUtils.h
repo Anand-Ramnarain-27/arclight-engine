@@ -11,9 +11,10 @@ namespace arc::rhi
     class Device;
     class Texture;
 
-    /// Where each mip level of a texture goes in a buffer used to copy it to or from the GPU,
-    /// following the kTextureCopy*Alignment rules. Rows are padded, so a level's bytes in the
-    /// buffer are not tightly packed.
+    /// Where each subresource (mip level of an array layer) of a texture goes in a buffer used to
+    /// copy it to or from the GPU, following the kTextureCopy*Alignment rules. Levels are indexed
+    /// by subresourceIndex(). Rows are padded, so a level's bytes in the buffer are not tightly
+    /// packed.
     struct TextureCopyLayout
     {
         struct Level
@@ -30,15 +31,18 @@ namespace arc::rhi
 
     [[nodiscard]] TextureCopyLayout computeTextureCopyLayout(const TextureDesc& desc);
 
-    /// Fills every mip level of a texture through a temporary Upload buffer and leaves it in the
-    /// ShaderRead state (Common if it is not Sampled). levels[i] holds mip level i with tightly
-    /// packed rows, top row first. Blocks until the copy has completed. Returns false and logs
-    /// on failure.
+    /// Fills every subresource of a texture through a temporary Upload buffer and leaves it in the
+    /// ShaderRead state (Common if it is not Sampled). levels[subresourceIndex(desc, mip, layer)]
+    /// holds that mip level of that layer with tightly packed rows, top row first: a 2D texture's
+    /// mips in order, or each cube face's mips in turn. Blocks until the copy has completed.
+    /// Returns false and logs on failure.
     [[nodiscard]] bool uploadTexture(Device& device, Texture& texture, std::span<const std::span<const std::byte>> levels);
 
-    /// Reads one mip level back with tightly packed rows. Blocks until the copy has completed and
-    /// leaves the texture in the state it was in. Returns an empty vector and logs on failure.
-    [[nodiscard]] std::vector<std::byte> readbackTexture(Device& device, Texture& texture, uint32_t mipLevel);
+    /// Reads one mip level of one array layer back with tightly packed rows. Blocks until the copy
+    /// has completed and leaves the texture in the state it was in. Returns an empty vector and logs
+    /// on failure.
+    [[nodiscard]] std::vector<std::byte> readbackTexture(Device& device, Texture& texture, uint32_t mipLevel,
+                                                         uint32_t arrayLayer = 0);
 
     /// Uploads a test pattern to a mipmapped texture whose rows need padding, reads every level
     /// back and compares. Exercises the copy layout, texture copies and barriers. Returns true if

@@ -3,6 +3,9 @@
 #include "Panels/Panel.h"
 #include "Scene/TransformGizmo.h"
 
+#include <array>
+#include <string>
+
 struct ImVec2;
 
 namespace arc
@@ -61,5 +64,10 @@ namespace arc
         EditorGrid& m_grid;
         SelectionOutline& m_outline;
         TransformGizmo m_gizmo;
+        std::array<char, 512> m_skyboxFolder{};
+        /// Applied at the start of the next draw(), which runs outside the frame: creating the cube
+        /// texture uploads and waits for the GPU.
+        std::string m_pendingSkyboxFolder;
+        bool m_pendingProceduralSky = false;
     };
 }
