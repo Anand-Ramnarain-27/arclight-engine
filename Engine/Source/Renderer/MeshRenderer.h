@@ -6,8 +6,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <span>
-#include <string_view>
 
 namespace arc
 {
@@ -21,14 +19,18 @@ namespace arc
         class Texture;
     }
 
-    /// One mesh of a model, placed in the world.
-    struct MeshDrawItem
+    class RenderList;
+
+    /// What one MeshRenderer::draw() recorded. State changes are counted only when the state really
+    /// changed; a sorted list needs far fewer than an unsorted one for the same draws.
+    struct RenderStats
     {
-        const Model* model = nullptr;
-        uint32_t mesh = 0;    // Into Model::meshes().
-        Mat4 world;           // Object space to world space.
-        /// Names the item's debug group in GPU captures. Must outlive the draw() call.
-        std::string_view debugName;
+        uint32_t draws = 0;
+        uint32_t triangles = 0;
+        uint32_t pipelineChanges = 0;
+        uint32_t bufferBinds = 0;          // Vertex and index buffers.
+        uint32_t textureBinds = 0;         // Texture and sampler pairs.
+        uint32_t constantUploads = 0;      // Per-object and per-material cbuffers.
     };
 
     /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene.
@@ -59,14 +61,9 @@ namespace arc
         [[nodiscard]] bool init(Renderer& renderer);
         void shutdown();
 
-        /// Records the items. Must be called inside a scene pass. Every item's opaque and masked
-        /// primitives are drawn first, then the blended ones, in item order (not sorted by distance
-        /// yet).
-        void draw(Renderer& renderer, std::span<const MeshDrawItem> items, DebugView debugView);
-
-        /// Every instance of the model, with `transform` applied on top of the model's own node
-        /// transforms.
-        void draw(Renderer& renderer, const Model& model, const Mat4& transform, DebugView debugView);
+        /// Records the opaque queue, then the blended one, each in its debug group. Must be called
+        /// inside a scene pass, with the list already sorted.
+        RenderStats draw(Renderer& renderer, const RenderList& list, DebugView debugView);
 
     private:
         struct PipelineKey

@@ -19,7 +19,7 @@ namespace
     bool near(const Vec3& a, const Vec3& b) { return nearlyEqual(a, b, 1e-4f); }
 
     // A unit square in the XY plane, centred on the origin, facing +Z: two triangles.
-    std::shared_ptr<const Model> makeSquare(rhi::Device& device)
+    std::shared_ptr<const Model> makeSquare(GeometryPool& geometry)
     {
         ModelData data;
         data.name = "Square";
@@ -35,7 +35,7 @@ namespace
             primitive.bounds.expand(vertex.position);
         data.primitives = {primitive};
         data.meshes = {{.name = "Square", .firstPrimitive = 0, .primitiveCount = 1}};
-        return Model::create(device, data);
+        return Model::create(geometry.device(), geometry, data);
     }
 }
 
@@ -111,7 +111,8 @@ TEST_CASE("Scene raycasts find the nearest mesh, in world units")
 {
     auto device = rhi::createNullDevice({});
     REQUIRE(device);
-    const std::shared_ptr<const Model> square = makeSquare(*device);
+    GeometryPool geometry(*device);
+    const std::shared_ptr<const Model> square = makeSquare(geometry);
     REQUIRE(square);
 
     Scene scene;

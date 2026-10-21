@@ -2,6 +2,8 @@ add_library(ArclightEngine STATIC
     Source/Core/Platform.h
     Source/Core/Assert.h
     Source/Core/Handle.h
+    Source/Core/RangeAllocator.h
+    Source/Core/RangeAllocator.cpp
     Source/Core/Assert.cpp
     Source/Core/Log.h
     Source/Core/Log.cpp
@@ -54,8 +56,12 @@ add_library(ArclightEngine STATIC
     Source/Renderer/ModelData.h
     Source/Renderer/GltfImporter.h
     Source/Renderer/GltfImporter.cpp
+    Source/Renderer/GeometryPool.h
+    Source/Renderer/GeometryPool.cpp
     Source/Renderer/Model.h
     Source/Renderer/Model.cpp
+    Source/Renderer/RenderList.h
+    Source/Renderer/RenderList.cpp
     Source/Renderer/MeshRenderer.h
     Source/Renderer/MeshRenderer.cpp
     Source/Renderer/ShaderLibrary.h

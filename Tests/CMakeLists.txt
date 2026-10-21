@@ -8,6 +8,7 @@ add_executable(ArclightTests
     Source/GltfTests.cpp
     Source/SceneTests.cpp
     Source/RaycastTests.cpp
+    Source/RenderListTests.cpp
     Source/TimeTests.cpp
     Source/RHITests.cpp
     Source/TextureTests.cpp

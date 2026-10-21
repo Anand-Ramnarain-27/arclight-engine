@@ -257,7 +257,15 @@ namespace arc
         int view = static_cast<int>(m_scene.debugView);
         if (ImGui::Combo("Shading", &view, "Lit\0Base colour\0Normals\0Texture coordinates\0"))
             m_scene.debugView = static_cast<MeshRenderer::DebugView>(view);
-        ImGui::TextDisabled("%u meshes drawn", m_scene.drawnMeshCount());
+
+        ImGui::SeparatorText("Rendering");
+        ImGui::Checkbox("Sort draws", &m_scene.sortDraws);
+        ImGui::SetItemTooltip("Sorts opaque draws by pipeline, geometry, material and then distance, so each state "
+                              "change happens once per group. Untick to see how many more changes the scene order needs.");
+        const RenderStats& stats = m_scene.renderStats();
+        ImGui::TextDisabled("%u draws, %u triangles", stats.draws, stats.triangles);
+        ImGui::TextDisabled("%u pipeline changes, %u buffer binds", stats.pipelineChanges, stats.bufferBinds);
+        ImGui::TextDisabled("%u texture binds, %u constant uploads", stats.textureBinds, stats.constantUploads);
 
         ImGui::SeparatorText("Gizmo");
         ImGui::SliderFloat("Move step", &m_gizmo.translateSnap, 0.01f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic);

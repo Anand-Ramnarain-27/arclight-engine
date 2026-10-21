@@ -9,6 +9,7 @@
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
 #include "RHI/TextureUtils.h"
+#include "Renderer/GeometryPool.h"
 #include "Renderer/ShaderLibrary.h"
 
 namespace arc
@@ -45,6 +46,7 @@ namespace arc
 #endif
 
         m_shaders = std::make_unique<ShaderLibrary>(*m_device);
+        m_geometry = std::make_unique<GeometryPool>(*m_device);
         ARC_LOG_INFO("Shaders are loaded from {}", m_shaders->directory());
 
         rhi::SwapchainDesc swapchainDesc;
@@ -65,6 +67,7 @@ namespace arc
         if (m_device)
             m_device->waitIdle();
         m_shaders.reset();
+        m_geometry.reset();
         m_sceneTarget.reset();
         m_sceneDepth.reset();
         m_swapchain.reset();
@@ -104,6 +107,8 @@ namespace arc
             return false;
 
         m_commandList = &m_device->beginFrame(*m_swapchain);
+        // beginFrame() has waited for the oldest frame in flight, so its freed ranges can be reused.
+        m_geometry->collect(m_device->frameNumber());
         m_backbufferCleared = false;
         m_sceneCleared = false;
         return true;

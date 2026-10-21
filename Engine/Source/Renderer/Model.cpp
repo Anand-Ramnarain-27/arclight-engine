@@ -1,14 +1,13 @@
 #include "Renderer/Model.h"
 
 #include "Core/Log.h"
-#include "RHI/Buffer.h"
-#include "RHI/BufferUtils.h"
 #include "RHI/Device.h"
 #include "RHI/Sampler.h"
 #include "RHI/Texture.h"
 #include "Renderer/TextureLoader.h"
 
 #include <algorithm>
+#include <limits>
 #include <span>
 #include <string>
 
@@ -27,9 +26,14 @@ namespace arc
         }
     }
 
-    Model::~Model() = default;
+    // Frames in flight may still draw the model; the pool keeps its ranges until they finish.
+    Model::~Model()
+    {
+        if (m_geometry)
+            m_geometry->free(m_allocation);
+    }
 
-    std::unique_ptr<Model> Model::create(rhi::Device& device, const ModelData& data)
+    std::unique_ptr<Model> Model::create(rhi::Device& device, GeometryPool& geometry, const ModelData& data)
     {
         if (data.vertices.empty() || data.indices.empty())
         {
@@ -37,24 +41,58 @@ namespace arc
             return nullptr;
         }
 
+        // Indices are relative to the primitive's first vertex, so a primitive with at most 65536
+        // vertices can always use 16-bit indices. Checking the largest index catches the rest too.
+        std::vector<uint16_t> indices16;
+        std::vector<uint32_t> indices32;
+        std::vector<PrimitiveDraw> draws;
+        draws.reserve(data.primitives.size());
+        for (const Primitive& primitive : data.primitives)
+        {
+            const auto begin = data.indices.begin() + primitive.firstIndex;
+            const auto end = begin + primitive.indexCount;
+            const uint32_t largest = primitive.indexCount > 0 ? *std::max_element(begin, end) : 0;
+            PrimitiveDraw draw{.indexCount = primitive.indexCount, .baseVertex = static_cast<int32_t>(primitive.baseVertex)};
+            if (largest <= std::numeric_limits<uint16_t>::max())
+            {
+                draw.indexFormat = rhi::IndexFormat::UInt16;
+                draw.firstIndex = static_cast<uint32_t>(indices16.size());
+                for (auto it = begin; it != end; ++it)
+                    indices16.push_back(static_cast<uint16_t>(*it));
+            }
+            else
+            {
+                draw.firstIndex = static_cast<uint32_t>(indices32.size());
+                indices32.insert(indices32.end(), begin, end);
+            }
+            draws.push_back(draw);
+        }
+
+        const std::optional<GeometryAllocation> allocation =
+            geometry.allocate(static_cast<uint32_t>(data.vertices.size()), static_cast<uint32_t>(indices16.size()),
+                              static_cast<uint32_t>(indices32.size()), data.name);
+        if (!allocation)
+            return nullptr;
+        if (!geometry.upload(*allocation, data.vertices, indices16, indices32))
+        {
+            geometry.free(*allocation);
+            return nullptr;
+        }
+        // Offsets so far were within the model's own ranges; the pool's ranges start further in.
+        for (PrimitiveDraw& draw : draws)
+        {
+            draw.firstIndex += draw.indexFormat == rhi::IndexFormat::UInt16 ? allocation->indices16.offset
+                                                                            : allocation->indices32.offset;
+            draw.baseVertex += static_cast<int32_t>(allocation->vertices.offset);
+        }
+
+        static uint32_t nextId = 1;
         std::unique_ptr<Model> model(new Model());
         model->m_name = data.name;
-        model->m_vertexBuffer = device.createBuffer({
-            .size = data.vertices.size() * sizeof(MeshVertex),
-            .usage = rhi::BufferUsage::Vertex,
-            .memory = rhi::MemoryType::GpuOnly,
-            .debugName = data.name + " Vertices",
-        });
-        model->m_indexBuffer = device.createBuffer({
-            .size = data.indices.size() * sizeof(uint32_t),
-            .usage = rhi::BufferUsage::Index,
-            .memory = rhi::MemoryType::GpuOnly,
-            .debugName = data.name + " Indices",
-        });
-        if (!model->m_vertexBuffer || !model->m_indexBuffer ||
-            !rhi::uploadBuffer(device, *model->m_vertexBuffer, std::as_bytes(std::span(data.vertices))) ||
-            !rhi::uploadBuffer(device, *model->m_indexBuffer, std::as_bytes(std::span(data.indices))))
-            return nullptr;
+        model->m_id = nextId++;
+        model->m_geometry = &geometry;
+        model->m_allocation = *allocation;
+        model->m_draws = std::move(draws);
 
         model->m_primitives = data.primitives;
         model->m_meshes = data.meshes;

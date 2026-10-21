@@ -10,6 +10,7 @@
 
 namespace arc
 {
+    class GeometryPool;
     class ShaderLibrary;
     class Window;
 
@@ -112,6 +113,8 @@ namespace arc
         [[nodiscard]] const rhi::Device& device() const { return *m_device; }
         [[nodiscard]] rhi::Swapchain& swapchain() { return *m_swapchain; }
         [[nodiscard]] const ShaderLibrary& shaders() const { return *m_shaders; }
+        /// Static geometry for every model. Destroyed with the renderer, so models must be gone first.
+        [[nodiscard]] GeometryPool& geometry() { return *m_geometry; }
 
         void setVSync(bool enabled);
         [[nodiscard]] bool vsync() const;
@@ -122,6 +125,7 @@ namespace arc
         std::unique_ptr<rhi::Device> m_device;
         std::unique_ptr<rhi::Swapchain> m_swapchain;
         std::unique_ptr<ShaderLibrary> m_shaders;
+        std::unique_ptr<GeometryPool> m_geometry;
         rhi::CommandList* m_commandList = nullptr;
         std::optional<Extent2D> m_pendingSize;
         rhi::ClearColor m_clearColor{0.08f, 0.09f, 0.11f, 1.0f};

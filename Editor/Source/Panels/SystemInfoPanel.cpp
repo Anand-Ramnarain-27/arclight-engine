@@ -2,6 +2,7 @@
 
 #include "Application/Application.h"
 #include "RHI/Device.h"
+#include "Renderer/GeometryPool.h"
 
 #include <imgui.h>
 
@@ -93,6 +94,17 @@ namespace arc
                                   adapter.backend == rhi::Backend::Metal
                                       ? " Always 0 on Metal: command buffers retain what they use."
                                       : "");
+
+            const GeometryPool::Stats geometry = m_app.renderer().geometry().stats();
+            const auto megabytes = [](uint64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
+            section("Geometry pool");
+            row("Blocks", std::format("{}", geometry.blocks));
+            row("Models", std::format("{}", geometry.allocations));
+            row("Vertices", std::format("{:.1f} of {:.0f} MB", megabytes(geometry.vertexBytesUsed), megabytes(geometry.vertexBytesCapacity)));
+            row("Indices", std::format("{:.1f} of {:.0f} MB", megabytes(geometry.indexBytesUsed), megabytes(geometry.indexBytesCapacity)));
+            row("Awaiting reuse", std::format("{}", geometry.pendingFrees));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Freed ranges kept until the frames in flight that may draw from them have finished.");
 
             ImGui::EndTable();
         }

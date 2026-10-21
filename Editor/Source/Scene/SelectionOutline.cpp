@@ -5,6 +5,7 @@
 #include "RHI/Pipeline.h"
 #include "RHI/Shader.h"
 #include "RHI/Texture.h"
+#include "Renderer/GeometryPool.h"
 #include "Renderer/Model.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderLibrary.h"
@@ -148,21 +149,29 @@ namespace arc
         commandList.beginRenderPass(pass);
         commandList.setPipeline(*m_maskPipeline);
         commandList.setConstants(0, renderer.sceneViewConstants());
-        const Model* boundModel = nullptr;
+        const rhi::Buffer* vertexBuffer = nullptr;
+        const rhi::Buffer* indexBuffer = nullptr;
         for (const MaskItem& item : m_items)
         {
-            if (item.model != boundModel)
-            {
-                commandList.setVertexBuffer(item.model->vertexBuffer());
-                commandList.setIndexBuffer(item.model->indexBuffer(), rhi::IndexFormat::UInt32);
-                boundModel = item.model;
-            }
             commandList.setConstants(1, MaskDrawConstants{item.world});
+            GeometryPool& geometry = item.model->geometry();
+            rhi::Buffer& vertices = geometry.vertexBuffer(item.model->geometryBlock());
+            if (&vertices != vertexBuffer)
+            {
+                commandList.setVertexBuffer(vertices);
+                vertexBuffer = &vertices;
+            }
             const MeshData& mesh = item.model->meshes()[item.mesh];
             for (uint32_t i = 0; i < mesh.primitiveCount; ++i)
             {
-                const Primitive& primitive = item.model->primitives()[mesh.firstPrimitive + i];
-                commandList.drawIndexed(primitive.indexCount, 1, primitive.firstIndex, static_cast<int32_t>(primitive.baseVertex));
+                const PrimitiveDraw& draw = item.model->primitiveDraws()[mesh.firstPrimitive + i];
+                rhi::Buffer& indices = geometry.indexBuffer(item.model->geometryBlock(), draw.indexFormat);
+                if (&indices != indexBuffer)
+                {
+                    commandList.setIndexBuffer(indices, draw.indexFormat);
+                    indexBuffer = &indices;
+                }
+                commandList.drawIndexed(draw.indexCount, 1, draw.firstIndex, draw.baseVertex);
             }
         }
         commandList.endRenderPass();

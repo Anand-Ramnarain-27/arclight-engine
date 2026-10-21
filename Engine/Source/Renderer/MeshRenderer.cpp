@@ -7,17 +7,19 @@
 #include "RHI/Sampler.h"
 #include "RHI/Shader.h"
 #include "RHI/Texture.h"
+#include "Renderer/GeometryPool.h"
 #include "Renderer/Model.h"
+#include "Renderer/RenderList.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderLibrary.h"
 #include "Renderer/TextureLoader.h"
 
 #include <cmath>
 #include <cstddef>
-#include <optional>
+#include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
-#include <vector>
 
 namespace arc
 {
@@ -144,103 +146,122 @@ namespace arc
         m_defaultSampler.reset();
     }
 
-    void MeshRenderer::draw(Renderer& renderer, const Model& model, const Mat4& transform, DebugView debugView)
+    RenderStats MeshRenderer::draw(Renderer& renderer, const RenderList& list, DebugView debugView)
     {
-        std::vector<MeshDrawItem> items;
-        items.reserve(model.instances().size());
-        for (const MeshInstance& instance : model.instances())
-            items.push_back({.model = &model, .mesh = instance.mesh, .world = transform * instance.world, .debugName = model.name()});
-        draw(renderer, items, debugView);
-    }
-
-    void MeshRenderer::draw(Renderer& renderer, std::span<const MeshDrawItem> items, DebugView debugView)
-    {
+        RenderStats stats;
         rhi::CommandList& commandList = renderer.commandList();
         const bool reversedZ = renderer.sceneCamera().reversedZ;
         const MaterialData defaultMaterial;
         commandList.setConstants(0, renderer.sceneViewConstants());
 
-        rhi::Pipeline* currentPipeline = nullptr;
-        const Model* boundModel = nullptr;
+        // The state bound so far, so a draw only changes what differs from the one before it.
+        // Bindings stay across pipeline changes; buffers need a pipeline set first only because the
+        // vertex stride comes from its layout.
+        rhi::Pipeline* pipeline = nullptr;
+        const rhi::Buffer* vertexBuffer = nullptr;
+        const rhi::Buffer* indexBuffer = nullptr;
+        uint32_t transform = std::numeric_limits<uint32_t>::max();
+        const rhi::Texture* texture = nullptr;
+        const rhi::Sampler* sampler = nullptr;
+        const MaterialData* material = nullptr;
 
-        // Two passes over the items: opaque and masked first, then blended, so blended surfaces
-        // land on top of everything solid behind them.
-        for (const bool blendPass : {false, true})
-        {
-            for (const MeshDrawItem& item : items)
+        const auto drawQueue = [&](std::span<const RenderItem> items, bool blend) {
+            for (const RenderItem& item : items)
             {
                 const Model& model = *item.model;
-                if (item.mesh >= model.meshes().size())
-                    continue;
-                const MeshData& mesh = model.meshes()[item.mesh];
-                const bool mirrored = determinant(item.world) < 0.0f;
-                bool itemConstantsSet = false;
-                std::optional<rhi::ScopedDebugGroup> group;
+                const Primitive& primitive = model.primitives()[item.primitive];
+                const PrimitiveDraw& draw = model.primitiveDraws()[item.primitive];
+                const RenderTransform& placement = list.transforms()[item.transform];
+                const MaterialData& itemMaterial =
+                    primitive.material >= 0 ? model.materials()[static_cast<size_t>(primitive.material)] : defaultMaterial;
 
-                for (uint32_t i = 0; i < mesh.primitiveCount; ++i)
+                rhi::Pipeline* wanted = m_pipelines[PipelineKey{.reversedZ = reversedZ,
+                                                                .doubleSided = itemMaterial.doubleSided,
+                                                                .blend = blend,
+                                                                .mirrored = placement.mirrored}
+                                                        .index()]
+                                            .get();
+                if (wanted != pipeline)
                 {
-                    const Primitive& primitive = model.primitives()[mesh.firstPrimitive + i];
-                    const MaterialData& material =
-                        primitive.material >= 0 ? model.materials()[static_cast<size_t>(primitive.material)] : defaultMaterial;
-                    if ((material.alphaMode == AlphaMode::Blend) != blendPass)
-                        continue;
-
-                    if (!group)
-                        group.emplace(commandList, item.debugName);
-
-                    rhi::Pipeline* wanted = m_pipelines[PipelineKey{.reversedZ = reversedZ,
-                                                                    .doubleSided = material.doubleSided,
-                                                                    .blend = blendPass,
-                                                                    .mirrored = mirrored}
-                                                            .index()]
-                                                .get();
-                    if (wanted != currentPipeline)
-                    {
-                        commandList.setPipeline(*wanted);
-                        currentPipeline = wanted;
-                    }
-                    // Buffer bindings survive pipeline changes; they need a pipeline set first only
-                    // because the vertex stride comes from its layout.
-                    if (boundModel != &model)
-                    {
-                        commandList.setVertexBuffer(model.vertexBuffer());
-                        commandList.setIndexBuffer(model.indexBuffer(), rhi::IndexFormat::UInt32);
-                        boundModel = &model;
-                    }
-
-                    if (!itemConstantsSet)
-                    {
-                        commandList.setConstants(1, MeshDrawConstants{
-                                                        .world = item.world,
-                                                        .normalMatrix = normalMatrixOf(item.world),
-                                                        .debugView = static_cast<uint32_t>(debugView),
-                                                    });
-                        itemConstantsSet = true;
-                    }
-
-                    rhi::Texture* texture = m_whiteTexture.get();
-                    rhi::Sampler* sampler = m_defaultSampler.get();
-                    if (material.baseColorTexture >= 0)
-                    {
-                        texture = model.texture(material.baseColorTexture);
-                        sampler = model.sampler(material.baseColorTexture);
-                        if (!texture || !sampler)
-                        {
-                            texture = m_missingTexture.get();
-                            sampler = m_defaultSampler.get();
-                        }
-                    }
-                    commandList.setTexture(0, *texture);
-                    commandList.setSampler(0, *sampler);
-                    commandList.setConstants(2, MaterialConstants{
-                                                    .baseColorFactor = material.baseColorFactor,
-                                                    .alphaCutoff = material.alphaCutoff,
-                                                    .alphaMode = static_cast<uint32_t>(material.alphaMode),
-                                                });
-                    commandList.drawIndexed(primitive.indexCount, 1, primitive.firstIndex,
-                                            static_cast<int32_t>(primitive.baseVertex));
+                    commandList.setPipeline(*wanted);
+                    pipeline = wanted;
+                    ++stats.pipelineChanges;
                 }
+
+                GeometryPool& geometry = model.geometry();
+                rhi::Buffer& vertices = geometry.vertexBuffer(model.geometryBlock());
+                if (&vertices != vertexBuffer)
+                {
+                    commandList.setVertexBuffer(vertices);
+                    vertexBuffer = &vertices;
+                    ++stats.bufferBinds;
+                }
+                rhi::Buffer& indices = geometry.indexBuffer(model.geometryBlock(), draw.indexFormat);
+                if (&indices != indexBuffer)
+                {
+                    commandList.setIndexBuffer(indices, draw.indexFormat);
+                    indexBuffer = &indices;
+                    ++stats.bufferBinds;
+                }
+
+                if (item.transform != transform)
+                {
+                    commandList.setConstants(1, MeshDrawConstants{
+                                                    .world = placement.world,
+                                                    .normalMatrix = normalMatrixOf(placement.world),
+                                                    .debugView = static_cast<uint32_t>(debugView),
+                                                });
+                    transform = item.transform;
+                    ++stats.constantUploads;
+                }
+
+                rhi::Texture* itemTexture = m_whiteTexture.get();
+                rhi::Sampler* itemSampler = m_defaultSampler.get();
+                if (itemMaterial.baseColorTexture >= 0)
+                {
+                    itemTexture = model.texture(itemMaterial.baseColorTexture);
+                    itemSampler = model.sampler(itemMaterial.baseColorTexture);
+                    if (!itemTexture || !itemSampler)
+                    {
+                        itemTexture = m_missingTexture.get();
+                        itemSampler = m_defaultSampler.get();
+                    }
+                }
+                if (itemTexture != texture || itemSampler != sampler)
+                {
+                    commandList.setTexture(0, *itemTexture);
+                    commandList.setSampler(0, *itemSampler);
+                    texture = itemTexture;
+                    sampler = itemSampler;
+                    ++stats.textureBinds;
+                }
+                if (&itemMaterial != material)
+                {
+                    commandList.setConstants(2, MaterialConstants{
+                                                    .baseColorFactor = itemMaterial.baseColorFactor,
+                                                    .alphaCutoff = itemMaterial.alphaCutoff,
+                                                    .alphaMode = static_cast<uint32_t>(itemMaterial.alphaMode),
+                                                });
+                    material = &itemMaterial;
+                    ++stats.constantUploads;
+                }
+
+                commandList.drawIndexed(draw.indexCount, 1, draw.firstIndex, draw.baseVertex);
+                ++stats.draws;
+                stats.triangles += draw.indexCount / 3;
             }
+        };
+
+        if (!list.opaque().empty())
+        {
+            const rhi::ScopedDebugGroup group(commandList, "Opaque");
+            drawQueue(list.opaque(), false);
         }
+        if (!list.blended().empty())
+        {
+            const rhi::ScopedDebugGroup group(commandList, "Blended");
+            drawQueue(list.blended(), true);
+        }
+        return stats;
     }
 }

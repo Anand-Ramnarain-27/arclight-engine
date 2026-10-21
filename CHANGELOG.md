@@ -38,7 +38,18 @@ Phase 3: engine architecture.
 - ImGuizmo's licence notice ships in `ThirdPartyLicenses/`.
 - Unit tests for ray-box and ray-triangle intersection, viewport rays and scene raycasts.
 
+#### Render list and geometry pool
+- `Core/RangeAllocator`: first-fit suballocation from a list of free ranges, merging freed neighbours.
+- `Renderer/GeometryPool`, owned by the Renderer: every model's vertices and indices in shared blocks of a vertex buffer and a 16-bit and a 32-bit index buffer. A model that fits in no block gets a new one, at least its size. Freed ranges are reused only after the frames in flight that may read them have finished.
+- Models store a primitive's indices as 16-bit when every index fits, and 32-bit otherwise (`Model::primitiveDraws()`).
+- `Renderer/RenderList`: the frame's draws as a flat list built from the scene. Opaque and masked primitives are sorted by a 64-bit key (pipeline state, geometry block, model, material, then view depth front to back); blended primitives are sorted back to front.
+- `MeshRenderer::draw()` draws a render list in *Opaque* and *Blended* debug groups, changes pipeline, buffers, textures and constants only when they differ from the previous draw, and returns `RenderStats`.
+- Editor: draw, triangle and state-change counts and a *Sort draws* toggle in the Scene panel's *View* menu; geometry pool usage in System Info.
+- Unit tests for the range allocator, the geometry pool's blocks and deferred reuse, 16-bit index selection and render list ordering.
+
 ### Changed
+- `Model::create()` takes the `GeometryPool` to upload into; models no longer own vertex and index buffers.
+- `MeshDrawItem` and the per-model `MeshRenderer::draw()` overloads are replaced by `RenderList`.
 - The *Model* panel and `ModelViewerModule` are replaced by the scene: models are imported into it at their real size and framed by the camera, instead of being scaled to fit. The shading debug view moved to the Scene panel's *View* menu.
 - `EditorCamera::update()` no longer handles F; the Scene panel frames the selection with `EditorCamera::frame()`, or calls `focusOnOrigin()` when nothing is selected.
 - README rewritten: highlights, platform status, architecture, build steps, editor controls and credits.

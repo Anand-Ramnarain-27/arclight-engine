@@ -29,7 +29,7 @@ namespace arc
     {
         // The Application waits for the GPU before shutting modules down, and the device must
         // still exist when the models' buffers and textures are released.
-        m_drawItems.clear();
+        m_renderList.clear();
         m_scene = std::make_unique<Scene>();
         m_models.clear();
         m_meshRenderer.shutdown();
@@ -47,7 +47,7 @@ namespace arc
 
     void SceneModule::render()
     {
-        m_drawItems.clear();
+        m_renderList.clear();
         m_scene->forEachActive([this](GameObject& object) {
             for (const std::unique_ptr<Component>& component : object.components())
             {
@@ -55,18 +55,18 @@ namespace arc
                     continue;
                 const auto& mesh = static_cast<const MeshComponent&>(*component);
                 if (mesh.hasMesh())
-                    m_drawItems.push_back({.model = mesh.model().get(),
-                                           .mesh = mesh.meshIndex(),
-                                           .world = object.transform().worldMatrix(),
-                                           .debugName = object.name()});
+                    m_renderList.addMesh(*mesh.model(), mesh.meshIndex(), object.transform().worldMatrix());
             }
         });
-        m_drawnMeshCount = static_cast<uint32_t>(m_drawItems.size());
 
         Renderer& renderer = app().renderer();
-        if (m_drawItems.empty() || !renderer.isFrameActive() || !renderer.beginScenePass("Scene"))
+        const Camera& camera = renderer.sceneCamera();
+        m_renderList.sort(camera.position, camera.forward(), sortDraws);
+
+        m_stats = {};
+        if (m_renderList.empty() || !renderer.isFrameActive() || !renderer.beginScenePass("Scene"))
             return;
-        m_meshRenderer.draw(renderer, m_drawItems, debugView);
+        m_stats = m_meshRenderer.draw(renderer, m_renderList, debugView);
         renderer.endScenePass();
     }
 
@@ -80,7 +80,7 @@ namespace arc
         const std::optional<ModelData> data = importGltf(path);
         if (!data)
             return nullptr;
-        std::shared_ptr<const Model> model = Model::create(app().renderer().device(), *data);
+        std::shared_ptr<const Model> model = Model::create(app().renderer().device(), app().renderer().geometry(), *data);
         if (!model)
             return nullptr;
 

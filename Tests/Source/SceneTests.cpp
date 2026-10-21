@@ -263,7 +263,8 @@ TEST_CASE("A model's nodes become GameObjects with mesh components")
 
     auto device = rhi::createNullDevice({});
     REQUIRE(device);
-    std::shared_ptr<const Model> model = Model::create(*device, data);
+    GeometryPool geometry(*device);
+    std::shared_ptr<const Model> model = Model::create(*device, geometry, data);
     REQUIRE(model);
 
     Scene scene;

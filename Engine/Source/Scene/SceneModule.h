@@ -2,6 +2,7 @@
 
 #include "Application/Module.h"
 #include "Renderer/MeshRenderer.h"
+#include "Renderer/RenderList.h"
 #include "Scene/Scene.h"
 
 #include <memory>
@@ -13,7 +14,8 @@ namespace arc
 {
     class Model;
 
-    /// Owns the scene, updates it, and draws its meshes into the scene target.
+    /// Owns the scene, updates it, and draws its meshes into the scene target: every frame the
+    /// active meshes go into a RenderList, which is sorted and drawn in one scene pass.
     ///
     /// Models are loaded once per path and shared while anything uses them; the cache holds them
     /// weakly, so a model whose last MeshComponent is gone is released. Has no UI, so it may be
@@ -49,14 +51,17 @@ namespace arc
 
         MeshRenderer::DebugView debugView = MeshRenderer::DebugView::Lit;
 
-        /// Meshes drawn in the last frame.
-        [[nodiscard]] uint32_t drawnMeshCount() const { return m_drawnMeshCount; }
+        /// Off draws opaque primitives in scene order, to compare the state changes with sorting.
+        bool sortDraws = true;
+
+        /// What the last frame drew.
+        [[nodiscard]] const RenderStats& renderStats() const { return m_stats; }
 
     private:
         std::unique_ptr<Scene> m_scene;
         MeshRenderer m_meshRenderer;
         std::unordered_map<std::string, std::weak_ptr<const Model>> m_models;
-        std::vector<MeshDrawItem> m_drawItems;
-        uint32_t m_drawnMeshCount = 0;
+        RenderList m_renderList;
+        RenderStats m_stats;
     };
 }
