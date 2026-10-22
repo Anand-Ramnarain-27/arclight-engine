@@ -43,9 +43,10 @@ namespace arc
             return 0.0;
         std::array<char, 32> text{};
         const auto written = std::to_chars(text.data(), text.data() + text.size(), value);
-        double result = 0.0;
-        std::from_chars(text.data(), written.ptr, result);
-        return result;
+        // Parsed back with the JSON library rather than std::from_chars, which Apple's libc++ only
+        // provides for integers; the parser also ignores the C locale's decimal separator.
+        const Json number = Json::parse(text.data(), written.ptr, nullptr, false);
+        return number.is_number() ? number.get<double>() : static_cast<double>(value);
     }
 
     ComponentData::ComponentData() : m_storage(std::make_unique<Storage>()) {}

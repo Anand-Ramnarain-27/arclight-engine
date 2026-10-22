@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "95bfd167843ce1ce",
+  "type": "model",
+  "settings": {
+    "scale": 1.0,
+    "generateLods": true,
+    "lodLevels": 3,
+    "lodReduction": 0.5
+  }
+}
