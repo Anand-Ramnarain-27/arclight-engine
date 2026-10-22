@@ -28,7 +28,7 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 - **Editor viewport.** The scene renders to a texture shown in a dockable panel, with a fly/orbit/pan camera, reversed-Z depth with an infinite far plane, and an anti-aliased infinite grid. ([Editor/Source/Panels/ScenePanel.cpp](Editor/Source/Panels/ScenePanel.cpp), [Engine/Shaders/Grid.hlsl](Engine/Shaders/Grid.hlsl))
 - **glTF 2.0 import.** Sparse accessors, triangle strips and fans, alpha modes, double-sided and mirrored meshes, with every offset and index bounds-checked, because model files are untrusted input. ([Renderer/GltfImporter.cpp](Engine/Source/Renderer/GltfImporter.cpp))
 - **Scene and editor tooling.** GameObjects with components in a transform hierarchy, edited through Hierarchy and Inspector panels. ([Engine/Source/Scene](Engine/Source/Scene), [Editor/Source/Panels](Editor/Source/Panels))
-- **Reproducible builds.** CMake presets, pinned dependencies, 92 unit test cases with doctest, and GitHub Actions building, testing and packaging both platforms. ([CMakePresets.json](CMakePresets.json), [.github/workflows](.github/workflows))
+- **Reproducible builds.** CMake presets, pinned dependencies, 101 unit test cases with doctest, and GitHub Actions building, testing and packaging both platforms. ([CMakePresets.json](CMakePresets.json), [.github/workflows](.github/workflows))
 
 ## Platform status
 
@@ -49,6 +49,7 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Mouse picking, gizmos and selection outline | Working | Working |
 | Pooled geometry and sorted render list | Working | Working |
 | Frustum culling, levels of detail, skybox | Working | Working |
+| Virtual file system and system file dialogs | Working | Working |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -78,6 +79,7 @@ The editor and engine systems are modules that the application initialises in or
 - **One set of conventions.** Right-handed, +Y up, column vectors stored column-major, radians, and counter-clockwise front faces. These match glTF, HLSL constant buffers and Metal's `float4x4`, so models and matrices need no conversion ([Math/Math.h](Engine/Source/Math/Math.h)).
 - **A sorted render list over pooled geometry.** Every model's vertices and indices live in a few large shared buffers (16-bit indices wherever they fit), and each frame the scene becomes a flat list of draws. Opaque draws are sorted by pipeline, geometry, material and then front to back, so state changes happen once per group; blended draws are sorted back to front. The Scene panel's View menu shows the draw and state-change counts, with sorting on or off.
 - **Culling down the hierarchy.** Each frame the hierarchy is flattened into a depth-first list with the bounds of every subtree, so a group of objects outside the view is rejected with one test, and a group fully inside it skips the tests below it. Meshes are tested as oriented boxes, which stay tight when an object is rotated. Imported meshes get simplified levels of detail (meshoptimizer), chosen by how many pixels their error would cover on screen.
+- **A virtual file system.** Code opens `assets://Models/Lantern.glb`, not a path that depends on where the program was started. Folders are mounted in layers, so the working directory's `Assets/` overrides the copy next to the executable, and per-user settings go to `user://`, which is the only writable mount ([Platform/VirtualFileSystem.h](Engine/Source/Platform/VirtualFileSystem.h)).
 - **Reversed-Z by default.** Depth is stored as 1 at the near plane and 0 at infinity, which spreads floating-point precision almost evenly with distance and greatly reduces z-fighting on distant geometry. It can be switched off in the Scene panel's camera settings to compare, using the z-fighting test in the Texture Demo panel.
 
 ## Building
@@ -130,7 +132,7 @@ Prebuilt zips are attached to [Releases](https://github.com/Anand-Ramnarain-27/a
 
 ## Using the editor
 
-The sample *Lantern* model opens at start-up. To import another model, choose **File > Import Model** and enter the path of a `.gltf` or `.glb` file, or drag the file onto the window.
+The sample *Lantern* model opens at start-up. To import another model, choose **File > Import Model** and pick a `.gltf` or `.glb` file, drag the file onto the window, or double-click it in the **Files** panel (or drag it from there into the Scene view). **File > Recent Models** lists the last ten.
 
 ### Scene view (pointer over the Scene panel)
 
@@ -200,7 +202,7 @@ GitHub Actions runs two workflows:
 | ✔︎ | **Foundations** (0.1.0): build, window, input, timing, math, editor shell |
 | ✔︎ | **Rendering hardware interface** (0.2.0): Direct3D 12 and Metal backends, shaders, pipelines, GPU capture |
 | ✔︎ | **Meshes, textures, camera and viewport** (0.3.0): textures, resource lifetimes, scene viewport, editor camera, glTF |
-| In progress | **Engine architecture**: scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail (done); next, an asset pipeline and scene serialization |
+| In progress | **Engine architecture**: scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail, virtual file system (done); next, an asset pipeline and scene serialization |
 | Planned | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
 | Planned | **Advanced rendering**: shadows, deferred and Forward+ shading, post-processing |
 | Planned | **Compute, VFX, animation and gameplay**: job system, Tracy profiling, particles, skinning, Jolt physics, navigation, audio |

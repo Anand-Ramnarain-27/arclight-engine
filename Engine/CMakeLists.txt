@@ -28,8 +28,14 @@ add_library(ArclightEngine STATIC
     Source/Platform/PlatformEvents.h
     Source/Platform/SystemInfo.h
     Source/Platform/SystemInfo.cpp
+    Source/Platform/FileDialog.h
+    Source/Platform/FileDialog.cpp
+    Source/Platform/FileSource.h
+    Source/Platform/FileSource.cpp
     Source/Platform/FileSystem.h
     Source/Platform/FileSystem.cpp
+    Source/Platform/VirtualFileSystem.h
+    Source/Platform/VirtualFileSystem.cpp
     Source/RHI/RHITypes.h
     Source/RHI/Texture.h
     Source/RHI/Sampler.h

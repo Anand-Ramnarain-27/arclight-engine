@@ -20,6 +20,8 @@ int main(int argc, char* argv[])
             .width = 1600,
             .height = 900,
         },
+        .organization = "Arclight",
+        .name = "Editor",
     };
     for (int i = 1; i < argc; ++i)
     {

@@ -4,6 +4,7 @@
 #include "Scene/TransformGizmo.h"
 
 #include <array>
+#include <functional>
 #include <string>
 
 struct ImVec2;
@@ -48,7 +49,12 @@ namespace arc
         [[nodiscard]] const char* title() const override { return "Scene"; }
         void draw(bool* open) override;
 
+        /// Called with the path of a model dragged from the Files panel and dropped on the view.
+        std::function<void(const std::string& path)> onModelDropped;
+
     private:
+        void browseForSkybox();
+        void setSkyboxFolder(const std::string& folder);
         void drawSettings();
         void drawGizmoToolbar();
         void handleGizmoShortcuts();

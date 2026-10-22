@@ -3,7 +3,6 @@
 #include "Application/Application.h"
 #include "Core/Log.h"
 #include "Math/Math.h"
-#include "Platform/FileSystem.h"
 #include "RHI/Buffer.h"
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
@@ -254,9 +253,9 @@ namespace arc
         // their GPU memory until those frames complete.
         m_textures.clear();
 
-        const std::string uvGridPath = findAssetPath("Textures/UVGrid.png");
-        if (uvGridPath.empty())
-            ARC_LOG_WARN("Assets/Textures/UVGrid.png not found; the texture demo shows generated textures only");
+        const std::string uvGridPath = "assets://Textures/UVGrid.png";
+        if (!app().fileSystem().isFile(uvGridPath))
+            ARC_LOG_WARN("{} not found; the texture demo shows generated textures only", uvGridPath);
         else if (auto texture = loadTexture(device, uvGridPath, ColorSpace::Srgb))
             m_textures.push_back({"UV grid", std::move(texture), false});
 

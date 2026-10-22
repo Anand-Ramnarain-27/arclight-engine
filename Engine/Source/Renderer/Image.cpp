@@ -2,15 +2,16 @@
 
 #include "Core/Assert.h"
 #include "Core/Log.h"
+#include "Platform/FileSystem.h"
 #include "RHI/RHITypes.h"
 
-#include <SDL3/SDL.h>
 #include <stb_image.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <optional>
 
 namespace arc
 {
@@ -46,17 +47,13 @@ namespace arc
 
     Image loadImage(const std::string& path)
     {
-        // SDL_LoadFile handles UTF-8 paths on every platform, including Windows.
-        size_t size = 0;
-        void* data = SDL_LoadFile(path.c_str(), &size);
+        const std::optional<std::vector<std::byte>> data = readFile(path);
         if (!data)
         {
-            ARC_LOG_ERROR("Cannot read image '{}': {}", path, SDL_GetError());
+            ARC_LOG_ERROR("Cannot read image '{}'", path);
             return {};
         }
-        Image image = decodeImage(std::span(static_cast<const std::byte*>(data), size), path);
-        SDL_free(data);
-        return image;
+        return decodeImage(*data, path);
     }
 
     Image decodeImage(std::span<const std::byte> encoded, std::string_view debugName)

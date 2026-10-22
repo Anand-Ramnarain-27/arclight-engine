@@ -3,6 +3,7 @@
 #include "Application/Application.h"
 #include "Core/Log.h"
 #include "Panels/ConsolePanel.h"
+#include "Panels/FilesPanel.h"
 #include "Panels/HierarchyPanel.h"
 #include "Panels/InspectorPanel.h"
 #include "Panels/PerformancePanel.h"
@@ -43,11 +44,20 @@ namespace arc
         , m_scene(scene)
         , m_selection(scene)
     {
-        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid, m_outline));
+        auto scenePanel = std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid, m_outline);
+        scenePanel->onModelDropped = [this](const std::string& path) { m_pendingImport = path; };
+        m_panels.push_back(std::move(scenePanel));
         m_panels.push_back(std::make_unique<HierarchyPanel>(scene, m_selection, m_camera));
         m_panels.push_back(std::make_unique<InspectorPanel>(scene, m_selection));
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
+        m_panels.push_back(std::make_unique<FilesPanel>(
+            app.fileSystem(), FilesPanel::Actions{
+                                  .importModel = [this](const std::string& path) { m_pendingImport = path; },
+                                  .loadSkybox = [this](const std::string& folder) {
+                                      m_scene.skybox().load(this->app().renderer(), folder);
+                                  },
+                              }));
         m_panels.push_back(std::make_unique<PerformancePanel>(app));
         m_panels.push_back(std::make_unique<SystemInfoPanel>(app));
     }
@@ -61,11 +71,13 @@ namespace arc
             return false;
         app().addEventListener(*this);
 
-        const std::string samplePath = findAssetPath("Models/Lantern.glb");
-        if (samplePath.empty())
-            ARC_LOG_WARN("Assets/Models/Lantern.glb not found; re-run CMake to download it, or drop a glTF file on the window");
+        m_recentModels.load(app().fileSystem());
+
+        const std::string samplePath = "assets://Models/Lantern.glb";
+        if (!app().fileSystem().isFile(samplePath))
+            ARC_LOG_WARN("{} not found; re-run CMake to download it, or drop a glTF file on the window", samplePath);
         else
-            importModel(samplePath);
+            importModel(samplePath, false);
         return true;
     }
 
@@ -83,16 +95,21 @@ namespace arc
             m_pendingImport = event.drop.data;
     }
 
-    void EditorModule::importModel(const std::string& path)
+    void EditorModule::importModel(const std::string& path, bool remember)
     {
-        GameObject* object = m_scene.importModel(path);
+        // One path per file, so the model cache shares a model dropped from Explorer with the same
+        // model imported from the Files panel.
+        const std::string stored = preferredPath(app().fileSystem(), path);
+        GameObject* object = m_scene.importModel(stored);
         if (!object)
             return;
         m_selection.select(object);
         frameSelection();
+        if (remember)
+            m_recentModels.add(app().fileSystem(), stored);
 
-        const size_t length = std::min(path.size(), m_importPath.size() - 1);
-        std::memcpy(m_importPath.data(), path.data(), length);
+        const size_t length = std::min(stored.size(), m_importPath.size() - 1);
+        std::memcpy(m_importPath.data(), stored.data(), length);
         m_importPath[length] = '\0';
     }
 
@@ -255,6 +272,7 @@ namespace arc
         ImGui::DockBuilderDockWindow("Hierarchy", left);
         ImGui::DockBuilderDockWindow("Playback", top);
         ImGui::DockBuilderDockWindow("Console", bottom);
+        ImGui::DockBuilderDockWindow("Files", bottom);
         ImGui::DockBuilderDockWindow("Inspector", rightTop);
         ImGui::DockBuilderDockWindow("Performance", rightBottom);
         ImGui::DockBuilderDockWindow("System Info", rightBottom);
@@ -273,7 +291,10 @@ namespace arc
         if (ImGui::BeginMenu("File"))
         {
             if (ImGui::MenuItem("Import Model..."))
+                openImportDialog();
+            if (ImGui::MenuItem("Import Model by Path..."))
                 m_openImport = true;
+            drawRecentModelsMenu();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit"))
                 app().requestQuit();
@@ -337,18 +358,67 @@ namespace arc
         ImGui::EndMenu();
     }
 
+    void EditorModule::drawRecentModelsMenu()
+    {
+        const std::vector<std::string>& recent = m_recentModels.paths();
+        if (!ImGui::BeginMenu("Recent Models", !recent.empty()))
+            return;
+        std::string chosen;
+        for (const std::string& path : recent)
+            if (ImGui::MenuItem(path.c_str(), nullptr, false, fileExists(path)))
+                chosen = path;
+        ImGui::Separator();
+        if (ImGui::MenuItem("Clear List"))
+            m_recentModels.clear(app().fileSystem());
+        ImGui::EndMenu();
+        if (!chosen.empty())
+            m_pendingImport = chosen;
+    }
+
+    void EditorModule::openImportDialog()
+    {
+        const VirtualFileSystem& fileSystem = app().fileSystem();
+        std::string location;
+        if (!m_recentModels.paths().empty())
+        {
+            const std::string& last = m_recentModels.paths().front();
+            location = parentPath(isVirtualPath(last) ? fileSystem.nativePath(last) : last);
+        }
+        if (location.empty())
+            location = fileSystem.nativePath("assets://Models");
+
+        FileDialogDesc desc{
+            .type = FileDialogType::OpenFile,
+            .title = "Import Model",
+            .filters = {{"glTF models", "gltf;glb"}, {"All files", "*"}},
+            .defaultLocation = location,
+        };
+        app().fileDialogs().open(app().window().sdlWindow(), std::move(desc), [this](const FileDialogResult& result) {
+            if (result.status == FileDialogResult::Status::Chosen)
+            {
+                m_pendingImport = result.paths.front();
+            }
+            else if (result.status == FileDialogResult::Status::Failed)
+            {
+                // Linux without a desktop portal or zenity, for example.
+                ARC_LOG_WARN("The file dialog is not available ({}); enter the path instead", result.error);
+                m_openImport = true;
+            }
+        });
+    }
+
     void EditorModule::drawImportPopup()
     {
         if (m_openImport)
         {
-            ImGui::OpenPopup("Import Model");
+            ImGui::OpenPopup("Import Model by Path");
             m_openImport = false;
         }
 
         ImGui::SetNextWindowSize({520.0f, 0.0f}, ImGuiCond_Appearing);
-        if (!ImGui::BeginPopupModal("Import Model", nullptr))
+        if (!ImGui::BeginPopupModal("Import Model by Path", nullptr))
             return;
-        ImGui::TextUnformatted("Path to a .gltf or .glb file:");
+        ImGui::TextUnformatted("Path to a .gltf or .glb file, native or virtual (assets://...):");
         if (ImGui::IsWindowAppearing())
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(-1.0f);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Application/Module.h"
+#include "EditorFiles.h"
 #include "EditorSelection.h"
 #include "Panels/Panel.h"
 #include "Platform/PlatformEvents.h"
@@ -20,7 +21,9 @@ namespace arc
 
     /// The editor: main menu, dockable panels, the selection, global shortcuts, and the Scene view's
     /// camera and grid. Imports the sample model into the scene at start-up, and any .gltf or .glb
-    /// file dropped on the window.
+    /// file chosen in File > Import Model, dropped on the window, or dragged from the Files panel.
+    /// Models inside a mounted folder are imported by their virtual path, which is also what the
+    /// recent models list in user:// keeps.
     ///
     /// Must be added after the SceneModule and before any module with UI: the dock space has to
     /// exist before the windows it hosts are submitted. The scene camera is handed to the Renderer
@@ -61,9 +64,12 @@ namespace arc
         void buildDefaultLayout(unsigned int dockspaceId);
         void drawMainMenu();
         void drawGameObjectMenu();
+        void drawRecentModelsMenu();
+        void openImportDialog();
         void drawImportPopup();
         void drawAboutPopup();
-        void importModel(const std::string& path);
+        /// `remember` adds the model to the recent models list.
+        void importModel(const std::string& path, bool remember = true);
         void frameSelection();
 
         SceneModule& m_scene;
@@ -79,6 +85,7 @@ namespace arc
         bool m_openImport = false;
         std::string m_pendingImport;
         std::array<char, 1024> m_importPath{};
+        RecentFiles m_recentModels{"user://RecentModels.txt", 10};
     };
 
     /// Draws the editor's overlays over the scene. A module of its own because modules render in

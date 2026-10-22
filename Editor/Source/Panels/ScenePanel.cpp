@@ -1,6 +1,8 @@
 #include "Panels/ScenePanel.h"
 
 #include "Application/Application.h"
+#include "Core/Log.h"
+#include "EditorFiles.h"
 #include "EditorSelection.h"
 #include "RHI/Device.h"
 #include "RHI/Texture.h"
@@ -17,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <iterator>
 #include <optional>
 
@@ -108,6 +111,12 @@ namespace arc
             ownsInput = ImGui::IsItemHovered() || ImGui::IsItemActive();
             clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
         }
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kModelPathPayload); payload && onModelDropped)
+                onModelDropped(static_cast<const char*>(payload->Data));
+            ImGui::EndDragDropTarget();
+        }
 
         if (rhi::Texture* scene = renderer.sceneTexture())
             ImGui::GetWindowDrawList()->AddImage(ImTextureRef(m_imgui.textureId(*scene)), origin, origin + size);
@@ -163,6 +172,29 @@ namespace arc
 
         drawAxisGizmo(origin, origin + size);
         ImGui::End();
+    }
+
+    void ScenePanel::setSkyboxFolder(const std::string& folder)
+    {
+        m_pendingSkyboxFolder = folder;
+        const size_t length = std::min(folder.size(), m_skyboxFolder.size() - 1);
+        std::memcpy(m_skyboxFolder.data(), folder.data(), length);
+        m_skyboxFolder[length] = '\0';
+    }
+
+    void ScenePanel::browseForSkybox()
+    {
+        const VirtualFileSystem& fileSystem = m_app.fileSystem();
+        FileDialogDesc desc;
+        desc.type = FileDialogType::OpenFolder;
+        desc.title = "Choose a folder with px, nx, py, ny, pz and nz";
+        desc.defaultLocation = fileSystem.nativePath("assets://");
+        m_app.fileDialogs().open(m_app.window().sdlWindow(), std::move(desc), [this](const FileDialogResult& result) {
+            if (result.status == FileDialogResult::Status::Chosen)
+                setSkyboxFolder(preferredPath(m_app.fileSystem(), result.paths.front()));
+            else if (result.status == FileDialogResult::Status::Failed)
+                ARC_LOG_WARN("The folder dialog is not available ({}); type the folder instead", result.error);
+        });
     }
 
     void ScenePanel::pick(ImVec2 mouse, ImVec2 viewMin, ImVec2 viewSize)
@@ -305,6 +337,9 @@ namespace arc
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
         ImGui::InputTextWithHint("##SkyFolder", "Folder with px, nx, py, ny, pz, nz", m_skyboxFolder.data(),
                                  m_skyboxFolder.size());
+        ImGui::SameLine();
+        if (ImGui::Button("Browse..."))
+            browseForSkybox();
         ImGui::SameLine();
         if (ImGui::Button("Load"))
             m_pendingSkyboxFolder = m_skyboxFolder.data();

@@ -14,6 +14,7 @@ add_executable(ArclightTests
     Source/RHITests.cpp
     Source/TextureTests.cpp
     Source/ImageTests.cpp
+    Source/FileSystemTests.cpp
 )
 
 target_link_libraries(ArclightTests PRIVATE ArclightEngine doctest::doctest)

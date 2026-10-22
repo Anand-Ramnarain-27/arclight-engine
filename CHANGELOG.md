@@ -60,6 +60,17 @@ Phase 3: engine architecture.
 - meshoptimizer's licence notice ships in `ThirdPartyLicenses/`.
 - Unit tests for frustum classification, oriented box culling, cube face directions, cube texture upload and readback, level-of-detail generation and level selection.
 
+#### File system and file dialogs
+- `Platform/VirtualFileSystem`: named mounts addressed as `mount://folder/file`. Several sources can share a name as layers: the most recently mounted is searched first, listings merge every layer, and writes go to the first writable one. Paths are normalised, and a `..` that would leave the mount is rejected. Safe to use from any thread.
+- `Platform/FileSource`: `DirectorySource` (a native folder; writes go to a temporary file renamed over the target) and `MemorySource` (for tests and built-in data).
+- The Application mounts `engine://` (the executable's folder), `assets://` (`Assets/` next to the executable, overlaid by `Assets/` in the working directory) and `user://` (the per-user settings folder, named by the new `ApplicationDesc::organization` and `name`), and installs its file system as the active one.
+- `readFile()`, `fileExists()` and `fileSize()` take virtual or native paths. Shaders load from `engine://Shaders/`, and images through `readFile()`.
+- `VirtualFileSystem::nativePath()` and `virtualPath()` convert between the two, so a file chosen in a dialog inside a mounted folder is stored by its virtual path.
+- `Platform/FileDialog`: the system's open-file, save-file and folder dialogs through SDL3. Results are queued from whichever thread the platform calls back on and delivered on the main thread at the start of the next frame.
+- Editor: *File > Import Model* opens the system file dialog, with *Import Model by Path* as the fallback when no dialog is available; *File > Recent Models*, kept in `user://RecentModels.txt`; a *Browse* button for the sky folder.
+- Editor: *Files* panel, a tree of every mount showing which layer each file comes from. Double-click or drag a model into the Scene view to import it; right-click to use a folder as the sky, copy a path, or show it in Explorer or Finder.
+- Unit tests for path parsing and normalisation, layer order and merged listings, writes and removal, a native folder with UTF-8 names, routing through `readFile()`, and mounting while other threads read.
+
 ### Changed
 - `Model::create()` takes the `GeometryPool` to upload into; models no longer own vertex and index buffers.
 - `Model::primitiveDraws()` is replaced by `primitiveLods()`, and `RenderList::addMesh()` takes an optional `LodPolicy`.
@@ -71,6 +82,7 @@ Phase 3: engine architecture.
 - README rewritten: highlights, platform status, architecture, build steps, editor controls and credits.
 
 ### Removed
+- `findAssetPath()`: assets are opened through `assets://` instead.
 - `Source/`, the original Windows-only starter code that was kept for reference and was not part of the build.
 - `Game/WinPixEventRuntime.dll`, which nothing loaded: PIX captures use `WinPixGpuCapturer.dll` from the PIX installation.
 

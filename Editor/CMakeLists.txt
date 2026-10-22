@@ -2,11 +2,15 @@ add_executable(Arclight
     Source/Main.cpp
     Source/EditorModule.h
     Source/EditorModule.cpp
+    Source/EditorFiles.h
+    Source/EditorFiles.cpp
     Source/EditorSelection.h
     Source/EditorSelection.cpp
     Source/Panels/Panel.h
     Source/Panels/ConsolePanel.h
     Source/Panels/ConsolePanel.cpp
+    Source/Panels/FilesPanel.h
+    Source/Panels/FilesPanel.cpp
     Source/Panels/HierarchyPanel.h
     Source/Panels/HierarchyPanel.cpp
     Source/Panels/InspectorPanel.h
@@ -40,7 +44,7 @@ arclight_set_warnings(Arclight)
 add_dependencies(Arclight ArclightShaders)
 
 # The sample model is downloaded at configure time (see ArclightDependencies.cmake), not committed,
-# and placed in Assets/ next to the executable, the second place findAssetPath() looks.
+# and placed in Assets/ next to the executable, the lower layer of the assets:// mount.
 add_custom_command(TARGET Arclight POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ARCLIGHT_SAMPLE_MODEL}"
             "$<TARGET_FILE_DIR:Arclight>/Assets/Models/Lantern.glb"

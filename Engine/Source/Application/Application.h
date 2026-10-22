@@ -2,14 +2,17 @@
 
 #include "Application/Module.h"
 #include "Core/Time.h"
+#include "Platform/FileDialog.h"
 #include "Platform/Input.h"
 #include "Platform/PlatformEvents.h"
+#include "Platform/VirtualFileSystem.h"
 #include "Platform/Window.h"
 #include "RHI/RHITypes.h"
 #include "Renderer/Renderer.h"
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -24,9 +27,20 @@ namespace arc
 
         /// 0 means unlimited (or paced by vsync).
         uint32_t maxFrameRate = 0;
+
+        /// Name the per-user folder that is mounted as user://, for example
+        /// %APPDATA%/<organization>/<name>/ on Windows and ~/Library/Application Support/<organization>/<name>/ on macOS.
+        std::string organization = "Arclight";
+        std::string name = "Arclight";
     };
 
     /// Owns the platform layer, the window and all modules, and runs the main loop.
+    ///
+    /// Its VirtualFileSystem is the active one while the Application exists, with these mounts:
+    ///   engine://  the executable's folder (compiled shaders), read-only
+    ///   assets://  Assets/ next to the executable, overlaid by Assets/ in the working directory
+    ///              (Game/ when started from an IDE), read-only
+    ///   user://    the per-user settings folder, writable
     class Application
     {
     public:
@@ -58,6 +72,12 @@ namespace arc
         /// Valid only while run() is executing.
         [[nodiscard]] Renderer& renderer() { return *m_renderer; }
 
+        [[nodiscard]] VirtualFileSystem& fileSystem() { return m_fileSystem; }
+        [[nodiscard]] const VirtualFileSystem& fileSystem() const { return m_fileSystem; }
+
+        /// Results arrive at the start of a frame, before the modules update.
+        [[nodiscard]] FileDialogs& fileDialogs() { return m_fileDialogs; }
+
         [[nodiscard]] const Input& input() const { return m_input; }
         [[nodiscard]] Input& input() { return m_input; }
         [[nodiscard]] GameClock& gameClock() { return m_gameClock; }
@@ -75,11 +95,14 @@ namespace arc
     private:
         [[nodiscard]] bool init();
         void shutdown();
+        void mountDefaultFolders();
         void pumpEvents();
         void runFrame(Clock::duration realDelta);
         void waitForFrameBudget(Clock::time_point frameStart) const;
 
         ApplicationDesc m_desc;
+        VirtualFileSystem m_fileSystem;
+        FileDialogs m_fileDialogs;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<Renderer> m_renderer;
         std::vector<std::unique_ptr<Module>> m_modules;
