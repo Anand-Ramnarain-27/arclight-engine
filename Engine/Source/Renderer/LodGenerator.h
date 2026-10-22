@@ -14,9 +14,11 @@ namespace arc
         /// coarser levels are made: the simplifier has reached what it can do without breaking the
         /// primitive's borders.
         float minReduction = 0.1f;
+        /// At most kMaxLodLevels.
+        uint32_t maxLevels = kMaxLodLevels;
     };
 
-    /// Adds up to kMaxLodLevels simplified levels to every primitive, with meshoptimizer: edges are
+    /// Adds up to settings.maxLevels simplified levels to every primitive, with meshoptimizer: edges are
     /// collapsed where that moves the surface least, until the target triangle count is reached.
     /// Each primitive's open borders are locked, so primitives that meet along a seam (one mesh
     /// split by material) never open cracks between them. Appends the levels' indices to

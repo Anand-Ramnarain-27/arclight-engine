@@ -185,6 +185,15 @@ namespace arc
         return std::any_of(m_mounts.begin(), m_mounts.end(), [name](const Mount& mount) { return mount.name == name; });
     }
 
+    bool VirtualFileSystem::isWritable(std::string_view path) const
+    {
+        const std::optional<VirtualPath> parsed = parseVirtualPath(path);
+        if (!parsed)
+            return false;
+        const std::vector<std::shared_ptr<FileSource>> mounted = layers(parsed->mount);
+        return std::any_of(mounted.begin(), mounted.end(), [](const auto& layer) { return layer->isWritable(); });
+    }
+
     std::vector<std::shared_ptr<FileSource>> VirtualFileSystem::layers(std::string_view name) const
     {
         const std::shared_lock lock(m_mutex);
@@ -220,6 +229,22 @@ namespace arc
                 return std::nullopt;
             if (info.type == PathType::File)
                 return layer->read(parsed->path);
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<std::byte>> VirtualFileSystem::readPrefix(std::string_view path, size_t size) const
+    {
+        const std::optional<VirtualPath> parsed = parseVirtualPath(path);
+        if (!parsed)
+            return std::nullopt;
+        for (const std::shared_ptr<FileSource>& layer : layers(parsed->mount))
+        {
+            const FileInfo info = layer->info(parsed->path);
+            if (info.type == PathType::Directory)
+                return std::nullopt;
+            if (info.type == PathType::File)
+                return layer->readPrefix(parsed->path, size);
         }
         return std::nullopt;
     }

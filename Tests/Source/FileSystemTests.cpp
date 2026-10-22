@@ -42,9 +42,10 @@ namespace
             std::error_code error;
             std::filesystem::remove_all(path, error);
         }
+        // With '/' separators, the form DirectorySource gives native paths in on every platform.
         [[nodiscard]] std::string utf8() const
         {
-            const std::u8string u8 = path.u8string();
+            const std::u8string u8 = path.generic_u8string();
             return std::string(u8.begin(), u8.end());
         }
 

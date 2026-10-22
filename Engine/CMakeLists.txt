@@ -1,6 +1,8 @@
 add_library(ArclightEngine STATIC
     Source/Core/Platform.h
     Source/Core/Assert.h
+    Source/Core/BinaryStream.h
+    Source/Core/Hash.h
     Source/Core/Handle.h
     Source/Core/RangeAllocator.h
     Source/Core/RangeAllocator.cpp
@@ -102,6 +104,18 @@ add_library(ArclightEngine STATIC
     Source/Scene/ModelInstantiation.cpp
     Source/Scene/SceneModule.h
     Source/Scene/SceneModule.cpp
+    Source/Assets/AssetDatabase.h
+    Source/Assets/AssetDatabase.cpp
+    Source/Assets/AssetImporters.h
+    Source/Assets/AssetImporters.cpp
+    Source/Assets/AssetMeta.h
+    Source/Assets/AssetMeta.cpp
+    Source/Assets/AssetModule.h
+    Source/Assets/AssetModule.cpp
+    Source/Assets/CookedFormats.h
+    Source/Assets/CookedFormats.cpp
+    Source/Assets/ResourceManager.h
+    Source/Assets/ResourceManager.cpp
     Source/Application/Module.h
     Source/Application/Application.h
     Source/Application/Application.cpp

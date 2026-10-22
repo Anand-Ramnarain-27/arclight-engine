@@ -16,6 +16,7 @@
 
 namespace arc
 {
+    class AssetModule;
     class ImGuiModule;
     class SceneModule;
 
@@ -41,8 +42,9 @@ namespace arc
     class EditorModule final : public Module, public PlatformEventListener
     {
     public:
-        /// `imgui` gives panels ImTextureIDs for engine textures, such as the scene target.
-        EditorModule(Application& app, ImGuiModule& imgui, SceneModule& scene);
+        /// `imgui` gives panels ImTextureIDs for engine textures, such as the scene target; `assets`
+        /// backs the Files panel.
+        EditorModule(Application& app, ImGuiModule& imgui, AssetModule& assets, SceneModule& scene);
         ~EditorModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Editor"; }

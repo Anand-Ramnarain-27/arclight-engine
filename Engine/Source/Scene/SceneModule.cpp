@@ -2,19 +2,18 @@
 
 #include "Application/Application.h"
 #include "Core/Log.h"
-#include "Renderer/GltfImporter.h"
-#include "Renderer/LodGenerator.h"
+#include "Assets/AssetModule.h"
 #include "Renderer/Model.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/ModelInstantiation.h"
 
-#include <chrono>
 #include <cmath>
 
 namespace arc
 {
-    SceneModule::SceneModule(Application& app)
+    SceneModule::SceneModule(Application& app, AssetModule& assets)
         : Module(app)
+        , m_assets(assets)
         , m_scene(std::make_unique<Scene>())
     {
     }
@@ -33,7 +32,6 @@ namespace arc
         // still exist when the models' buffers and textures are released.
         m_renderList.clear();
         m_scene = std::make_unique<Scene>();
-        m_models.clear();
         m_skybox.shutdown();
         m_meshRenderer.shutdown();
     }
@@ -187,29 +185,7 @@ namespace arc
 
     std::shared_ptr<const Model> SceneModule::loadModel(const std::string& path)
     {
-        if (const auto cached = m_models.find(path); cached != m_models.end())
-            if (std::shared_ptr<const Model> model = cached->second.lock())
-                return model;
-
-        const Clock::time_point start = Clock::now();
-        std::optional<ModelData> data = importGltf(path);
-        if (!data)
-            return nullptr;
-        generateLods(*data);
-        std::shared_ptr<const Model> model = Model::create(app().renderer().device(), app().renderer().geometry(), *data);
-        if (!model)
-            return nullptr;
-
-        const double milliseconds = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
-        uint32_t coarsestTriangles = 0;
-        for (const Primitive& primitive : data->primitives)
-            coarsestTriangles += (primitive.lodCount > 0 ? primitive.lods[primitive.lodCount - 1].indexCount : primitive.indexCount) / 3;
-        ARC_LOG_INFO("Loaded '{}': {} nodes, {} materials, {} textures in {:.0f} ms; {} triangles, {} at the coarsest "
-                     "levels of detail",
-                     model->name(), model->nodes().size(), model->materials().size(), model->textureCount(), milliseconds,
-                     model->triangleCount(), coarsestTriangles);
-        m_models[path] = model;
-        return model;
+        return m_assets.resources().loadModel(path);
     }
 
     GameObject* SceneModule::importModel(const std::string& path, GameObject* parent)
@@ -220,10 +196,6 @@ namespace arc
 
     std::vector<std::shared_ptr<const Model>> SceneModule::loadedModels() const
     {
-        std::vector<std::shared_ptr<const Model>> models;
-        for (const auto& [path, weak] : m_models)
-            if (std::shared_ptr<const Model> model = weak.lock())
-                models.push_back(std::move(model));
-        return models;
+        return m_assets.resources().loadedModels();
     }
 }

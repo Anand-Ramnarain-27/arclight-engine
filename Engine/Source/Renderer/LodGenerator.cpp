@@ -28,7 +28,7 @@ namespace arc
                           data.indices.begin() + primitive.firstIndex + primitive.indexCount);
             size_t previousCount = source.size();
             float target = static_cast<float>(source.size());
-            for (uint32_t level = 0; level < kMaxLodLevels; ++level)
+            for (uint32_t level = 0; level < std::min(settings.maxLevels, kMaxLodLevels); ++level)
             {
                 target *= settings.reduction;
                 const size_t targetCount = std::max<size_t>(3, static_cast<size_t>(target) / 3 * 3);

@@ -10,12 +10,12 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace arc
 {
     class Model;
+    class AssetModule;
 
     /// What frustum culling did in the last frame.
     struct CullingStats
@@ -39,13 +39,13 @@ namespace arc
     /// meshes tested one by one, as oriented boxes, which fit rotated meshes more tightly than
     /// world-aligned ones.
     ///
-    /// Models are loaded once per path and shared while anything uses them; the cache holds them
-    /// weakly, so a model whose last MeshComponent is gone is released. Has no UI, so it may be
-    /// added before the editor.
+    /// Models come from the ResourceManager, which loads each asset once and shares it while any
+    /// MeshComponent uses it. Has no UI, so it may be added before the editor.
     class SceneModule final : public Module
     {
     public:
-        explicit SceneModule(Application& app);
+        /// `assets` must be added to the application before this module.
+        SceneModule(Application& app, AssetModule& assets);
         ~SceneModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Scene"; }
@@ -60,8 +60,8 @@ namespace arc
 
         [[nodiscard]] Scene& scene() { return *m_scene; }
 
-        /// The model at `path`, from the cache if it is still loaded. Null, after logging, if it
-        /// cannot be imported. Must be called outside render().
+        /// The model at `path` (virtual or native), shared if it is already loaded. Null, after
+        /// logging, if it cannot be imported. Must be called outside render().
         [[nodiscard]] std::shared_ptr<const Model> loadModel(const std::string& path);
 
         /// Loads the model and instantiates it at the end of `parent`'s children (or the top level).
@@ -105,9 +105,9 @@ namespace arc
         void addMeshes(const GameObject& object, const Frustum* frustum, const LodPolicy& lods);
         void cullAndCollect(const Frustum& frustum, const LodPolicy& lods);
 
+        AssetModule& m_assets;
         std::unique_ptr<Scene> m_scene;
         MeshRenderer m_meshRenderer;
-        std::unordered_map<std::string, std::weak_ptr<const Model>> m_models;
         RenderList m_renderList;
         RenderStats m_stats;
         Skybox m_skybox;

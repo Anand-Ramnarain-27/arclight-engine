@@ -38,9 +38,11 @@ namespace arc
     ///
     /// Its VirtualFileSystem is the active one while the Application exists, with these mounts:
     ///   engine://  the executable's folder (compiled shaders), read-only
-    ///   assets://  Assets/ next to the executable, overlaid by Assets/ in the working directory
-    ///              (Game/ when started from an IDE), read-only
+    ///   assets://  Assets/ next to the executable (read-only), overlaid by Assets/ in the working
+    ///              directory (Game/ when started from an IDE), which is writable
     ///   user://    the per-user settings folder, writable
+    ///   library:// cooked assets: Library/ in the working directory when it has Assets/, otherwise
+    ///              Library/ in the per-user folder; writable
     class Application
     {
     public:

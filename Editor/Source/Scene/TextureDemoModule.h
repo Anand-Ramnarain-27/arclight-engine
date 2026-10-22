@@ -10,6 +10,8 @@
 
 namespace arc
 {
+    class AssetModule;
+
     namespace rhi
     {
         class Buffer;
@@ -29,7 +31,7 @@ namespace arc
     class TextureDemoModule final : public Module
     {
     public:
-        explicit TextureDemoModule(Application& app);
+        TextureDemoModule(Application& app, AssetModule& assets);
         ~TextureDemoModule() override;
 
         [[nodiscard]] std::string_view name() const override { return "Texture Demo"; }
@@ -43,7 +45,8 @@ namespace arc
         struct DemoTexture
         {
             std::string name;
-            std::unique_ptr<rhi::Texture> texture;
+            /// Shared, because the UV grid belongs to the resource manager.
+            std::shared_ptr<rhi::Texture> texture;
             bool colorPerMipLevel = false;
         };
 
@@ -58,6 +61,7 @@ namespace arc
         std::unique_ptr<rhi::Buffer> m_vertexBuffer;
         std::unique_ptr<rhi::Buffer> m_indexBuffer;
 
+        AssetModule& m_assets;
         std::vector<DemoTexture> m_textures;
         size_t m_selectedTexture = 0;
 

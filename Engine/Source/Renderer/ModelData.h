@@ -130,6 +130,10 @@ namespace arc
         /// Decoded RGBA8. Only images used by a material slot that is drawn are decoded; the rest
         /// stay empty.
         std::vector<Image> images;
+        /// Every mip level of each image, level 0 first, when they were made ahead of time (cooked
+        /// models have these and no `images`). Model::create() uploads these as they are, and builds
+        /// the levels from `images` only for an image that has none here.
+        std::vector<std::vector<Image>> imageMips;
 
         /// Model space: every instance's primitives, transformed.
         Aabb bounds;

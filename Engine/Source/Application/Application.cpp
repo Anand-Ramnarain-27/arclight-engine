@@ -188,28 +188,36 @@ namespace arc
         mountFolder("engine", executableFolder, false);
 
         // The executable's copy first and the working directory's last, so it wins: assets edited
-        // in Game/Assets are used without copying them next to the build.
+        // in Game/Assets are used without copying them next to the build. The working directory's
+        // folder is the project's own, so it is writable, for .meta files; the copy next to the
+        // executable is build output and stays read-only.
         const std::string packagedAssets = executableFolder + "Assets";
         if (isDirectory(packagedAssets))
             mountFolder("assets", packagedAssets, false);
         char* currentDirectory = SDL_GetCurrentDirectory();
-        const std::string workingAssets = std::string(currentDirectory ? currentDirectory : "") + "Assets";
+        const std::string workingDirectory = currentDirectory ? currentDirectory : "";
         SDL_free(currentDirectory);
-        if (workingAssets != packagedAssets && isDirectory(workingAssets))
-            mountFolder("assets", workingAssets, false);
+        const std::string workingAssets = workingDirectory + "Assets";
+        const bool projectAssets = workingAssets != packagedAssets && isDirectory(workingAssets);
+        if (projectAssets)
+            mountFolder("assets", workingAssets, true);
         if (!m_fileSystem.isMounted("assets"))
             ARC_LOG_WARN("No Assets folder next to the executable or in the working directory; assets:// is empty");
 
         char* preferences = SDL_GetPrefPath(m_desc.organization.c_str(), m_desc.name.c_str());
-        if (preferences)
-        {
-            mountFolder("user", preferences, true);
-            SDL_free(preferences);
-        }
+        const std::string userFolder = preferences ? preferences : "";
+        SDL_free(preferences);
+        if (!userFolder.empty())
+            mountFolder("user", userFolder, true);
         else
-        {
             ARC_LOG_WARN("No per-user folder ({}); user:// is not mounted", SDL_GetError());
-        }
+
+        // Cooked assets are a cache, rebuilt from the sources at any time: beside the project's
+        // assets when there is a project (Game/Library, ignored by git), otherwise per user.
+        if (projectAssets)
+            mountFolder("library", workingDirectory + "Library", true);
+        else if (!userFolder.empty())
+            mountFolder("library", userFolder + "Library", true);
     }
 
     void Application::addEventListener(PlatformEventListener& listener)

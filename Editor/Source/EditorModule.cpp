@@ -39,7 +39,7 @@ namespace arc
         }
     }
 
-    EditorModule::EditorModule(Application& app, ImGuiModule& imgui, SceneModule& scene)
+    EditorModule::EditorModule(Application& app, ImGuiModule& imgui, AssetModule& assets, SceneModule& scene)
         : Module(app)
         , m_scene(scene)
         , m_selection(scene)
@@ -52,7 +52,7 @@ namespace arc
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
         m_panels.push_back(std::make_unique<FilesPanel>(
-            app.fileSystem(), FilesPanel::Actions{
+            app.fileSystem(), assets, FilesPanel::Actions{
                                   .importModel = [this](const std::string& path) { m_pendingImport = path; },
                                   .loadSkybox = [this](const std::string& folder) {
                                       m_scene.skybox().load(this->app().renderer(), folder);

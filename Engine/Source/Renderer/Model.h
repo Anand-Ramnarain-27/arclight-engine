@@ -2,6 +2,7 @@
 
 #include "Renderer/GeometryPool.h"
 #include "Renderer/ModelData.h"
+#include "Scene/Uuid.h"
 
 #include <array>
 #include <memory>
@@ -48,7 +49,9 @@ namespace arc
         /// Uploads the model into `geometry`, which must outlive it. Textures whose image is missing
         /// or could not be decoded are left null, and MeshRenderer draws them with its "missing"
         /// texture. Returns nullptr and logs if the geometry cannot be uploaded.
-        [[nodiscard]] static std::unique_ptr<Model> create(rhi::Device& device, GeometryPool& geometry, const ModelData& data);
+        /// `asset` is the asset the model was loaded from, if any.
+        [[nodiscard]] static std::unique_ptr<Model> create(rhi::Device& device, GeometryPool& geometry, const ModelData& data,
+                                                           Uuid asset = {});
 
         ~Model();
 
@@ -63,6 +66,8 @@ namespace arc
         [[nodiscard]] const std::vector<PrimitiveLods>& primitiveLods() const { return m_lods; }
         /// Unique among the models created in this run; used to group draws by model in sort keys.
         [[nodiscard]] uint32_t id() const { return m_id; }
+        /// The asset this model was loaded from; null for a model created from data directly.
+        [[nodiscard]] Uuid asset() const { return m_asset; }
 
         [[nodiscard]] const std::vector<Primitive>& primitives() const { return m_primitives; }
         [[nodiscard]] const std::vector<MeshData>& meshes() const { return m_meshes; }
@@ -95,6 +100,7 @@ namespace arc
 
         std::string m_name;
         uint32_t m_id = 0;
+        Uuid m_asset;
         GeometryPool* m_geometry = nullptr;
         GeometryAllocation m_allocation;
         std::vector<PrimitiveLods> m_lods;

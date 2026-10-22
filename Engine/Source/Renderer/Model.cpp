@@ -33,7 +33,7 @@ namespace arc
             m_geometry->free(m_allocation);
     }
 
-    std::unique_ptr<Model> Model::create(rhi::Device& device, GeometryPool& geometry, const ModelData& data)
+    std::unique_ptr<Model> Model::create(rhi::Device& device, GeometryPool& geometry, const ModelData& data, Uuid asset)
     {
         if (data.vertices.empty() || data.indices.empty())
         {
@@ -106,6 +106,7 @@ namespace arc
         std::unique_ptr<Model> model(new Model());
         model->m_name = data.name;
         model->m_id = nextId++;
+        model->m_asset = asset;
         model->m_geometry = &geometry;
         model->m_allocation = *allocation;
         model->m_lods = std::move(lods);
@@ -140,10 +141,16 @@ namespace arc
         for (size_t i = 0; i < data.textures.size(); ++i)
         {
             const TextureData& texture = data.textures[i];
-            if (!isBaseColor[i] || texture.image < 0 || data.images[static_cast<size_t>(texture.image)].empty())
+            if (!isBaseColor[i] || texture.image < 0)
+                continue;
+            const auto image = static_cast<size_t>(texture.image);
+            const bool hasMips = image < data.imageMips.size() && !data.imageMips[image].empty();
+            const bool hasImage = image < data.images.size() && !data.images[image].empty();
+            if (!hasMips && !hasImage)
                 continue;
 
-            const std::vector<Image> levels = generateMipChain(data.images[static_cast<size_t>(texture.image)], ColorSpace::Srgb);
+            const std::vector<Image> generated = hasMips ? std::vector<Image>() : generateMipChain(data.images[image], ColorSpace::Srgb);
+            const std::vector<Image>& levels = hasMips ? data.imageMips[image] : generated;
             model->m_textures[i] = createTexture(device, levels, ColorSpace::Srgb, data.name + " Texture " + std::to_string(i));
 
             const auto shared = std::find_if(model->m_samplers.begin(), model->m_samplers.end(),

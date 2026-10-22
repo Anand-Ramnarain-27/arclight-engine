@@ -71,8 +71,23 @@ Phase 3: engine architecture.
 - Editor: *Files* panel, a tree of every mount showing which layer each file comes from. Double-click or drag a model into the Scene view to import it; right-click to use a folder as the sky, copy a path, or show it in Explorer or Finder.
 - Unit tests for path parsing and normalisation, layer order and merged listings, writes and removal, a native folder with UTF-8 names, routing through `readFile()`, and mounting while other threads read.
 
+#### Asset pipeline
+- `Assets/AssetDatabase`: every model (`.gltf`, `.glb`) and image (`.png`, `.jpg`, `.tga`, `.bmp`) under `assets://` has an id and import settings, kept in a `.meta` file (JSON) next to it. A missing `.meta` file is written, with a new id, to the first writable layer; an asset in a read-only folder, or outside every mount, gets an id derived from its path. A copied `.meta` file is detected and the copy given a new id; `.meta` files without a source are reported.
+- Assets are cooked into Arclight's own binary formats in `library://` (`.arcmodel`, `.arctex`), named by id: a cooked model is ready to upload, with its levels of detail and every texture's mip chain already built. Loading the sample model from its cooked copy takes about a tenth of the time of importing it.
+- A cooked file's header records the source's content hash, the settings, the importer version and the source's size and modification time. While the size and time match, the source is not read; when they differ the content hash decides, so a file only touched (by a git checkout, for example) is not imported again. Cooked files are validated as strictly as glTF files, and a damaged one is rebuilt.
+- Import settings: models have a scale and level-of-detail count and reduction; textures have a colour space, mip maps on or off and a maximum size.
+- `Assets/ResourceManager`: loads each asset once and shares it. Owners hold a `shared_ptr`, which is the reference count; the cache holds resources weakly, so the last owner to let go releases them. `Assets/AssetModule` owns both and scans the assets at start-up.
+- `Core/BinaryStream` (bounds-checked reader and writer) and `Core/Hash` (FNV-1a).
+- `VirtualFileSystem::readPrefix()` and `isWritable()`; `FileSource::readPrefix()`.
+- `LodSettings::maxLevels`.
+- Editor: selecting an asset in the *Files* panel shows its id, whether its cooked copy is current, and its import settings, with *Apply*, *Revert* and *Reimport*. *Import Changed* cooks everything out of date, *Loaded* lists the loaded resources with their owner counts, and *Refresh* rescans the assets. `.meta` files are not listed.
+- `.meta` files for the sample model and the UV grid texture, so their ids are the same on every machine.
+- Unit tests for hashing, binary streams, `.meta` files, cooked models and textures (including truncated and inconsistent files), the importers' settings, ids that last, re-imports after changes, path ids, copied `.meta` files, registration of files outside `assets://` and reference counting.
+
 ### Changed
 - `Model::create()` takes the `GeometryPool` to upload into; models no longer own vertex and index buffers.
+- Models and the texture demo's UV grid load through the `ResourceManager`; `SceneModule` and `TextureDemoModule` take the `AssetModule`, and `EditorModule` takes it too. `Model::create()` takes the id of the asset it comes from (`Model::asset()`), and uploads `ModelData::imageMips` as they are when present.
+- The working directory's `Assets/` (`Game/Assets`) is mounted writable, for `.meta` files, and cooked assets go to `library://`: `Library/` in the working directory when it has `Assets/` (`Game/Library`, ignored by git), otherwise in the per-user folder.
 - `Model::primitiveDraws()` is replaced by `primitiveLods()`, and `RenderList::addMesh()` takes an optional `LodPolicy`.
 - `MeshRenderer::draw()` draws one queue (`Opaque` or `Blended`) per call, so the skybox can be drawn between them.
 - `CommandList::copyBufferToTexture()` and `copyTextureToBuffer()` take an array layer, and `uploadTexture()` takes data for every mip level of every layer.

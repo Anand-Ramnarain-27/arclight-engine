@@ -46,8 +46,8 @@ if(WIN32)
     install(FILES "${CMAKE_BINARY_DIR}/Generated/RenderDoc.txt" DESTINATION ThirdPartyLicenses)
 endif()
 
-# findAssetPath() looks for Assets/ in the working directory first (Game/ when run from an IDE),
-# then next to the executable, which is where the package puts it.
+# The package's Assets/ is the read-only assets:// layer next to the executable. The .meta files go
+# with it, so the packaged editor gives assets the same ids as the project.
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/Game/Assets/ DESTINATION Assets)
 install(FILES "${ARCLIGHT_SAMPLE_MODEL}" DESTINATION Assets/Models)
 

@@ -79,6 +79,8 @@ namespace arc
         /// In search order: for each name, its layers from the most recently mounted.
         [[nodiscard]] std::vector<MountInfo> mounts() const;
         [[nodiscard]] bool isMounted(std::string_view name) const;
+        /// Whether write() to `path` has a layer to go to.
+        [[nodiscard]] bool isWritable(std::string_view path) const;
 
         [[nodiscard]] FileInfo info(std::string_view path) const;
         [[nodiscard]] bool exists(std::string_view path) const { return info(path).type != PathType::None; }
@@ -87,6 +89,8 @@ namespace arc
 
         [[nodiscard]] std::optional<std::vector<std::byte>> read(std::string_view path) const;
         [[nodiscard]] std::optional<std::string> readText(std::string_view path) const;
+        /// At most the first `size` bytes of the file.
+        [[nodiscard]] std::optional<std::vector<std::byte>> readPrefix(std::string_view path, size_t size) const;
 
         /// The children of a directory in every layer, each name once (the first layer that has it
         /// wins), folders first, then by name.

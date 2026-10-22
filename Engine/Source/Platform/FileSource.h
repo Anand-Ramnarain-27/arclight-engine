@@ -52,6 +52,14 @@ namespace arc
 
         [[nodiscard]] virtual FileInfo info(std::string_view path) const = 0;
         [[nodiscard]] virtual std::optional<std::vector<std::byte>> read(std::string_view path) const = 0;
+        /// At most the first `size` bytes, for reading a header without the rest of the file.
+        [[nodiscard]] virtual std::optional<std::vector<std::byte>> readPrefix(std::string_view path, size_t size) const
+        {
+            std::optional<std::vector<std::byte>> bytes = read(path);
+            if (bytes && bytes->size() > size)
+                bytes->resize(size);
+            return bytes;
+        }
         /// Fills `entries` with the directory's children, in no particular order.
         [[nodiscard]] virtual bool list(std::string_view path, std::vector<DirectoryEntry>& entries) const = 0;
 
@@ -87,6 +95,7 @@ namespace arc
 
         [[nodiscard]] FileInfo info(std::string_view path) const override;
         [[nodiscard]] std::optional<std::vector<std::byte>> read(std::string_view path) const override;
+        [[nodiscard]] std::optional<std::vector<std::byte>> readPrefix(std::string_view path, size_t size) const override;
         [[nodiscard]] bool list(std::string_view path, std::vector<DirectoryEntry>& entries) const override;
         bool write(std::string_view path, std::span<const std::byte> data) override;
         bool createDirectory(std::string_view path) override;
@@ -123,9 +132,17 @@ namespace arc
         void addParents(std::string_view path);
         [[nodiscard]] bool hasChildren(std::string_view directory) const;
 
+        struct File
+        {
+            std::vector<std::byte> bytes;
+            /// A counter rather than a time, so every change is seen even within one clock tick.
+            int64_t modifiedTime = 0;
+        };
+
         mutable std::mutex m_mutex;
-        std::map<std::string, std::vector<std::byte>, std::less<>> m_files;
+        std::map<std::string, File, std::less<>> m_files;
         std::set<std::string, std::less<>> m_directories;
+        int64_t m_changes = 0;
         bool m_writable;
     };
 }

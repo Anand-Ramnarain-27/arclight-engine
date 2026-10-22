@@ -104,6 +104,21 @@ namespace arc
         return bytes;
     }
 
+    std::optional<std::vector<std::byte>> DirectorySource::readPrefix(std::string_view path, size_t size) const
+    {
+        SDL_IOStream* stream = SDL_IOFromFile(nativePath(path).c_str(), "rb");
+        if (!stream)
+            return std::nullopt;
+        std::vector<std::byte> bytes(size);
+        const size_t read = size > 0 ? SDL_ReadIO(stream, bytes.data(), size) : 0;
+        const bool failed = read < size && SDL_GetIOStatus(stream) == SDL_IO_STATUS_ERROR;
+        SDL_CloseIO(stream);
+        if (failed)
+            return std::nullopt;
+        bytes.resize(read);
+        return bytes;
+    }
+
     bool DirectorySource::list(std::string_view path, std::vector<DirectoryEntry>& entries) const
     {
         const std::string native = nativePath(path);
@@ -190,7 +205,7 @@ namespace arc
     void MemorySource::add(std::string_view path, std::span<const std::byte> data)
     {
         const std::lock_guard lock(m_mutex);
-        m_files.insert_or_assign(std::string(path), std::vector<std::byte>(data.begin(), data.end()));
+        m_files.insert_or_assign(std::string(path), File{std::vector<std::byte>(data.begin(), data.end()), ++m_changes});
         addParents(path);
     }
 
@@ -205,7 +220,7 @@ namespace arc
         if (path.empty() || m_directories.contains(path))
             return {.type = PathType::Directory};
         if (const auto file = m_files.find(path); file != m_files.end())
-            return {.type = PathType::File, .size = file->second.size()};
+            return {.type = PathType::File, .size = file->second.bytes.size(), .modifiedTime = file->second.modifiedTime};
         return {};
     }
 
@@ -213,7 +228,7 @@ namespace arc
     {
         const std::lock_guard lock(m_mutex);
         if (const auto file = m_files.find(path); file != m_files.end())
-            return file->second;
+            return file->second.bytes;
         return std::nullopt;
     }
 
@@ -231,9 +246,10 @@ namespace arc
                 return std::nullopt;
             return rest;
         };
-        for (const auto& [file, data] : m_files)
-            if (const auto name = childName(file))
-                entries.push_back({std::string(*name), {.type = PathType::File, .size = data.size()}});
+        for (const auto& [filePath, file] : m_files)
+            if (const auto name = childName(filePath))
+                entries.push_back({std::string(*name),
+                                   {.type = PathType::File, .size = file.bytes.size(), .modifiedTime = file.modifiedTime}});
         for (const std::string& directory : m_directories)
             if (const auto name = childName(directory))
                 entries.push_back({std::string(*name), {.type = PathType::Directory}});
