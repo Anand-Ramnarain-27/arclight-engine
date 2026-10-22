@@ -10,10 +10,13 @@ namespace arc
 {
     class VirtualFileSystem;
 
-    /// The ImGui drag-and-drop payload type for a model path: a NUL-terminated UTF-8 string.
-    inline constexpr const char* kModelPathPayload = "ARC_MODEL_PATH";
+    /// The ImGui drag-and-drop payload type for the path of a model or prefab: a NUL-terminated
+    /// UTF-8 string.
+    inline constexpr const char* kAssetPathPayload = "ARC_ASSET_PATH";
 
     [[nodiscard]] bool isModelFile(std::string_view path);
+    [[nodiscard]] bool isPrefabFile(std::string_view path);
+    [[nodiscard]] bool isSceneFile(std::string_view path);
 
     /// The virtual path of a native path inside a mounted folder, otherwise the native path
     /// unchanged. Paths are stored this way, so they keep working when the project is opened from

@@ -104,6 +104,13 @@ add_library(ArclightEngine STATIC
     Source/Scene/ModelInstantiation.cpp
     Source/Scene/SceneModule.h
     Source/Scene/SceneModule.cpp
+    Source/Scene/ComponentData.h
+    Source/Scene/ComponentData.cpp
+    Source/Scene/ComponentDataStorage.h
+    Source/Scene/ComponentRegistry.h
+    Source/Scene/ComponentRegistry.cpp
+    Source/Scene/SceneSerializer.h
+    Source/Scene/SceneSerializer.cpp
     Source/Assets/AssetDatabase.h
     Source/Assets/AssetDatabase.cpp
     Source/Assets/AssetImporters.h

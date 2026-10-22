@@ -5,6 +5,8 @@ add_executable(Arclight
     Source/EditorFiles.h
     Source/EditorFiles.cpp
     Source/EditorSelection.h
+    Source/SceneDocument.h
+    Source/SceneDocument.cpp
     Source/EditorSelection.cpp
     Source/Panels/Panel.h
     Source/Panels/ConsolePanel.h

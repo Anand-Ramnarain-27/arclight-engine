@@ -2,6 +2,7 @@
 
 #include "Core/Log.h"
 #include "Platform/VirtualFileSystem.h"
+#include "Scene/SceneSerializer.h"
 
 #include <SDL3/SDL.h>
 
@@ -45,6 +46,16 @@ namespace arc
     {
         const std::string extension = extensionOf(path);
         return extension == ".gltf" || extension == ".glb";
+    }
+
+    bool isPrefabFile(std::string_view path)
+    {
+        return extensionOf(path) == kPrefabExtension;
+    }
+
+    bool isSceneFile(std::string_view path)
+    {
+        return extensionOf(path) == kSceneExtension;
     }
 
     std::string preferredPath(const VirtualFileSystem& fileSystem, const std::string& path)

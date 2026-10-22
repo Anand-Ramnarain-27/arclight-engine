@@ -4,6 +4,7 @@
 #include "Scene/GameObject.h"
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 
 namespace arc
@@ -37,6 +38,9 @@ namespace arc
 
         [[nodiscard]] const char* title() const override { return "Hierarchy"; }
         void draw(bool* open) override;
+
+        /// Called for "Save as Prefab..." on an object.
+        std::function<void(const GameObject& object)> onSavePrefab;
 
     private:
         enum class Action

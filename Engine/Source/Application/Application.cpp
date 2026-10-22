@@ -157,6 +157,8 @@ namespace arc
             module.shutdown();
         }
         m_modules.clear();
+        // It may refer to a module.
+        m_quitRequestHandler = nullptr;
 
         // The swapchain references the window, so the renderer goes first.
         m_renderer.reset();
@@ -246,7 +248,8 @@ namespace arc
             {
                 case SDL_EVENT_QUIT:
                 case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-                    requestQuit();
+                    if (!m_quitRequestHandler || m_quitRequestHandler())
+                        requestQuit();
                     break;
 
                 case SDL_EVENT_WINDOW_MINIMIZED:

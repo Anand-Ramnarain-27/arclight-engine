@@ -15,8 +15,8 @@ namespace arc
     class VirtualFileSystem;
 
     /// Browses the virtual file system: every mount as a tree, with the layer each file comes
-    /// from. Double-click a model to import it, or drag it into the Scene view; right-click for
-    /// more. Listings are cached and refreshed every few seconds; Refresh also rescans the assets.
+    /// from. Double-click a model or prefab to put it in the scene (or drag it into the Scene view),
+    /// or a scene to open it; right-click for more. Listings are cached and refreshed every few seconds; Refresh also rescans the assets.
     ///
     /// Selecting an asset shows its id, whether its cooked copy is current, and its import
     /// settings, which Apply saves to its .meta file and imports with. .meta files are not listed.
@@ -25,7 +25,8 @@ namespace arc
     public:
         struct Actions
         {
-            std::function<void(const std::string& path)> importModel;
+            /// A model or prefab to put in the scene, or a scene to open.
+            std::function<void(const std::string& path)> open;
             std::function<void(const std::string& folder)> loadSkybox;
         };
 

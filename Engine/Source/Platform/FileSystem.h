@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -19,4 +20,9 @@ namespace arc
 
     /// Bytes, or nothing if `path` is not a file.
     [[nodiscard]] std::optional<uint64_t> fileSize(const std::string& path);
+
+    /// Replaces the file, creating missing folders. A native file is written to a temporary file
+    /// first and renamed over the target, as a virtual one is, so a failed write never leaves half a
+    /// file. False, after logging, on failure.
+    bool writeFile(const std::string& path, std::span<const std::byte> data);
 }

@@ -1,6 +1,7 @@
 #include "Platform/FileSystem.h"
 
 #include "Core/Log.h"
+#include "Platform/FileSource.h"
 #include "Platform/VirtualFileSystem.h"
 
 #include <SDL3/SDL.h>
@@ -71,5 +72,18 @@ namespace arc
         if (!SDL_GetPathInfo(path.c_str(), &info) || info.type != SDL_PATHTYPE_FILE)
             return std::nullopt;
         return info.size;
+    }
+
+    bool writeFile(const std::string& path, std::span<const std::byte> data)
+    {
+        if (isVirtualPath(path))
+        {
+            VirtualFileSystem* fileSystem = fileSystemFor(path);
+            return fileSystem && fileSystem->write(path, data);
+        }
+        // The folder as the root of a writable source, which does the temporary file and rename.
+        const std::string folder = parentPath(path);
+        DirectorySource source(folder.empty() ? "." : folder, true);
+        return source.write(fileNameOf(path), data);
     }
 }

@@ -8,13 +8,15 @@
 
 namespace arc
 {
+    class ComponentData;
     class GameObject;
+    struct ComponentLoadContext;
 
     /// Identifies a component class. There is exactly one per class, so types compare by address,
     /// which needs no RTTI.
     struct ComponentType
     {
-        /// Shown in the editor. Stable: scene files will store it.
+        /// Shown in the editor, and stored in scene files, so it must never change once used.
         std::string_view name;
     };
 
@@ -38,6 +40,14 @@ namespace arc
         /// Called once per frame for enabled components of active GameObjects. Uses the game clock's
         /// delta for simulation, which is zero while the game is paused or stopped.
         virtual void update(const FrameTime& /*time*/) {}
+
+        /// Writes the component's fields for a scene or prefab file. `enabled` and the type are
+        /// written by the serializer. A component with nothing to save keeps the default.
+        virtual void save(ComponentData& /*data*/) const {}
+
+        /// Reads what save() wrote. Fields missing from `data` keep their current values, so files
+        /// written before a field existed still load.
+        virtual void load(const ComponentData& /*data*/, const ComponentLoadContext& /*context*/) {}
 
         /// Valid once the component has been added to a GameObject.
         [[nodiscard]] GameObject& owner() const { return *m_owner; }

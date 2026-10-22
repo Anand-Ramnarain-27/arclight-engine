@@ -113,8 +113,8 @@ namespace arc
         }
         if (ImGui::BeginDragDropTarget())
         {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kModelPathPayload); payload && onModelDropped)
-                onModelDropped(static_cast<const char*>(payload->Data));
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kAssetPathPayload); payload && onAssetDropped)
+                onAssetDropped(static_cast<const char*>(payload->Data));
             ImGui::EndDragDropTarget();
         }
 

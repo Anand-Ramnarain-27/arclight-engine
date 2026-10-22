@@ -1,6 +1,9 @@
 #include "Scene/MeshComponent.h"
 
+#include "Assets/ResourceManager.h"
+#include "Core/Log.h"
 #include "Renderer/Model.h"
+#include "Scene/ComponentData.h"
 #include "Scene/GameObject.h"
 
 #include <utility>
@@ -8,15 +11,35 @@
 namespace arc
 {
     MeshComponent::MeshComponent(std::shared_ptr<const Model> model, uint32_t mesh)
-        : m_model(std::move(model))
-        , m_mesh(mesh)
     {
+        setMesh(std::move(model), mesh);
     }
 
     void MeshComponent::setMesh(std::shared_ptr<const Model> model, uint32_t mesh)
     {
+        m_asset = model ? model->asset() : Uuid{};
         m_model = std::move(model);
         m_mesh = mesh;
+    }
+
+    void MeshComponent::save(ComponentData& data) const
+    {
+        if (m_asset)
+            data.setUuid("model", m_asset);
+        data.setInt("mesh", m_mesh);
+    }
+
+    void MeshComponent::load(const ComponentData& data, const ComponentLoadContext& context)
+    {
+        if (const std::optional<int64_t> mesh = data.getInt("mesh"); mesh && *mesh >= 0)
+            m_mesh = static_cast<uint32_t>(*mesh);
+        const std::optional<Uuid> asset = data.getUuid("model");
+        if (!asset)
+            return;
+        m_asset = *asset;
+        m_model = context.resources ? context.resources->loadModel(*asset) : nullptr;
+        if (!m_model && context.resources)
+            ARC_LOG_WARN("The model {} of a Mesh component could not be loaded; the reference is kept", asset->toString());
     }
 
     bool MeshComponent::hasMesh() const

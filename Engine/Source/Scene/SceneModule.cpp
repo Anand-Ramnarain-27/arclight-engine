@@ -3,6 +3,8 @@
 #include "Application/Application.h"
 #include "Core/Log.h"
 #include "Assets/AssetModule.h"
+#include "Platform/FileSystem.h"
+#include "Scene/SceneSerializer.h"
 #include "Renderer/Model.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/ModelInstantiation.h"
@@ -197,5 +199,110 @@ namespace arc
     std::vector<std::shared_ptr<const Model>> SceneModule::loadedModels() const
     {
         return m_assets.resources().loadedModels();
+    }
+
+    namespace
+    {
+        std::optional<std::string> readText(const std::string& path)
+        {
+            const std::optional<std::vector<std::byte>> bytes = readFile(path);
+            if (!bytes)
+                return std::nullopt;
+            return std::string(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+        }
+
+        bool writeText(const std::string& path, std::string_view text)
+        {
+            return writeFile(path, std::as_bytes(std::span(text.data(), text.size())));
+        }
+    }
+
+    void SceneModule::newScene()
+    {
+        m_scene->clear();
+        m_scenePath.clear();
+    }
+
+    bool SceneModule::openScene(const std::string& path)
+    {
+        const std::optional<std::string> text = readText(path);
+        if (!text)
+        {
+            ARC_LOG_ERROR("Cannot read the scene '{}'", path);
+            return false;
+        }
+        const Stopwatch timer;
+        std::string error;
+        SceneLoadOptions options;
+        options.context.resources = &m_assets.resources();
+        // Clearing the old scene would release models the new one uses too, only to load them again.
+        const std::vector<std::shared_ptr<const Model>> keepLoaded = loadedModels();
+        if (!readScene(*m_scene, *text, options, &error))
+        {
+            ARC_LOG_ERROR("Cannot open the scene '{}': {}", path, error);
+            return false;
+        }
+        m_scenePath = path;
+        ARC_LOG_INFO("Opened '{}': {} objects in {:.1f} ms", path, m_scene->objectCount(), timer.elapsedMs());
+        return true;
+    }
+
+    bool SceneModule::saveScene(const std::string& path)
+    {
+        if (!writeText(path, writeScene(*m_scene)))
+        {
+            ARC_LOG_ERROR("Cannot save the scene to '{}'", path);
+            return false;
+        }
+        m_scenePath = path;
+        ARC_LOG_INFO("Saved '{}' ({} objects)", path, m_scene->objectCount());
+        return true;
+    }
+
+    std::string SceneModule::snapshot() const
+    {
+        return writeScene(*m_scene);
+    }
+
+    bool SceneModule::restore(std::string_view snapshot)
+    {
+        SceneLoadOptions options;
+        options.context.resources = &m_assets.resources();
+        std::string error;
+        const std::vector<std::shared_ptr<const Model>> keepLoaded = loadedModels();
+        if (!readScene(*m_scene, snapshot, options, &error))
+        {
+            ARC_LOG_ERROR("Cannot restore the scene: {}", error);
+            return false;
+        }
+        return true;
+    }
+
+    bool SceneModule::savePrefab(const GameObject& root, const std::string& path)
+    {
+        if (!writeText(path, writePrefab(root)))
+        {
+            ARC_LOG_ERROR("Cannot save the prefab to '{}'", path);
+            return false;
+        }
+        ARC_LOG_INFO("Saved '{}' as a prefab of '{}'", path, root.name());
+        return true;
+    }
+
+    GameObject* SceneModule::instantiatePrefab(const std::string& path, GameObject* parent)
+    {
+        const std::optional<std::string> text = readText(path);
+        if (!text)
+        {
+            ARC_LOG_ERROR("Cannot read the prefab '{}'", path);
+            return nullptr;
+        }
+        SceneLoadOptions options;
+        options.context.resources = &m_assets.resources();
+        std::string error;
+        GameObject* root = arc::instantiatePrefab(*m_scene, *text, parent, options, &error);
+        if (!root)
+            ARC_LOG_ERROR("Cannot place the prefab '{}': {}", path, error);
+        return root;
     }
 }

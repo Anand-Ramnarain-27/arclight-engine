@@ -43,17 +43,20 @@ namespace arc
         : Module(app)
         , m_scene(scene)
         , m_selection(scene)
+        , m_document(app, scene, m_selection)
     {
         auto scenePanel = std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid, m_outline);
-        scenePanel->onModelDropped = [this](const std::string& path) { m_pendingImport = path; };
+        scenePanel->onAssetDropped = [this](const std::string& path) { m_pendingOpen = path; };
         m_panels.push_back(std::move(scenePanel));
-        m_panels.push_back(std::make_unique<HierarchyPanel>(scene, m_selection, m_camera));
+        auto hierarchy = std::make_unique<HierarchyPanel>(scene, m_selection, m_camera);
+        hierarchy->onSavePrefab = [this](const GameObject& object) { m_document.savePrefabAs(object); };
+        m_panels.push_back(std::move(hierarchy));
         m_panels.push_back(std::make_unique<InspectorPanel>(scene, m_selection));
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
         m_panels.push_back(std::make_unique<FilesPanel>(
             app.fileSystem(), assets, FilesPanel::Actions{
-                                  .importModel = [this](const std::string& path) { m_pendingImport = path; },
+                                  .open = [this](const std::string& path) { m_pendingOpen = path; },
                                   .loadSkybox = [this](const std::string& folder) {
                                       m_scene.skybox().load(this->app().renderer(), folder);
                                   },
@@ -72,12 +75,18 @@ namespace arc
         app().addEventListener(*this);
 
         m_recentModels.load(app().fileSystem());
+        app().setQuitRequestHandler([this] { return m_document.confirmQuit(); });
 
-        const std::string samplePath = "assets://Models/Lantern.glb";
-        if (!app().fileSystem().isFile(samplePath))
-            ARC_LOG_WARN("{} not found; re-run CMake to download it, or drop a glTF file on the window", samplePath);
-        else
-            importModel(samplePath, false);
+        if (!m_document.openLastScene())
+        {
+            const std::string samplePath = "assets://Models/Lantern.glb";
+            if (!app().fileSystem().isFile(samplePath))
+                ARC_LOG_WARN("{} not found; re-run CMake to download it, or drop a glTF file on the window", samplePath);
+            else
+                importModel(samplePath, false);
+            // A new scene with the sample in it has nothing to save yet.
+            m_document.markSaved();
+        }
         return true;
     }
 
@@ -90,9 +99,9 @@ namespace arc
 
     void EditorModule::onPlatformEvent(const SDL_Event& event)
     {
-        // Imported in update(), outside the event pump and outside any frame.
+        // Opened in update(), outside the event pump and outside any frame.
         if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
-            m_pendingImport = event.drop.data;
+            m_pendingOpen = event.drop.data;
     }
 
     void EditorModule::importModel(const std::string& path, bool remember)
@@ -113,6 +122,30 @@ namespace arc
         m_importPath[length] = '\0';
     }
 
+    void EditorModule::openPath(const std::string& path)
+    {
+        if (isSceneFile(path))
+        {
+            m_document.open(path);
+        }
+        else if (isPrefabFile(path))
+        {
+            if (GameObject* object = m_scene.instantiatePrefab(preferredPath(app().fileSystem(), path)))
+            {
+                m_selection.select(object);
+                frameSelection();
+            }
+        }
+        else if (isModelFile(path))
+        {
+            importModel(path);
+        }
+        else
+        {
+            ARC_LOG_WARN("'{}' is not a scene, prefab or glTF model", path);
+        }
+    }
+
     void EditorModule::frameSelection()
     {
         if (const GameObject* selected = m_selection.object())
@@ -127,11 +160,14 @@ namespace arc
 
     void EditorModule::update(const FrameTime& /*time*/)
     {
-        if (!m_pendingImport.empty())
+        // First, while nothing holds pointers into the scene: opening a scene or leaving Play mode
+        // replaces every object.
+        m_document.update();
+        if (!m_pendingOpen.empty())
         {
-            const std::string path = std::move(m_pendingImport);
-            m_pendingImport.clear();
-            importModel(path);
+            const std::string path = std::move(m_pendingOpen);
+            m_pendingOpen.clear();
+            openPath(path);
         }
 
         handleShortcuts();
@@ -155,6 +191,7 @@ namespace arc
 
         drawImportPopup();
         drawAboutPopup();
+        m_document.drawPopups();
     }
 
     void EditorModule::requestGpuCapture()
@@ -189,6 +226,8 @@ namespace arc
 
         if (input.wasPressed(Key::F11))
             requestGpuCapture();
+
+        m_document.handleShortcuts();
 
         // Through ImGui rather than Input: Input hides the keyboard while a panel has focus, and
         // these must work from the Hierarchy too. Not while a text field is being edited, where
@@ -290,6 +329,8 @@ namespace arc
 
         if (ImGui::BeginMenu("File"))
         {
+            m_document.drawMenuItems();
+            ImGui::Separator();
             if (ImGui::MenuItem("Import Model..."))
                 openImportDialog();
             if (ImGui::MenuItem("Import Model by Path..."))
@@ -297,7 +338,7 @@ namespace arc
             drawRecentModelsMenu();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit"))
-                app().requestQuit();
+                m_document.quit();
             ImGui::EndMenu();
         }
 
@@ -372,7 +413,7 @@ namespace arc
             m_recentModels.clear(app().fileSystem());
         ImGui::EndMenu();
         if (!chosen.empty())
-            m_pendingImport = chosen;
+            m_pendingOpen = chosen;
     }
 
     void EditorModule::openImportDialog()
@@ -396,7 +437,7 @@ namespace arc
         app().fileDialogs().open(app().window().sdlWindow(), std::move(desc), [this](const FileDialogResult& result) {
             if (result.status == FileDialogResult::Status::Chosen)
             {
-                m_pendingImport = result.paths.front();
+                m_pendingOpen = result.paths.front();
             }
             else if (result.status == FileDialogResult::Status::Failed)
             {
@@ -427,7 +468,7 @@ namespace arc
         ImGui::TextDisabled("Or drop the file on the window.");
         if (ImGui::Button("Import") || submitted)
         {
-            m_pendingImport = m_importPath.data();
+            m_pendingOpen = m_importPath.data();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();

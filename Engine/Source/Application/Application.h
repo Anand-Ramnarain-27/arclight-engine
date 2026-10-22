@@ -11,6 +11,7 @@
 #include "Renderer/Renderer.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -68,6 +69,11 @@ namespace arc
         /// Takes effect at the end of the current frame.
         void requestQuit() { m_quitRequested = true; }
 
+        /// Asked when the user closes the window or the OS asks the program to quit. Returning false
+        /// keeps it running, for example to ask about unsaved changes first; the handler then calls
+        /// requestQuit() itself when it is time. requestQuit() is never asked.
+        void setQuitRequestHandler(std::function<bool()> handler) { m_quitRequestHandler = std::move(handler); }
+
         /// Valid only while run() is executing.
         [[nodiscard]] Window& window() { return *m_window; }
 
@@ -109,6 +115,7 @@ namespace arc
         std::unique_ptr<Renderer> m_renderer;
         std::vector<std::unique_ptr<Module>> m_modules;
         std::vector<PlatformEventListener*> m_eventListeners;
+        std::function<bool()> m_quitRequestHandler;
 
         Input m_input;
         GameClock m_gameClock;

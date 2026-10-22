@@ -95,7 +95,7 @@ namespace arc
             ImGui::OpenPopup("Mounts");
         drawMounts();
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", m_selected.empty() ? "Double-click a model to import it" : m_selected.c_str());
+        ImGui::TextDisabled("%s", m_selected.empty() ? "Double-click a model, prefab or scene to open it" : m_selected.c_str());
 
         const AssetRecord* selectedAsset = m_selected.empty() ? nullptr : database.findByPath(m_selected);
         const float detailsHeight = selectedAsset ? ImGui::GetTextLineHeightWithSpacing() * 11.0f : 0.0f;
@@ -154,16 +154,15 @@ namespace arc
 
             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
                 m_selected = child.path;
-            if (!isDirectory && isModelFile(child.path))
+            const bool placeable = isModelFile(child.path) || isPrefabFile(child.path);
+            if (!isDirectory && (placeable || isSceneFile(child.path)))
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && m_actions.open)
+                    m_actions.open(child.path);
+            if (!isDirectory && placeable && ImGui::BeginDragDropSource())
             {
-                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && m_actions.importModel)
-                    m_actions.importModel(child.path);
-                if (ImGui::BeginDragDropSource())
-                {
-                    ImGui::SetDragDropPayload(kModelPathPayload, child.path.c_str(), child.path.size() + 1);
-                    ImGui::TextUnformatted(child.path.c_str());
-                    ImGui::EndDragDropSource();
-                }
+                ImGui::SetDragDropPayload(kAssetPathPayload, child.path.c_str(), child.path.size() + 1);
+                ImGui::TextUnformatted(child.path.c_str());
+                ImGui::EndDragDropSource();
             }
             drawContextMenu(child);
 
@@ -189,9 +188,15 @@ namespace arc
             return;
         m_selected = entry.path;
         const bool isDirectory = entry.entry.info.type == PathType::Directory;
-        if (!isDirectory && isModelFile(entry.path))
-            if (ImGui::MenuItem("Import into Scene") && m_actions.importModel)
-                m_actions.importModel(entry.path);
+        if (!isDirectory && m_actions.open)
+        {
+            if (isModelFile(entry.path) && ImGui::MenuItem("Import into Scene"))
+                m_actions.open(entry.path);
+            if (isPrefabFile(entry.path) && ImGui::MenuItem("Place in Scene"))
+                m_actions.open(entry.path);
+            if (isSceneFile(entry.path) && ImGui::MenuItem("Open Scene"))
+                m_actions.open(entry.path);
+        }
         if (!isDirectory && assetTypeOf(entry.path) != AssetType::Unknown)
             if (ImGui::MenuItem("Reimport"))
                 if (const AssetId asset = m_assets.database().registerPath(entry.path))

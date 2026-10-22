@@ -33,6 +33,21 @@ namespace arc
         return object;
     }
 
+    GameObject& Scene::create(std::string name, GameObject* parent, Uuid uuid)
+    {
+        ARC_ASSERT(!uuid.isNull());
+        GameObject& object = allocate(std::move(name), uuid);
+        object.attachTo(parent ? *parent : *m_root, GameObject::kAppend);
+        return object;
+    }
+
+    void Scene::clear()
+    {
+        while (!m_root->children().empty())
+            release(*m_root->children().back());
+        m_pendingDestroy.clear();
+    }
+
     GameObject& Scene::cloneSubtree(const GameObject& original, GameObject& parent, size_t index)
     {
         GameObject& copy = allocate(original.name(), Uuid::generate());

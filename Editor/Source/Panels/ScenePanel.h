@@ -49,8 +49,8 @@ namespace arc
         [[nodiscard]] const char* title() const override { return "Scene"; }
         void draw(bool* open) override;
 
-        /// Called with the path of a model dragged from the Files panel and dropped on the view.
-        std::function<void(const std::string& path)> onModelDropped;
+        /// Called with the path of a model or prefab dragged from the Files panel and dropped on the view.
+        std::function<void(const std::string& path)> onAssetDropped;
 
     private:
         void browseForSkybox();

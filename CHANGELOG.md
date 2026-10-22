@@ -84,6 +84,20 @@ Phase 3: engine architecture.
 - `.meta` files for the sample model and the UV grid texture, so their ids are the same on every machine.
 - Unit tests for hashing, binary streams, `.meta` files, cooked models and textures (including truncated and inconsistent files), the importers' settings, ids that last, re-imports after changes, path ids, copied `.meta` files, registration of files outside `assets://` and reference counting.
 
+#### Scenes and prefabs
+- `Scene/SceneSerializer`: scenes (`.scene`) and prefabs (`.prefab`) as JSON. Objects are listed parents first, with their UUID, name, active flag, local transform and components; floats are written with the fewest digits that read back exactly, so files diff cleanly. The whole file is checked before the scene changes, and a damaged object (a missing or repeated id, an unknown parent, an invalid rotation) is repaired and logged rather than failing the load. Files from a newer format version are refused.
+- Components save and load themselves through `Component::save()` and `load()` and `ComponentData`, which keeps the JSON library out of the headers. `ComponentRegistry` creates components from their stored type name; a component of an unknown type becomes a `MissingComponent` that writes its fields back unchanged.
+- `MeshComponent` is saved as its model's asset id and mesh index, loaded through the `ResourceManager`, and keeps the id when the model cannot be loaded (`modelAsset()`).
+- Prefabs: `writePrefab()` saves an object and its subtree; `instantiatePrefab()` places a copy with new UUIDs, any number of times.
+- `SceneModule::newScene()`, `openScene()`, `saveScene()`, `snapshot()`, `restore()`, `savePrefab()` and `instantiatePrefab()`. Models still in use are kept loaded while one scene replaces another.
+- `Scene::create()` with a given UUID, and `Scene::clear()`.
+- `writeFile()` for virtual and native paths, writing through a temporary file.
+- `Application::setQuitRequestHandler()`: the window's close button can be answered later, for example after asking about unsaved changes.
+- Editor: *File > New Scene*, *Open Scene*, *Save Scene* and *Save Scene As* (Ctrl/Cmd+N, O, S, Shift+S), with an offer to save unsaved changes before a new scene, another scene or quitting. The window title shows the scene and a `*` for unsaved changes, found by comparing a hash of the scene with the last saved one. The scene open when the editor closed is opened again at start-up.
+- Editor: Play mode restores the scene on Stop to how it was before Play, with the same selection; saving is disabled while playing.
+- Editor: *Save as Prefab* in the Hierarchy panel's context menu. The Files panel opens scenes and places prefabs on double-click, and prefabs can be dragged into the Scene view like models.
+- Unit tests for component data, scene round trips (saving a loaded scene gives the same file), refused and repaired files, unknown components, mesh references with and without the resource manager, prefabs and `writeFile()`.
+
 ### Changed
 - `Model::create()` takes the `GeometryPool` to upload into; models no longer own vertex and index buffers.
 - Models and the texture demo's UV grid load through the `ResourceManager`; `SceneModule` and `TextureDemoModule` take the `AssetModule`, and `EditorModule` takes it too. `Model::create()` takes the id of the asset it comes from (`Model::asset()`), and uploads `ModelData::imageMips` as they are when present.
