@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(Arclight
-    VERSION 0.3.0
+    VERSION 0.4.0
     DESCRIPTION "Cross-platform C++20 game engine and editor with Direct3D 12 and Metal backends"
     LANGUAGES C CXX)
 

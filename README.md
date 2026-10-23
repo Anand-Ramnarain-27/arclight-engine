@@ -208,7 +208,7 @@ GitHub Actions runs two workflows:
 | ✔︎ | **Foundations** (0.1.0): build, window, input, timing, math, editor shell |
 | ✔︎ | **Rendering hardware interface** (0.2.0): Direct3D 12 and Metal backends, shaders, pipelines, GPU capture |
 | ✔︎ | **Meshes, textures, camera and viewport** (0.3.0): textures, resource lifetimes, scene viewport, editor camera, glTF |
-| In progress | **Engine architecture**: scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail, virtual file system, asset pipeline, scene serialization (done) |
+| ✔︎ | **Engine architecture** (0.4.0): scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail, virtual file system, asset pipeline, scene serialization |
 | Planned | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
 | Planned | **Advanced rendering**: shadows, deferred and Forward+ shading, post-processing |
 | Planned | **Compute, VFX, animation and gameplay**: job system, Tracy profiling, particles, skinning, Jolt physics, navigation, audio |

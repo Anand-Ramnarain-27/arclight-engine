@@ -9,7 +9,7 @@ Status: **Done** (released or merged and working on both platforms), **In progre
 | [Foundations](#foundations) | 0.1.0 | Done |
 | [Rendering hardware interface](#rendering-hardware-interface) | 0.2.0 | Done |
 | [Meshes, textures, camera and viewport](#meshes-textures-camera-and-viewport) | 0.3.0 | Done |
-| [Engine architecture](#engine-architecture) | 0.4.0 | In progress |
+| [Engine architecture](#engine-architecture) | 0.4.0 | Done |
 | [Lighting and PBR](#lighting-and-pbr) | | Planned |
 | [Compute, threading and profiling](#compute-threading-and-profiling) | | Planned |
 | [Advanced rendering](#advanced-rendering) | | Planned |
@@ -54,15 +54,15 @@ Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned as
 
 ## Engine architecture
 
-**In progress.**
+**Done (0.4.0).**
 
-- **Done:** scene of GameObjects and components with a transform hierarchy, and Hierarchy and Inspector panels.
-- **Next:** mouse picking and transform gizmos, with a selection highlight.
-- Renderer structure: a flat render list built from the scene, render passes, pooled GPU buffers with suballocation, and blended draws sorted back to front.
-- Visibility: bounding volumes, hierarchical frustum culling, discrete LODs and a skybox.
-- Virtual file system with mount points, and native file dialogs.
-- Asset pipeline: importers that write custom binary formats, a resource manager with IDs, meta files and import settings.
-- Scene serialization with stable IDs and prefabs.
+- Scene of GameObjects and components with a transform hierarchy, and Hierarchy and Inspector panels.
+- Mouse picking and transform gizmos, with a selection outline.
+- Renderer structure: a render list built from the scene with sorted opaque and blended queues, and pooled GPU geometry with suballocation.
+- Visibility: hierarchical frustum culling, discrete levels of detail and a skybox.
+- Virtual file system with layered mount points, and native file dialogs.
+- Asset pipeline: `.meta` files with stable IDs and import settings, cooked binary formats, and a reference-counted resource manager.
+- Scene and prefab serialization with stable IDs, and Play mode that restores the scene on Stop.
 
 ## Lighting and PBR
 

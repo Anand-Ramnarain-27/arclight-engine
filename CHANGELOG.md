@@ -5,6 +5,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
 Phase 3: engine architecture.
 
 ### Added
@@ -250,7 +252,8 @@ Phase 0: Foundations. No GPU rendering yet.
 - Release packaging: the Release editor build has no console window on Windows, and `cmake --workflow --preset <platform>-release` configures, builds, tests and zips it.
 - GitHub Actions workflow that builds the Windows and macOS zips and drafts a GitHub release when a `v*` tag is pushed.
 
-[Unreleased]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Anand-Ramnarain-27/arclight-engine/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Anand-Ramnarain-27/arclight-engine/releases/tag/v0.1.0
