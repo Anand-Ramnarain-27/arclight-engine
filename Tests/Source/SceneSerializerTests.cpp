@@ -213,7 +213,7 @@ TEST_CASE("Mesh components are saved by model asset and keep it when it cannot l
     data.meshes = {{.name = "Quad", .firstPrimitive = 0, .primitiveCount = 1}};
     const Uuid asset{0x1234};
     std::shared_ptr<const Model> model = Model::create(*device, geometry, data, asset);
-    REQUIRE(model);
+    REQUIRE(model.get());
 
     Scene scene;
     GameObject& object = scene.create("Quad");
@@ -227,7 +227,7 @@ TEST_CASE("Mesh components are saved by model asset and keep it when it cannot l
     const MeshComponent* mesh = loaded.roots()[0]->getComponent<MeshComponent>();
     REQUIRE(mesh);
     CHECK_FALSE(mesh->enabled);
-    CHECK_FALSE(mesh->model());
+    CHECK_FALSE(mesh->model().get());
     CHECK(mesh->modelAsset() == asset);
     CHECK(writeScene(loaded) == json);
 }
@@ -247,7 +247,7 @@ TEST_CASE("Loaded scenes get their models from the resource manager")
     ResourceManager resources(database, *device, geometry);
 
     const std::shared_ptr<const Model> model = resources.loadModel("assets://tri.gltf");
-    REQUIRE(model);
+    REQUIRE(model.get());
     Scene scene;
     scene.create("Triangle").addComponent<MeshComponent>(model, 0);
     const std::string json = writeScene(scene);
@@ -258,7 +258,7 @@ TEST_CASE("Loaded scenes get their models from the resource manager")
     REQUIRE(readScene(loaded, json, options));
     const MeshComponent* mesh = loaded.roots()[0]->getComponent<MeshComponent>();
     REQUIRE(mesh);
-    CHECK(mesh->model() == model);
+    CHECK(mesh->model().get() == model.get());
     CHECK(mesh->hasMesh());
     REQUIRE(resources.loaded().size() == 1);
     // This test, the original scene and the loaded scene.

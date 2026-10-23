@@ -559,11 +559,11 @@ TEST_CASE("The resource manager shares what it loads and lets it go with its las
     ResourceManager resources(database, *device, geometry);
 
     std::shared_ptr<const TextureAsset> first = resources.loadTexture("assets://grid.bmp");
-    REQUIRE(first);
+    REQUIRE(first.get());
     REQUIRE(first->texture);
     CHECK(first->texture->desc().mipLevels == 4);
     std::shared_ptr<const TextureAsset> second = resources.loadTexture(first->asset);
-    CHECK(second == first);
+    CHECK(second.get() == first.get());
     REQUIRE(resources.loaded().size() == 1);
     CHECK(resources.loaded()[0].references == 2);
     CHECK(resources.loaded()[0].path == "assets://grid.bmp");
@@ -574,13 +574,13 @@ TEST_CASE("The resource manager shares what it loads and lets it go with its las
     first.reset();
     CHECK(weak.expired());
     CHECK(resources.loaded().empty());
-    CHECK(resources.loadTexture("assets://grid.bmp") != nullptr);
+    CHECK(resources.loadTexture("assets://grid.bmp").get() != nullptr);
 
     const std::shared_ptr<const Model> model = resources.loadModel("assets://tri.gltf");
-    REQUIRE(model);
+    REQUIRE(model.get());
     CHECK(model->asset() == database.findByPath("assets://tri.gltf")->meta.id);
     CHECK(model->triangleCount() == 1);
     CHECK(resources.loadedModels().size() == 1);
-    CHECK(resources.loadModel("assets://grid.bmp") == nullptr);
-    CHECK(resources.loadModel("assets://nothing.gltf") == nullptr);
+    CHECK(resources.loadModel("assets://grid.bmp").get() == nullptr);
+    CHECK(resources.loadModel("assets://nothing.gltf").get() == nullptr);
 }
