@@ -422,7 +422,7 @@ namespace arc::rhi::d3d12
         resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         resourceDesc.Width = desc.size.width;
         resourceDesc.Height = desc.size.height;
-        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.DepthOrArraySize = static_cast<UINT16>(arrayLayerCount(desc));
         resourceDesc.MipLevels = static_cast<UINT16>(desc.mipLevels);
         resourceDesc.Format = toDxgiFormat(desc.format);
         resourceDesc.SampleDesc.Count = 1;
@@ -452,8 +452,21 @@ namespace arc::rhi::d3d12
             srv = m_cpuSrvHeap.allocate();
             if (!srv.valid())
                 return nullptr;
-            // A null description views every mip level in the resource's own format.
-            m_device->CreateShaderResourceView(resource.Get(), nullptr, srv.cpu);
+            // A null description views a 2D texture's every mip level in its own format; a cube
+            // needs one, or the six layers would be viewed as a Texture2DArray.
+            if (desc.type == TextureType::Cube)
+            {
+                D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+                view.Format = resourceDesc.Format;
+                view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+                view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                view.TextureCube.MipLevels = desc.mipLevels;
+                m_device->CreateShaderResourceView(resource.Get(), &view, srv.cpu);
+            }
+            else
+            {
+                m_device->CreateShaderResourceView(resource.Get(), nullptr, srv.cpu);
+            }
         }
 
         D3D12Descriptor rtv;

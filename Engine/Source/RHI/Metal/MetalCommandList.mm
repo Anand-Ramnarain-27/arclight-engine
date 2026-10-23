@@ -222,11 +222,12 @@ namespace arc::rhi::metal
                                  size:size];
     }
 
-    void MetalCommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
-                                               uint32_t srcRowPitch)
+    void MetalCommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src,
+                                               uint64_t srcOffset, uint32_t srcRowPitch)
     {
         ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
-        validateTextureCopy(dst, mipLevel, ResourceState::CopyDest, src, srcOffset, srcRowPitch, ResourceState::CopySource);
+        validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
+                            ResourceState::CopySource);
 
         const Extent2D size = mipSize(dst.desc().size, mipLevel);
         [blitEncoder() copyFromBuffer:static_cast<MetalBuffer&>(src).native()
@@ -235,20 +236,21 @@ namespace arc::rhi::metal
                   sourceBytesPerImage:NSUInteger{srcRowPitch} * size.height
                            sourceSize:MTLSizeMake(size.width, size.height, 1)
                             toTexture:static_cast<MetalTexture&>(dst).native()
-                     destinationSlice:0
+                     destinationSlice:arrayLayer
                      destinationLevel:mipLevel
                     destinationOrigin:MTLOriginMake(0, 0, 0)];
     }
 
     void MetalCommandList::copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
-                                               uint32_t mipLevel)
+                                               uint32_t mipLevel, uint32_t arrayLayer)
     {
         ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
-        validateTextureCopy(src, mipLevel, ResourceState::CopySource, dst, dstOffset, dstRowPitch, ResourceState::CopyDest);
+        validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
+                            ResourceState::CopyDest);
 
         const Extent2D size = mipSize(src.desc().size, mipLevel);
         [blitEncoder() copyFromTexture:static_cast<MetalTexture&>(src).native()
-                           sourceSlice:0
+                           sourceSlice:arrayLayer
                            sourceLevel:mipLevel
                           sourceOrigin:MTLOriginMake(0, 0, 0)
                             sourceSize:MTLSizeMake(size.width, size.height, 1)

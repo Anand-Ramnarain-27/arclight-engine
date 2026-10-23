@@ -1,13 +1,12 @@
 #pragma once
 
 #include "Math/Math.h"
+#include "Renderer/ModelData.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <span>
-#include <string_view>
 
 namespace arc
 {
@@ -21,14 +20,33 @@ namespace arc
         class Texture;
     }
 
-    /// One mesh of a model, placed in the world.
-    struct MeshDrawItem
+    class RenderList;
+
+    /// What one MeshRenderer::draw() recorded. State changes are counted only when the state really
+    /// changed; a sorted list needs far fewer than an unsorted one for the same draws.
+    struct RenderStats
     {
-        const Model* model = nullptr;
-        uint32_t mesh = 0;    // Into Model::meshes().
-        Mat4 world;           // Object space to world space.
-        /// Names the item's debug group in GPU captures. Must outlive the draw() call.
-        std::string_view debugName;
+        uint32_t draws = 0;
+        uint32_t triangles = 0;
+        uint32_t pipelineChanges = 0;
+        uint32_t bufferBinds = 0;          // Vertex and index buffers.
+        uint32_t textureBinds = 0;         // Texture and sampler pairs.
+        uint32_t constantUploads = 0;      // Per-object and per-material cbuffers.
+        std::array<uint32_t, 1 + kMaxLodLevels> drawsPerLod{};
+
+        [[nodiscard]] RenderStats operator+(const RenderStats& other) const
+        {
+            RenderStats sum{draws + other.draws,
+                            triangles + other.triangles,
+                            pipelineChanges + other.pipelineChanges,
+                            bufferBinds + other.bufferBinds,
+                            textureBinds + other.textureBinds,
+                            constantUploads + other.constantUploads,
+                            {}};
+            for (size_t i = 0; i < sum.drawsPerLod.size(); ++i)
+                sum.drawsPerLod[i] = drawsPerLod[i] + other.drawsPerLod[i];
+            return sum;
+        }
     };
 
     /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene.
@@ -59,14 +77,16 @@ namespace arc
         [[nodiscard]] bool init(Renderer& renderer);
         void shutdown();
 
-        /// Records the items. Must be called inside a scene pass. Every item's opaque and masked
-        /// primitives are drawn first, then the blended ones, in item order (not sorted by distance
-        /// yet).
-        void draw(Renderer& renderer, std::span<const MeshDrawItem> items, DebugView debugView);
+        enum class Queue
+        {
+            Opaque,
+            Blended,
+        };
 
-        /// Every instance of the model, with `transform` applied on top of the model's own node
-        /// transforms.
-        void draw(Renderer& renderer, const Model& model, const Mat4& transform, DebugView debugView);
+        /// Records one of the list's queues in a debug group named after it. Must be called inside a
+        /// scene pass, with the list already sorted; the opaque queue goes first, and anything that
+        /// should cover only empty pixels (the sky) between the two.
+        RenderStats draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView);
 
     private:
         struct PipelineKey

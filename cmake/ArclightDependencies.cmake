@@ -76,6 +76,18 @@ target_include_directories(tinygltf SYSTEM PUBLIC ${tinygltf_SOURCE_DIR})
 target_compile_definitions(tinygltf PUBLIC TINYGLTF_NO_STB_IMAGE TINYGLTF_NO_STB_IMAGE_WRITE TINYGLTF_NO_FS)
 set_target_properties(tinygltf PROPERTIES FOLDER "ThirdParty")
 
+# meshoptimizer: mesh simplification for the generated levels of detail (MIT). Only the library is
+# built; its demo and gltfpack are off by default.
+# Keeps its headers and static library out of the Arclight release package.
+set(MESHOPT_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(meshoptimizer
+    GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
+    GIT_TAG        v1.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(meshoptimizer)
+set_target_properties(meshoptimizer PROPERTIES FOLDER "ThirdParty")
+
 # The sample model the editor opens at start-up: "Lantern" from the Khronos glTF sample assets,
 # CC0 (Microsoft), pinned to a commit of the repository.
 FetchContent_Declare(sample_lantern
@@ -119,6 +131,20 @@ elseif(APPLE)
 endif()
 target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 set_target_properties(imgui PROPERTIES FOLDER "ThirdParty")
+
+# ImGuizmo: translate / rotate / scale gizmos drawn with ImGui. Pinned to a commit: the last tagged
+# release (1.10) still calls the ImDrawList::AddRect() overload that ImGui 1.92.8 deleted. Only
+# ImGuizmo.cpp is built; the repository's other widgets are not used.
+FetchContent_Declare(imguizmo
+    GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+    GIT_TAG        105e4fde45e4e74aae8973d98750820ef7aca7e2
+    SOURCE_SUBDIR  no-cmake
+)
+FetchContent_MakeAvailable(imguizmo)
+add_library(imguizmo STATIC ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp)
+target_include_directories(imguizmo SYSTEM PUBLIC ${imguizmo_SOURCE_DIR}/src)
+target_link_libraries(imguizmo PUBLIC imgui)
+set_target_properties(imguizmo PROPERTIES FOLDER "ThirdParty")
 
 if(ARCLIGHT_BUILD_TESTS)
     FetchContent_Declare(doctest

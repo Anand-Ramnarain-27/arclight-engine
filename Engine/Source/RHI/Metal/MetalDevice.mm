@@ -141,10 +141,15 @@ namespace arc::rhi::metal
 
     std::unique_ptr<Texture> MetalDevice::createTextureImpl(const TextureDesc& desc)
     {
-        MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
-                                                                                              width:desc.size.width
-                                                                                             height:desc.size.height
-                                                                                          mipmapped:NO];
+        MTLTextureDescriptor* descriptor =
+            desc.type == TextureType::Cube
+                ? [MTLTextureDescriptor textureCubeDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
+                                                                        size:desc.size.width
+                                                                   mipmapped:NO]
+                : [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
+                                                                     width:desc.size.width
+                                                                    height:desc.size.height
+                                                                 mipmapped:NO];
         descriptor.mipmapLevelCount = desc.mipLevels;
         // GPU-only, like D3D12's default heap; filled with blit copies from shared buffers.
         descriptor.storageMode = MTLStorageModePrivate;

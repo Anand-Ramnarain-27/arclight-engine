@@ -1,4 +1,5 @@
 #include "Application/Application.h"
+#include "Assets/AssetModule.h"
 #include "EditorModule.h"
 #include "Scene/SceneModule.h"
 #include "Scene/TextureDemoModule.h"
@@ -20,6 +21,8 @@ int main(int argc, char* argv[])
             .width = 1600,
             .height = 900,
         },
+        .organization = "Arclight",
+        .name = "Editor",
     };
     for (int i = 1; i < argc; ++i)
     {
@@ -32,14 +35,16 @@ int main(int argc, char* argv[])
 
     arc::Application app(std::move(desc));
 
-    // ImGuiModule must come first: it starts the ImGui frame that the others draw into. The scene
-    // has no UI and must be initialised before the editor imports into it. The EditorModule's dock
+    // ImGuiModule must come first: it starts the ImGui frame that the others draw into. The asset
+    // database is scanned before anything loads an asset. The scene has no UI and must be
+    // initialised before the editor imports into it. The EditorModule's dock
     // space must exist before other modules submit windows, and the overlays are drawn over
     // everything the modules before them put in the scene.
     arc::ImGuiModule& imgui = app.addModule<arc::ImGuiModule>();
-    arc::SceneModule& scene = app.addModule<arc::SceneModule>();
-    arc::EditorModule& editor = app.addModule<arc::EditorModule>(imgui, scene);
-    app.addModule<arc::TextureDemoModule>();
+    arc::AssetModule& assets = app.addModule<arc::AssetModule>();
+    arc::SceneModule& scene = app.addModule<arc::SceneModule>(assets);
+    arc::EditorModule& editor = app.addModule<arc::EditorModule>(imgui, assets, scene);
+    app.addModule<arc::TextureDemoModule>(assets);
     app.addModule<arc::EditorOverlayModule>(editor);
 
     return app.run();

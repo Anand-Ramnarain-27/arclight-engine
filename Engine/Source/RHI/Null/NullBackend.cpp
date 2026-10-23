@@ -21,8 +21,9 @@ namespace arc::rhi
 {
     namespace
     {
-        // Backed by CPU memory like NullBuffer, one tightly packed array per mip level, so texture
-        // copies really happen and the copy layout can be tested without a GPU.
+        // Backed by CPU memory like NullBuffer, one tightly packed array per subresource (mip level
+        // of an array layer), so texture copies really happen and the copy layout can be tested
+        // without a GPU.
         class NullTexture final : public Texture
         {
         public:
@@ -31,17 +32,22 @@ namespace arc::rhi
             explicit NullTexture(const TextureDesc& desc)
             {
                 m_desc = desc;
-                m_levels.resize(desc.mipLevels);
-                for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
-                {
-                    const Extent2D size = mipSize(desc.size, mip);
-                    m_levels[mip].resize(uint64_t{size.width} * size.height * bytesPerPixel(desc.format));
-                }
+                m_levels.resize(uint64_t{desc.mipLevels} * arrayLayerCount(desc));
+                for (uint32_t layer = 0; layer < arrayLayerCount(desc); ++layer)
+                    for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+                    {
+                        const Extent2D size = mipSize(desc.size, mip);
+                        m_levels[subresourceIndex(desc, mip, layer)].resize(uint64_t{size.width} * size.height *
+                                                                            bytesPerPixel(desc.format));
+                    }
             }
 
             void setDesc(const TextureDesc& desc) { m_desc = desc; }
 
-            [[nodiscard]] std::byte* level(uint32_t mip) { return m_levels[mip].data(); }
+            [[nodiscard]] std::byte* level(uint32_t mip, uint32_t layer)
+            {
+                return m_levels[subresourceIndex(m_desc, mip, layer)].data();
+            }
 
         private:
             std::vector<std::vector<std::byte>> m_levels;
@@ -199,26 +205,26 @@ namespace arc::rhi
                             static_cast<NullBuffer&>(src).bytes() + srcOffset, size);
             }
 
-            void copyBufferToTexture(Texture& dst, uint32_t mipLevel, Buffer& src, uint64_t srcOffset,
+            void copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src, uint64_t srcOffset,
                                      uint32_t srcRowPitch) override
             {
                 ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
-                validateTextureCopy(dst, mipLevel, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
+                validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                                     ResourceState::CopySource);
-                copyRows(static_cast<NullTexture&>(dst).level(mipLevel), rowBytes(dst, mipLevel),
+                copyRows(static_cast<NullTexture&>(dst).level(mipLevel, arrayLayer), rowBytes(dst, mipLevel),
                          static_cast<NullBuffer&>(src).bytes() + srcOffset, srcRowPitch, mipSize(dst.desc().size, mipLevel).height);
             }
 
             void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
-                                     uint32_t mipLevel) override
+                                     uint32_t mipLevel, uint32_t arrayLayer) override
             {
                 ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
-                validateTextureCopy(src, mipLevel, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
+                validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
                                     ResourceState::CopyDest);
                 const uint32_t bytes = rowBytes(src, mipLevel);
                 const uint32_t height = mipSize(src.desc().size, mipLevel).height;
                 std::byte* out = static_cast<NullBuffer&>(dst).bytes() + dstOffset;
-                const std::byte* in = static_cast<NullTexture&>(src).level(mipLevel);
+                const std::byte* in = static_cast<NullTexture&>(src).level(mipLevel, arrayLayer);
                 for (uint32_t row = 0; row < height; ++row)
                     std::memcpy(out + uint64_t{row} * dstRowPitch, in + uint64_t{row} * bytes, bytes);
             }

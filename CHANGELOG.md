@@ -28,12 +28,90 @@ Phase 3: engine architecture.
 - The RenderDoc in-app API licence notice ships in `ThirdPartyLicenses/` of the Windows release zip.
 - `docs/ROADMAP.md`: the milestones after this one, including stylized rendering alongside PBR.
 
+#### Picking, gizmos and the selection outline
+- `Math/Ray`: rays, `intersectRayAabb()` (slab method) and `intersectRayTriangle()` (Möller–Trumbore, both faces). `Camera::viewportRay()` turns a point of the image into a world-space ray.
+- `Scene/Raycast`: `raycast(scene, ray)` returns the nearest triangle of any enabled mesh of an active object, testing mesh bounds, then primitive bounds, then triangles in object space.
+- `Model::positions()` and `indices()`: a CPU copy of the geometry for queries such as picking.
+- Editor: click in the Scene view to select what is under the pointer, or empty space to clear the selection; the Hierarchy expands to show it.
+- Editor: move, rotate and scale gizmos ([ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo), pinned to a commit) with W / E / R, world or local axes, and snapping (a toolbar toggle, inverted while Ctrl is held; steps in *View > Gizmo*).
+- Editor: an outline around the selected object and its children (`SelectionOutline`, `SelectionMask.hlsl`, `Outline.hlsl`): silhouettes into a mask, then a full-screen pass marks pixels just outside it. Colour and thickness in *View > Selection outline*.
+- ImGuizmo's licence notice ships in `ThirdPartyLicenses/`.
+- Unit tests for ray-box and ray-triangle intersection, viewport rays and scene raycasts.
+
+#### Render list and geometry pool
+- `Core/RangeAllocator`: first-fit suballocation from a list of free ranges, merging freed neighbours.
+- `Renderer/GeometryPool`, owned by the Renderer: every model's vertices and indices in shared blocks of a vertex buffer and a 16-bit and a 32-bit index buffer. A model that fits in no block gets a new one, at least its size. Freed ranges are reused only after the frames in flight that may read them have finished.
+- Models store a primitive's indices as 16-bit when every index fits, and 32-bit otherwise.
+- `Renderer/RenderList`: the frame's draws as a flat list built from the scene. Opaque and masked primitives are sorted by a 64-bit key (pipeline state, geometry block, model, material, then view depth front to back); blended primitives are sorted back to front.
+- `MeshRenderer::draw()` draws a render list in *Opaque* and *Blended* debug groups, changes pipeline, buffers, textures and constants only when they differ from the previous draw, and returns `RenderStats`.
+- Editor: draw, triangle and state-change counts and a *Sort draws* toggle in the Scene panel's *View* menu; geometry pool usage in System Info.
+- Unit tests for the range allocator, the geometry pool's blocks and deferred reuse, 16-bit index selection and render list ordering.
+
+#### Visibility, levels of detail and the skybox
+- `Math/Frustum`: planes from the camera's position, axes, field of view and clip distances, and `classify()` for an `Aabb` or an oriented `Obb` (outside, intersecting or inside). With reversed-Z the far plane is at infinity and is left out.
+- `Camera::frustum()`.
+- Hierarchical frustum culling in `SceneModule`: each frame the active hierarchy becomes a flat depth-first list of nodes with the bounds of their subtree. A subtree outside the frustum is skipped whole, one inside it is drawn without further tests, and only meshes of intersecting nodes are tested, as oriented boxes.
+- Discrete levels of detail: `generateLods()` (`Renderer/LodGenerator`, using [meshoptimizer](https://github.com/zeux/meshoptimizer)) adds up to three simplified index ranges per primitive when a model is imported, each with its geometric error. `LodPolicy` picks the coarsest level whose error, projected at the object's distance, stays under a pixel threshold.
+- `Model::primitiveLods()`: every level of a primitive as a draw into the geometry pool.
+- Cube textures in the RHI: `TextureType::Cube` with six array layers, and `subresourceIndex()` and `arrayLayerCount()` helpers. Cube views on Direct3D 12 and Metal.
+- `Renderer/CubeMap`: the face and texel direction convention, and `worldToCube()` from Arclight's right-handed space to the left-handed cube space.
+- `Renderer/Skybox` and `Skybox.hlsl`: a full-screen triangle at the far depth, drawn after opaque geometry and before blended geometry, from six face images (`px`, `nx`, `py`, `ny`, `pz`, `nz`) or a procedural sky whose sun matches the scene's light.
+- Editor: *Visibility* (culling toggle, freeze culling to inspect it from another viewpoint, culling counts), *Level of detail* (error threshold, forced level, draws per level) and *Sky* (show, intensity, load a folder of faces or use the procedural sky) in the Scene panel's *View* menu.
+- meshoptimizer's licence notice ships in `ThirdPartyLicenses/`.
+- Unit tests for frustum classification, oriented box culling, cube face directions, cube texture upload and readback, level-of-detail generation and level selection.
+
+#### File system and file dialogs
+- `Platform/VirtualFileSystem`: named mounts addressed as `mount://folder/file`. Several sources can share a name as layers: the most recently mounted is searched first, listings merge every layer, and writes go to the first writable one. Paths are normalised, and a `..` that would leave the mount is rejected. Safe to use from any thread.
+- `Platform/FileSource`: `DirectorySource` (a native folder; writes go to a temporary file renamed over the target) and `MemorySource` (for tests and built-in data).
+- The Application mounts `engine://` (the executable's folder), `assets://` (`Assets/` next to the executable, overlaid by `Assets/` in the working directory) and `user://` (the per-user settings folder, named by the new `ApplicationDesc::organization` and `name`), and installs its file system as the active one.
+- `readFile()`, `fileExists()` and `fileSize()` take virtual or native paths. Shaders load from `engine://Shaders/`, and images through `readFile()`.
+- `VirtualFileSystem::nativePath()` and `virtualPath()` convert between the two, so a file chosen in a dialog inside a mounted folder is stored by its virtual path.
+- `Platform/FileDialog`: the system's open-file, save-file and folder dialogs through SDL3. Results are queued from whichever thread the platform calls back on and delivered on the main thread at the start of the next frame.
+- Editor: *File > Import Model* opens the system file dialog, with *Import Model by Path* as the fallback when no dialog is available; *File > Recent Models*, kept in `user://RecentModels.txt`; a *Browse* button for the sky folder.
+- Editor: *Files* panel, a tree of every mount showing which layer each file comes from. Double-click or drag a model into the Scene view to import it; right-click to use a folder as the sky, copy a path, or show it in Explorer or Finder.
+- Unit tests for path parsing and normalisation, layer order and merged listings, writes and removal, a native folder with UTF-8 names, routing through `readFile()`, and mounting while other threads read.
+
+#### Asset pipeline
+- `Assets/AssetDatabase`: every model (`.gltf`, `.glb`) and image (`.png`, `.jpg`, `.tga`, `.bmp`) under `assets://` has an id and import settings, kept in a `.meta` file (JSON) next to it. A missing `.meta` file is written, with a new id, to the first writable layer; an asset in a read-only folder, or outside every mount, gets an id derived from its path. A copied `.meta` file is detected and the copy given a new id; `.meta` files without a source are reported.
+- Assets are cooked into Arclight's own binary formats in `library://` (`.arcmodel`, `.arctex`), named by id: a cooked model is ready to upload, with its levels of detail and every texture's mip chain already built. Loading the sample model from its cooked copy takes about a tenth of the time of importing it.
+- A cooked file's header records the source's content hash, the settings, the importer version and the source's size and modification time. While the size and time match, the source is not read; when they differ the content hash decides, so a file only touched (by a git checkout, for example) is not imported again. Cooked files are validated as strictly as glTF files, and a damaged one is rebuilt.
+- Import settings: models have a scale and level-of-detail count and reduction; textures have a colour space, mip maps on or off and a maximum size.
+- `Assets/ResourceManager`: loads each asset once and shares it. Owners hold a `shared_ptr`, which is the reference count; the cache holds resources weakly, so the last owner to let go releases them. `Assets/AssetModule` owns both and scans the assets at start-up.
+- `Core/BinaryStream` (bounds-checked reader and writer) and `Core/Hash` (FNV-1a).
+- `VirtualFileSystem::readPrefix()` and `isWritable()`; `FileSource::readPrefix()`.
+- `LodSettings::maxLevels`.
+- Editor: selecting an asset in the *Files* panel shows its id, whether its cooked copy is current, and its import settings, with *Apply*, *Revert* and *Reimport*. *Import Changed* cooks everything out of date, *Loaded* lists the loaded resources with their owner counts, and *Refresh* rescans the assets. `.meta` files are not listed.
+- `.meta` files for the sample model and the UV grid texture, so their ids are the same on every machine.
+- Unit tests for hashing, binary streams, `.meta` files, cooked models and textures (including truncated and inconsistent files), the importers' settings, ids that last, re-imports after changes, path ids, copied `.meta` files, registration of files outside `assets://` and reference counting.
+
+#### Scenes and prefabs
+- `Scene/SceneSerializer`: scenes (`.scene`) and prefabs (`.prefab`) as JSON. Objects are listed parents first, with their UUID, name, active flag, local transform and components; floats are written with the fewest digits that read back exactly, so files diff cleanly. The whole file is checked before the scene changes, and a damaged object (a missing or repeated id, an unknown parent, an invalid rotation) is repaired and logged rather than failing the load. Files from a newer format version are refused.
+- Components save and load themselves through `Component::save()` and `load()` and `ComponentData`, which keeps the JSON library out of the headers. `ComponentRegistry` creates components from their stored type name; a component of an unknown type becomes a `MissingComponent` that writes its fields back unchanged.
+- `MeshComponent` is saved as its model's asset id and mesh index, loaded through the `ResourceManager`, and keeps the id when the model cannot be loaded (`modelAsset()`).
+- Prefabs: `writePrefab()` saves an object and its subtree; `instantiatePrefab()` places a copy with new UUIDs, any number of times.
+- `SceneModule::newScene()`, `openScene()`, `saveScene()`, `snapshot()`, `restore()`, `savePrefab()` and `instantiatePrefab()`. Models still in use are kept loaded while one scene replaces another.
+- `Scene::create()` with a given UUID, and `Scene::clear()`.
+- `writeFile()` for virtual and native paths, writing through a temporary file.
+- `Application::setQuitRequestHandler()`: the window's close button can be answered later, for example after asking about unsaved changes.
+- Editor: *File > New Scene*, *Open Scene*, *Save Scene* and *Save Scene As* (Ctrl/Cmd+N, O, S, Shift+S), with an offer to save unsaved changes before a new scene, another scene or quitting. The window title shows the scene and a `*` for unsaved changes, found by comparing a hash of the scene with the last saved one. The scene open when the editor closed is opened again at start-up.
+- Editor: Play mode restores the scene on Stop to how it was before Play, with the same selection; saving is disabled while playing.
+- Editor: *Save as Prefab* in the Hierarchy panel's context menu. The Files panel opens scenes and places prefabs on double-click, and prefabs can be dragged into the Scene view like models.
+- Unit tests for component data, scene round trips (saving a loaded scene gives the same file), refused and repaired files, unknown components, mesh references with and without the resource manager, prefabs and `writeFile()`.
+
 ### Changed
+- `Model::create()` takes the `GeometryPool` to upload into; models no longer own vertex and index buffers.
+- Models and the texture demo's UV grid load through the `ResourceManager`; `SceneModule` and `TextureDemoModule` take the `AssetModule`, and `EditorModule` takes it too. `Model::create()` takes the id of the asset it comes from (`Model::asset()`), and uploads `ModelData::imageMips` as they are when present.
+- The working directory's `Assets/` (`Game/Assets`) is mounted writable, for `.meta` files, and cooked assets go to `library://`: `Library/` in the working directory when it has `Assets/` (`Game/Library`, ignored by git), otherwise in the per-user folder.
+- `Model::primitiveDraws()` is replaced by `primitiveLods()`, and `RenderList::addMesh()` takes an optional `LodPolicy`.
+- `MeshRenderer::draw()` draws one queue (`Opaque` or `Blended`) per call, so the skybox can be drawn between them.
+- `CommandList::copyBufferToTexture()` and `copyTextureToBuffer()` take an array layer, and `uploadTexture()` takes data for every mip level of every layer.
+- `MeshDrawItem` and the per-model `MeshRenderer::draw()` overloads are replaced by `RenderList`.
 - The *Model* panel and `ModelViewerModule` are replaced by the scene: models are imported into it at their real size and framed by the camera, instead of being scaled to fit. The shading debug view moved to the Scene panel's *View* menu.
 - `EditorCamera::update()` no longer handles F; the Scene panel frames the selection with `EditorCamera::frame()`, or calls `focusOnOrigin()` when nothing is selected.
 - README rewritten: highlights, platform status, architecture, build steps, editor controls and credits.
 
 ### Removed
+- `findAssetPath()`: assets are opened through `assets://` instead.
 - `Source/`, the original Windows-only starter code that was kept for reference and was not part of the build.
 - `Game/WinPixEventRuntime.dll`, which nothing loaded: PIX captures use `WinPixGpuCapturer.dll` from the PIX installation.
 

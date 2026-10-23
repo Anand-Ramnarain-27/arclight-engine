@@ -5,6 +5,7 @@
 #include "RHI/RHITypes.h"
 #include "Renderer/Image.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -55,6 +56,18 @@ namespace arc
         rhi::SamplerDesc sampler;
     };
 
+    /// A simplified version of a primitive: fewer triangles over the same vertices.
+    struct LodLevel
+    {
+        uint32_t firstIndex = 0;   // Into ModelData::indices, relative to the primitive's baseVertex.
+        uint32_t indexCount = 0;
+        /// Object-space distance the simplified surface may be from the original.
+        float error = 0.0f;
+    };
+
+    /// Simplified levels a primitive can have besides its full-detail one.
+    inline constexpr uint32_t kMaxLodLevels = 3;
+
     /// One draw: a run of indices into the model's shared buffers, with one material.
     struct Primitive
     {
@@ -65,6 +78,9 @@ namespace arc
         uint32_t vertexCount = 0;
         int32_t material = -1;   // Into ModelData::materials; -1 for the default material.
         Aabb bounds;             // Object space.
+        /// Coarser and coarser versions, filled by generateLods(); the first lodCount are valid.
+        std::array<LodLevel, kMaxLodLevels> lods{};
+        uint32_t lodCount = 0;
     };
 
     struct MeshData
@@ -114,6 +130,10 @@ namespace arc
         /// Decoded RGBA8. Only images used by a material slot that is drawn are decoded; the rest
         /// stay empty.
         std::vector<Image> images;
+        /// Every mip level of each image, level 0 first, when they were made ahead of time (cooked
+        /// models have these and no `images`). Model::create() uploads these as they are, and builds
+        /// the levels from `images` only for an image that has none here.
+        std::vector<std::vector<Image>> imageMips;
 
         /// Model space: every instance's primitives, transformed.
         Aabb bounds;

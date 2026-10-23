@@ -36,6 +36,8 @@ xcuserdata/
 # --- Runtime output ---
 *.log
 imgui.ini
+# Cooked assets, rebuilt from Game/Assets whenever they are missing or out of date.
+/Game/Library/
 
 # --- GPU captures (PIX, RenderDoc, Xcode) ---
 Captures/

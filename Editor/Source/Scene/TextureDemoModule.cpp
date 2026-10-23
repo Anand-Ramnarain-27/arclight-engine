@@ -1,9 +1,9 @@
 #include "Scene/TextureDemoModule.h"
 
 #include "Application/Application.h"
+#include "Assets/AssetModule.h"
 #include "Core/Log.h"
 #include "Math/Math.h"
-#include "Platform/FileSystem.h"
 #include "RHI/Buffer.h"
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
@@ -168,7 +168,7 @@ namespace arc
         constexpr std::array<const char*, 3> kBorderNames = {"Transparent black", "Opaque black", "Opaque white"};
     }
 
-    TextureDemoModule::TextureDemoModule(Application& app) : Module(app)
+    TextureDemoModule::TextureDemoModule(Application& app, AssetModule& assets) : Module(app), m_assets(assets)
     {
         m_groundSamplerDesc.debugName = "Ground Sampler";
         m_quadSamplerDesc.addressU = rhi::AddressMode::ClampToBorder;
@@ -254,11 +254,12 @@ namespace arc
         // their GPU memory until those frames complete.
         m_textures.clear();
 
-        const std::string uvGridPath = findAssetPath("Textures/UVGrid.png");
-        if (uvGridPath.empty())
-            ARC_LOG_WARN("Assets/Textures/UVGrid.png not found; the texture demo shows generated textures only");
-        else if (auto texture = loadTexture(device, uvGridPath, ColorSpace::Srgb))
-            m_textures.push_back({"UV grid", std::move(texture), false});
+        const std::string uvGridPath = "assets://Textures/UVGrid.png";
+        if (!app().fileSystem().isFile(uvGridPath))
+            ARC_LOG_WARN("{} not found; the texture demo shows generated textures only", uvGridPath);
+        else if (std::shared_ptr<const TextureAsset> asset = m_assets.resources().loadTexture(uvGridPath))
+            // Shares ownership of the asset, so the resource manager counts the demo as a user.
+            m_textures.push_back({"UV grid", std::shared_ptr<rhi::Texture>(asset, asset->texture.get()), false});
 
         const std::vector<Image> checker =
             generateMipChain(makeChecker({512, 512}, 16, {235, 235, 235}, {30, 30, 30}), ColorSpace::Srgb);

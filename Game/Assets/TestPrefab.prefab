@@ -1,0 +1,58 @@
+{
+  "format": "arclight-prefab",
+  "version": 1,
+  "objects": [
+    {
+      "id": "4b717ea57bb2f67e",
+      "name": "DamagedHelmet.gltf",
+      "active": true,
+      "position": [
+        0.013709545,
+        1.0882272,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "components": []
+    },
+    {
+      "id": "b665efef09abe876",
+      "name": "node_damagedHelmet_-6514",
+      "parent": "4b717ea57bb2f67e",
+      "active": true,
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.7071068,
+        0.0,
+        -0.0,
+        0.7071068
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "components": [
+        {
+          "type": "Mesh",
+          "enabled": true,
+          "model": "26976cd535260b39",
+          "mesh": 0
+        }
+      ]
+    }
+  ]
+}

@@ -31,6 +31,13 @@ namespace arc
         /// A new object with an identity transform, at the end of `parent`'s children, or of the
         /// top-level objects if `parent` is null.
         GameObject& create(std::string name, GameObject* parent = nullptr);
+        /// The same, with a given UUID, for loading saved objects. `uuid` must not be null, and the
+        /// caller makes sure it is unique.
+        GameObject& create(std::string name, GameObject* parent, Uuid uuid);
+
+        /// Destroys every object at once, immediately rather than at flushDestroyed(). Handles to
+        /// them become stale. Must not be called while the hierarchy is being walked.
+        void clear();
 
         /// A deep copy of `original` and everything below it, with new UUIDs and copies of every
         /// component, placed right after the original among its siblings.

@@ -2,14 +2,18 @@
 
 #include "Application/Module.h"
 #include "Core/Time.h"
+#include "Platform/FileDialog.h"
 #include "Platform/Input.h"
 #include "Platform/PlatformEvents.h"
+#include "Platform/VirtualFileSystem.h"
 #include "Platform/Window.h"
 #include "RHI/RHITypes.h"
 #include "Renderer/Renderer.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -24,9 +28,22 @@ namespace arc
 
         /// 0 means unlimited (or paced by vsync).
         uint32_t maxFrameRate = 0;
+
+        /// Name the per-user folder that is mounted as user://, for example
+        /// %APPDATA%/<organization>/<name>/ on Windows and ~/Library/Application Support/<organization>/<name>/ on macOS.
+        std::string organization = "Arclight";
+        std::string name = "Arclight";
     };
 
     /// Owns the platform layer, the window and all modules, and runs the main loop.
+    ///
+    /// Its VirtualFileSystem is the active one while the Application exists, with these mounts:
+    ///   engine://  the executable's folder (compiled shaders), read-only
+    ///   assets://  Assets/ next to the executable (read-only), overlaid by Assets/ in the working
+    ///              directory (Game/ when started from an IDE), which is writable
+    ///   user://    the per-user settings folder, writable
+    ///   library:// cooked assets: Library/ in the working directory when it has Assets/, otherwise
+    ///              Library/ in the per-user folder; writable
     class Application
     {
     public:
@@ -52,11 +69,22 @@ namespace arc
         /// Takes effect at the end of the current frame.
         void requestQuit() { m_quitRequested = true; }
 
+        /// Asked when the user closes the window or the OS asks the program to quit. Returning false
+        /// keeps it running, for example to ask about unsaved changes first; the handler then calls
+        /// requestQuit() itself when it is time. requestQuit() is never asked.
+        void setQuitRequestHandler(std::function<bool()> handler) { m_quitRequestHandler = std::move(handler); }
+
         /// Valid only while run() is executing.
         [[nodiscard]] Window& window() { return *m_window; }
 
         /// Valid only while run() is executing.
         [[nodiscard]] Renderer& renderer() { return *m_renderer; }
+
+        [[nodiscard]] VirtualFileSystem& fileSystem() { return m_fileSystem; }
+        [[nodiscard]] const VirtualFileSystem& fileSystem() const { return m_fileSystem; }
+
+        /// Results arrive at the start of a frame, before the modules update.
+        [[nodiscard]] FileDialogs& fileDialogs() { return m_fileDialogs; }
 
         [[nodiscard]] const Input& input() const { return m_input; }
         [[nodiscard]] Input& input() { return m_input; }
@@ -75,15 +103,19 @@ namespace arc
     private:
         [[nodiscard]] bool init();
         void shutdown();
+        void mountDefaultFolders();
         void pumpEvents();
         void runFrame(Clock::duration realDelta);
         void waitForFrameBudget(Clock::time_point frameStart) const;
 
         ApplicationDesc m_desc;
+        VirtualFileSystem m_fileSystem;
+        FileDialogs m_fileDialogs;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<Renderer> m_renderer;
         std::vector<std::unique_ptr<Module>> m_modules;
         std::vector<PlatformEventListener*> m_eventListeners;
+        std::function<bool()> m_quitRequestHandler;
 
         Input m_input;
         GameClock m_gameClock;

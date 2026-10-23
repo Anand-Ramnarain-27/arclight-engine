@@ -1,5 +1,7 @@
 add_executable(ArclightTests
     Source/TestMain.cpp
+    Source/TestAssets.h
+    Source/TestAssets.cpp
     Source/HandleTests.cpp
     Source/ResourceLifetimeTests.cpp
     Source/UploadRingTests.cpp
@@ -7,10 +9,16 @@ add_executable(ArclightTests
     Source/CameraTests.cpp
     Source/GltfTests.cpp
     Source/SceneTests.cpp
+    Source/RaycastTests.cpp
+    Source/RenderListTests.cpp
+    Source/VisibilityTests.cpp
     Source/TimeTests.cpp
     Source/RHITests.cpp
     Source/TextureTests.cpp
     Source/ImageTests.cpp
+    Source/FileSystemTests.cpp
+    Source/AssetTests.cpp
+    Source/SceneSerializerTests.cpp
 )
 
 target_link_libraries(ArclightTests PRIVATE ArclightEngine doctest::doctest)

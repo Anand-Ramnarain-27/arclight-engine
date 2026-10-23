@@ -12,12 +12,15 @@ namespace arc
     Application::Application(ApplicationDesc desc)
         : m_desc(std::move(desc))
     {
+        setActiveFileSystem(&m_fileSystem);
     }
 
     Application::~Application()
     {
         // No-op after a normal run(); cleans up if run() was never called or exited early.
         shutdown();
+        if (activeFileSystem() == &m_fileSystem)
+            setActiveFileSystem(nullptr);
     }
 
     int Application::run()
@@ -67,6 +70,8 @@ namespace arc
 
     void Application::runFrame(Clock::duration realDelta)
     {
+        m_fileDialogs.dispatch();
+
         m_frameTime = m_gameClock.tick(realDelta);
         m_frameStats.addFrame(m_frameTime.realDelta * 1000.0f);
 
@@ -113,6 +118,9 @@ namespace arc
         }
         m_platformInitialized = true;
 
+        // Before the renderer, which loads its shaders through engine://.
+        mountDefaultFolders();
+
         m_window = Window::create(m_desc.window);
         if (!m_window)
             return false;
@@ -149,6 +157,8 @@ namespace arc
             module.shutdown();
         }
         m_modules.clear();
+        // It may refer to a module.
+        m_quitRequestHandler = nullptr;
 
         // The swapchain references the window, so the renderer goes first.
         m_renderer.reset();
@@ -162,6 +172,54 @@ namespace arc
 
         SDL_Quit();
         m_platformInitialized = false;
+    }
+
+    void Application::mountDefaultFolders()
+    {
+        const auto isDirectory = [](const std::string& path) {
+            SDL_PathInfo info;
+            return SDL_GetPathInfo(path.c_str(), &info) && info.type == SDL_PATHTYPE_DIRECTORY;
+        };
+        const auto mountFolder = [this](const char* name, const std::string& folder, bool writable) {
+            m_fileSystem.mount(name, std::make_shared<DirectorySource>(folder, writable));
+            ARC_LOG_INFO("Mounted {}:// -> {}{}", name, folder, writable ? "" : " (read-only)");
+        };
+
+        const char* basePath = SDL_GetBasePath();
+        const std::string executableFolder = basePath ? basePath : "";
+        mountFolder("engine", executableFolder, false);
+
+        // The executable's copy first and the working directory's last, so it wins: assets edited
+        // in Game/Assets are used without copying them next to the build. The working directory's
+        // folder is the project's own, so it is writable, for .meta files; the copy next to the
+        // executable is build output and stays read-only.
+        const std::string packagedAssets = executableFolder + "Assets";
+        if (isDirectory(packagedAssets))
+            mountFolder("assets", packagedAssets, false);
+        char* currentDirectory = SDL_GetCurrentDirectory();
+        const std::string workingDirectory = currentDirectory ? currentDirectory : "";
+        SDL_free(currentDirectory);
+        const std::string workingAssets = workingDirectory + "Assets";
+        const bool projectAssets = workingAssets != packagedAssets && isDirectory(workingAssets);
+        if (projectAssets)
+            mountFolder("assets", workingAssets, true);
+        if (!m_fileSystem.isMounted("assets"))
+            ARC_LOG_WARN("No Assets folder next to the executable or in the working directory; assets:// is empty");
+
+        char* preferences = SDL_GetPrefPath(m_desc.organization.c_str(), m_desc.name.c_str());
+        const std::string userFolder = preferences ? preferences : "";
+        SDL_free(preferences);
+        if (!userFolder.empty())
+            mountFolder("user", userFolder, true);
+        else
+            ARC_LOG_WARN("No per-user folder ({}); user:// is not mounted", SDL_GetError());
+
+        // Cooked assets are a cache, rebuilt from the sources at any time: beside the project's
+        // assets when there is a project (Game/Library, ignored by git), otherwise per user.
+        if (projectAssets)
+            mountFolder("library", workingDirectory + "Library", true);
+        else if (!userFolder.empty())
+            mountFolder("library", userFolder + "Library", true);
     }
 
     void Application::addEventListener(PlatformEventListener& listener)
@@ -190,7 +248,8 @@ namespace arc
             {
                 case SDL_EVENT_QUIT:
                 case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-                    requestQuit();
+                    if (!m_quitRequestHandler || m_quitRequestHandler())
+                        requestQuit();
                     break;
 
                 case SDL_EVENT_WINDOW_MINIMIZED:

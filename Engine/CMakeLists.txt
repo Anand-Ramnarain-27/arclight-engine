@@ -1,7 +1,11 @@
 add_library(ArclightEngine STATIC
     Source/Core/Platform.h
     Source/Core/Assert.h
+    Source/Core/BinaryStream.h
+    Source/Core/Hash.h
     Source/Core/Handle.h
+    Source/Core/RangeAllocator.h
+    Source/Core/RangeAllocator.cpp
     Source/Core/Assert.cpp
     Source/Core/Log.h
     Source/Core/Log.cpp
@@ -15,6 +19,10 @@ add_library(ArclightEngine STATIC
     Source/Math/Matrix.h
     Source/Math/Matrix.cpp
     Source/Math/Aabb.h
+    Source/Math/Ray.h
+    Source/Math/Frustum.h
+    Source/Math/Frustum.cpp
+    Source/Math/Ray.cpp
     Source/Platform/Window.h
     Source/Platform/Window.cpp
     Source/Platform/Input.h
@@ -22,8 +30,14 @@ add_library(ArclightEngine STATIC
     Source/Platform/PlatformEvents.h
     Source/Platform/SystemInfo.h
     Source/Platform/SystemInfo.cpp
+    Source/Platform/FileDialog.h
+    Source/Platform/FileDialog.cpp
+    Source/Platform/FileSource.h
+    Source/Platform/FileSource.cpp
     Source/Platform/FileSystem.h
     Source/Platform/FileSystem.cpp
+    Source/Platform/VirtualFileSystem.h
+    Source/Platform/VirtualFileSystem.cpp
     Source/RHI/RHITypes.h
     Source/RHI/Texture.h
     Source/RHI/Sampler.h
@@ -52,8 +66,18 @@ add_library(ArclightEngine STATIC
     Source/Renderer/ModelData.h
     Source/Renderer/GltfImporter.h
     Source/Renderer/GltfImporter.cpp
+    Source/Renderer/GeometryPool.h
+    Source/Renderer/GeometryPool.cpp
     Source/Renderer/Model.h
     Source/Renderer/Model.cpp
+    Source/Renderer/LodGenerator.h
+    Source/Renderer/LodGenerator.cpp
+    Source/Renderer/CubeMap.h
+    Source/Renderer/CubeMap.cpp
+    Source/Renderer/Skybox.h
+    Source/Renderer/Skybox.cpp
+    Source/Renderer/RenderList.h
+    Source/Renderer/RenderList.cpp
     Source/Renderer/MeshRenderer.h
     Source/Renderer/MeshRenderer.cpp
     Source/Renderer/ShaderLibrary.h
@@ -74,10 +98,31 @@ add_library(ArclightEngine STATIC
     Source/Scene/Scene.cpp
     Source/Scene/MeshComponent.h
     Source/Scene/MeshComponent.cpp
+    Source/Scene/Raycast.h
+    Source/Scene/Raycast.cpp
     Source/Scene/ModelInstantiation.h
     Source/Scene/ModelInstantiation.cpp
     Source/Scene/SceneModule.h
     Source/Scene/SceneModule.cpp
+    Source/Scene/ComponentData.h
+    Source/Scene/ComponentData.cpp
+    Source/Scene/ComponentDataStorage.h
+    Source/Scene/ComponentRegistry.h
+    Source/Scene/ComponentRegistry.cpp
+    Source/Scene/SceneSerializer.h
+    Source/Scene/SceneSerializer.cpp
+    Source/Assets/AssetDatabase.h
+    Source/Assets/AssetDatabase.cpp
+    Source/Assets/AssetImporters.h
+    Source/Assets/AssetImporters.cpp
+    Source/Assets/AssetMeta.h
+    Source/Assets/AssetMeta.cpp
+    Source/Assets/AssetModule.h
+    Source/Assets/AssetModule.cpp
+    Source/Assets/CookedFormats.h
+    Source/Assets/CookedFormats.cpp
+    Source/Assets/ResourceManager.h
+    Source/Assets/ResourceManager.cpp
     Source/Application/Module.h
     Source/Application/Application.h
     Source/Application/Application.cpp
@@ -125,13 +170,16 @@ target_compile_definitions(ArclightEngine PUBLIC ARCLIGHT_VERSION="${PROJECT_VER
 
 # PRIVATE: no engine header includes SDL, ImGui or a graphics API header, so none of them
 # leak to engine users through the engine.
-target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image tinygltf)
+target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image tinygltf meshoptimizer)
 
 arclight_set_warnings(ArclightEngine)
 
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Textured.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Grid.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Mesh.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/SelectionMask.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Outline.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Skybox.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

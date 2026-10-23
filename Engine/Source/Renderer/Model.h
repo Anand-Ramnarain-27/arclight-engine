@@ -1,7 +1,10 @@
 #pragma once
 
+#include "Renderer/GeometryPool.h"
 #include "Renderer/ModelData.h"
+#include "Scene/Uuid.h"
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,16 +19,39 @@ namespace arc
         class Texture;
     }
 
-    /// A model on the GPU: one vertex buffer and one index buffer shared by every primitive, the
-    /// textures its materials draw with, and the CPU-side description of what to draw.
-    /// Drawn by MeshRenderer.
+    /// Where one primitive's indices are in its model's GeometryPool block, and how to draw them.
+    struct PrimitiveDraw
+    {
+        rhi::IndexFormat indexFormat = rhi::IndexFormat::UInt32;
+        uint32_t firstIndex = 0;   // Into the block's index buffer of that format.
+        uint32_t indexCount = 0;
+        int32_t baseVertex = 0;    // Into the block's vertex buffer; added to every index.
+    };
+
+    /// A primitive's levels of detail as draws: level 0 is full detail, each further level coarser.
+    struct PrimitiveLods
+    {
+        std::array<PrimitiveDraw, 1 + kMaxLodLevels> levels{};
+        /// Object-space deviation from full detail, per level; 0 for level 0.
+        std::array<float, 1 + kMaxLodLevels> errors{};
+        uint32_t count = 1;
+    };
+
+    /// A model on the GPU: its vertices and indices in a GeometryPool block, the textures its
+    /// materials draw with, and the CPU-side description of what to draw. Drawn by MeshRenderer.
+    ///
+    /// A primitive whose indices all fit in 16 bits has them stored as 16-bit, which halves its
+    /// index memory and bandwidth; the others keep 32-bit indices. Each primitive's simplified
+    /// levels (Primitive::lods) are uploaded too, as more index ranges over the same vertices.
     class Model
     {
     public:
-        /// Uploads the model. Textures whose image is missing or could not be decoded are left null,
-        /// and MeshRenderer draws them with its "missing" texture. Returns nullptr and logs if the
-        /// buffers cannot be created.
-        [[nodiscard]] static std::unique_ptr<Model> create(rhi::Device& device, const ModelData& data);
+        /// Uploads the model into `geometry`, which must outlive it. Textures whose image is missing
+        /// or could not be decoded are left null, and MeshRenderer draws them with its "missing"
+        /// texture. Returns nullptr and logs if the geometry cannot be uploaded.
+        /// `asset` is the asset the model was loaded from, if any.
+        [[nodiscard]] static std::unique_ptr<Model> create(rhi::Device& device, GeometryPool& geometry, const ModelData& data,
+                                                           Uuid asset = {});
 
         ~Model();
 
@@ -33,13 +59,25 @@ namespace arc
         Model& operator=(const Model&) = delete;
 
         [[nodiscard]] const std::string& name() const { return m_name; }
-        [[nodiscard]] rhi::Buffer& vertexBuffer() const { return *m_vertexBuffer; }
-        [[nodiscard]] rhi::Buffer& indexBuffer() const { return *m_indexBuffer; }
+        [[nodiscard]] GeometryPool& geometry() const { return *m_geometry; }
+        /// The pool block holding every primitive's vertices and indices.
+        [[nodiscard]] uint32_t geometryBlock() const { return m_allocation.block; }
+        /// Indexed like primitives().
+        [[nodiscard]] const std::vector<PrimitiveLods>& primitiveLods() const { return m_lods; }
+        /// Unique among the models created in this run; used to group draws by model in sort keys.
+        [[nodiscard]] uint32_t id() const { return m_id; }
+        /// The asset this model was loaded from; null for a model created from data directly.
+        [[nodiscard]] Uuid asset() const { return m_asset; }
 
         [[nodiscard]] const std::vector<Primitive>& primitives() const { return m_primitives; }
         [[nodiscard]] const std::vector<MeshData>& meshes() const { return m_meshes; }
         [[nodiscard]] const std::vector<MeshInstance>& instances() const { return m_instances; }
         [[nodiscard]] const std::vector<NodeData>& nodes() const { return m_nodes; }
+
+        /// A CPU copy of every vertex position and index, as in the GPU buffers, for picking and other
+        /// queries that cannot read GPU memory. Primitive::baseVertex applies to these indices too.
+        [[nodiscard]] const std::vector<Vec3>& positions() const { return m_positions; }
+        [[nodiscard]] const std::vector<uint32_t>& indices() const { return m_indices; }
         [[nodiscard]] const std::vector<MaterialData>& materials() const { return m_materials; }
         [[nodiscard]] const Aabb& bounds() const { return m_bounds; }
 
@@ -61,12 +99,17 @@ namespace arc
         Model() = default;
 
         std::string m_name;
-        std::unique_ptr<rhi::Buffer> m_vertexBuffer;
-        std::unique_ptr<rhi::Buffer> m_indexBuffer;
+        uint32_t m_id = 0;
+        Uuid m_asset;
+        GeometryPool* m_geometry = nullptr;
+        GeometryAllocation m_allocation;
+        std::vector<PrimitiveLods> m_lods;
         std::vector<Primitive> m_primitives;
         std::vector<MeshData> m_meshes;
         std::vector<MeshInstance> m_instances;
         std::vector<NodeData> m_nodes;
+        std::vector<Vec3> m_positions;
+        std::vector<uint32_t> m_indices;
         std::vector<MaterialData> m_materials;
         std::vector<std::unique_ptr<rhi::Texture>> m_textures;
         /// Textures with the same sampling settings share a sampler: D3D12's sampler descriptors are

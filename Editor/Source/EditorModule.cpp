@@ -3,6 +3,7 @@
 #include "Application/Application.h"
 #include "Core/Log.h"
 #include "Panels/ConsolePanel.h"
+#include "Panels/FilesPanel.h"
 #include "Panels/HierarchyPanel.h"
 #include "Panels/InspectorPanel.h"
 #include "Panels/PerformancePanel.h"
@@ -13,6 +14,7 @@
 #include "RHI/Device.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/SceneModule.h"
+#include "Scene/TransformGizmo.h"
 
 #include <SDL3/SDL_events.h>
 #include <imgui.h>
@@ -37,16 +39,28 @@ namespace arc
         }
     }
 
-    EditorModule::EditorModule(Application& app, ImGuiModule& imgui, SceneModule& scene)
+    EditorModule::EditorModule(Application& app, ImGuiModule& imgui, AssetModule& assets, SceneModule& scene)
         : Module(app)
         , m_scene(scene)
         , m_selection(scene)
+        , m_document(app, scene, m_selection)
     {
-        m_panels.push_back(std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid));
-        m_panels.push_back(std::make_unique<HierarchyPanel>(scene, m_selection, m_camera));
+        auto scenePanel = std::make_unique<ScenePanel>(app, imgui, scene, m_selection, m_camera, m_grid, m_outline);
+        scenePanel->onAssetDropped = [this](const std::string& path) { m_pendingOpen = path; };
+        m_panels.push_back(std::move(scenePanel));
+        auto hierarchy = std::make_unique<HierarchyPanel>(scene, m_selection, m_camera);
+        hierarchy->onSavePrefab = [this](const GameObject& object) { m_document.savePrefabAs(object); };
+        m_panels.push_back(std::move(hierarchy));
         m_panels.push_back(std::make_unique<InspectorPanel>(scene, m_selection));
         m_panels.push_back(std::make_unique<PlaybackPanel>(app));
         m_panels.push_back(std::make_unique<ConsolePanel>());
+        m_panels.push_back(std::make_unique<FilesPanel>(
+            app.fileSystem(), assets, FilesPanel::Actions{
+                                  .open = [this](const std::string& path) { m_pendingOpen = path; },
+                                  .loadSkybox = [this](const std::string& folder) {
+                                      m_scene.skybox().load(this->app().renderer(), folder);
+                                  },
+                              }));
         m_panels.push_back(std::make_unique<PerformancePanel>(app));
         m_panels.push_back(std::make_unique<SystemInfoPanel>(app));
     }
@@ -56,42 +70,80 @@ namespace arc
 
     bool EditorModule::init()
     {
-        if (!m_grid.init(app().renderer()))
+        if (!m_grid.init(app().renderer()) || !m_outline.init(app().renderer()))
             return false;
         app().addEventListener(*this);
 
-        const std::string samplePath = findAssetPath("Models/Lantern.glb");
-        if (samplePath.empty())
-            ARC_LOG_WARN("Assets/Models/Lantern.glb not found; re-run CMake to download it, or drop a glTF file on the window");
-        else
-            importModel(samplePath);
+        m_recentModels.load(app().fileSystem());
+        app().setQuitRequestHandler([this] { return m_document.confirmQuit(); });
+
+        if (!m_document.openLastScene())
+        {
+            const std::string samplePath = "assets://Models/Lantern.glb";
+            if (!app().fileSystem().isFile(samplePath))
+                ARC_LOG_WARN("{} not found; re-run CMake to download it, or drop a glTF file on the window", samplePath);
+            else
+                importModel(samplePath, false);
+            // A new scene with the sample in it has nothing to save yet.
+            m_document.markSaved();
+        }
         return true;
     }
 
     void EditorModule::shutdown()
     {
         app().removeEventListener(*this);
+        m_outline.shutdown();
         m_grid.shutdown();
     }
 
     void EditorModule::onPlatformEvent(const SDL_Event& event)
     {
-        // Imported in update(), outside the event pump and outside any frame.
+        // Opened in update(), outside the event pump and outside any frame.
         if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
-            m_pendingImport = event.drop.data;
+            m_pendingOpen = event.drop.data;
     }
 
-    void EditorModule::importModel(const std::string& path)
+    void EditorModule::importModel(const std::string& path, bool remember)
     {
-        GameObject* object = m_scene.importModel(path);
+        // One path per file, so the model cache shares a model dropped from Explorer with the same
+        // model imported from the Files panel.
+        const std::string stored = preferredPath(app().fileSystem(), path);
+        GameObject* object = m_scene.importModel(stored);
         if (!object)
             return;
         m_selection.select(object);
         frameSelection();
+        if (remember)
+            m_recentModels.add(app().fileSystem(), stored);
 
-        const size_t length = std::min(path.size(), m_importPath.size() - 1);
-        std::memcpy(m_importPath.data(), path.data(), length);
+        const size_t length = std::min(stored.size(), m_importPath.size() - 1);
+        std::memcpy(m_importPath.data(), stored.data(), length);
         m_importPath[length] = '\0';
+    }
+
+    void EditorModule::openPath(const std::string& path)
+    {
+        if (isSceneFile(path))
+        {
+            m_document.open(path);
+        }
+        else if (isPrefabFile(path))
+        {
+            if (GameObject* object = m_scene.instantiatePrefab(preferredPath(app().fileSystem(), path)))
+            {
+                m_selection.select(object);
+                frameSelection();
+            }
+        }
+        else if (isModelFile(path))
+        {
+            importModel(path);
+        }
+        else
+        {
+            ARC_LOG_WARN("'{}' is not a scene, prefab or glTF model", path);
+        }
     }
 
     void EditorModule::frameSelection()
@@ -103,20 +155,25 @@ namespace arc
     void EditorModule::renderSceneOverlays()
     {
         m_grid.render(app().renderer());
+        m_outline.render(app().renderer(), m_selection.object());
     }
 
     void EditorModule::update(const FrameTime& /*time*/)
     {
-        if (!m_pendingImport.empty())
+        // First, while nothing holds pointers into the scene: opening a scene or leaving Play mode
+        // replaces every object.
+        m_document.update();
+        if (!m_pendingOpen.empty())
         {
-            const std::string path = std::move(m_pendingImport);
-            m_pendingImport.clear();
-            importModel(path);
+            const std::string path = std::move(m_pendingOpen);
+            m_pendingOpen.clear();
+            openPath(path);
         }
 
         handleShortcuts();
         logInputActivity();
 
+        TransformGizmo::beginFrame();
         drawMainMenu();
         drawDockSpace();
         for (auto& panel : m_panels)
@@ -129,9 +186,12 @@ namespace arc
         // After the Scene panel, which moves the camera. Also when the panel is closed, so settings
         // keep applying.
         app().renderer().setSceneCamera(m_camera.camera());
+        // The Scene panel has given the scene target its size for this frame.
+        m_outline.prepare(app().renderer());
 
         drawImportPopup();
         drawAboutPopup();
+        m_document.drawPopups();
     }
 
     void EditorModule::requestGpuCapture()
@@ -166,6 +226,8 @@ namespace arc
 
         if (input.wasPressed(Key::F11))
             requestGpuCapture();
+
+        m_document.handleShortcuts();
 
         // Through ImGui rather than Input: Input hides the keyboard while a panel has focus, and
         // these must work from the Hierarchy too. Not while a text field is being edited, where
@@ -249,6 +311,7 @@ namespace arc
         ImGui::DockBuilderDockWindow("Hierarchy", left);
         ImGui::DockBuilderDockWindow("Playback", top);
         ImGui::DockBuilderDockWindow("Console", bottom);
+        ImGui::DockBuilderDockWindow("Files", bottom);
         ImGui::DockBuilderDockWindow("Inspector", rightTop);
         ImGui::DockBuilderDockWindow("Performance", rightBottom);
         ImGui::DockBuilderDockWindow("System Info", rightBottom);
@@ -266,11 +329,16 @@ namespace arc
 
         if (ImGui::BeginMenu("File"))
         {
+            m_document.drawMenuItems();
+            ImGui::Separator();
             if (ImGui::MenuItem("Import Model..."))
+                openImportDialog();
+            if (ImGui::MenuItem("Import Model by Path..."))
                 m_openImport = true;
+            drawRecentModelsMenu();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit"))
-                app().requestQuit();
+                m_document.quit();
             ImGui::EndMenu();
         }
 
@@ -331,18 +399,67 @@ namespace arc
         ImGui::EndMenu();
     }
 
+    void EditorModule::drawRecentModelsMenu()
+    {
+        const std::vector<std::string>& recent = m_recentModels.paths();
+        if (!ImGui::BeginMenu("Recent Models", !recent.empty()))
+            return;
+        std::string chosen;
+        for (const std::string& path : recent)
+            if (ImGui::MenuItem(path.c_str(), nullptr, false, fileExists(path)))
+                chosen = path;
+        ImGui::Separator();
+        if (ImGui::MenuItem("Clear List"))
+            m_recentModels.clear(app().fileSystem());
+        ImGui::EndMenu();
+        if (!chosen.empty())
+            m_pendingOpen = chosen;
+    }
+
+    void EditorModule::openImportDialog()
+    {
+        const VirtualFileSystem& fileSystem = app().fileSystem();
+        std::string location;
+        if (!m_recentModels.paths().empty())
+        {
+            const std::string& last = m_recentModels.paths().front();
+            location = parentPath(isVirtualPath(last) ? fileSystem.nativePath(last) : last);
+        }
+        if (location.empty())
+            location = fileSystem.nativePath("assets://Models");
+
+        FileDialogDesc desc{
+            .type = FileDialogType::OpenFile,
+            .title = "Import Model",
+            .filters = {{"glTF models", "gltf;glb"}, {"All files", "*"}},
+            .defaultLocation = location,
+        };
+        app().fileDialogs().open(app().window().sdlWindow(), std::move(desc), [this](const FileDialogResult& result) {
+            if (result.status == FileDialogResult::Status::Chosen)
+            {
+                m_pendingOpen = result.paths.front();
+            }
+            else if (result.status == FileDialogResult::Status::Failed)
+            {
+                // Linux without a desktop portal or zenity, for example.
+                ARC_LOG_WARN("The file dialog is not available ({}); enter the path instead", result.error);
+                m_openImport = true;
+            }
+        });
+    }
+
     void EditorModule::drawImportPopup()
     {
         if (m_openImport)
         {
-            ImGui::OpenPopup("Import Model");
+            ImGui::OpenPopup("Import Model by Path");
             m_openImport = false;
         }
 
         ImGui::SetNextWindowSize({520.0f, 0.0f}, ImGuiCond_Appearing);
-        if (!ImGui::BeginPopupModal("Import Model", nullptr))
+        if (!ImGui::BeginPopupModal("Import Model by Path", nullptr))
             return;
-        ImGui::TextUnformatted("Path to a .gltf or .glb file:");
+        ImGui::TextUnformatted("Path to a .gltf or .glb file, native or virtual (assets://...):");
         if (ImGui::IsWindowAppearing())
             ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(-1.0f);
@@ -351,7 +468,7 @@ namespace arc
         ImGui::TextDisabled("Or drop the file on the window.");
         if (ImGui::Button("Import") || submitted)
         {
-            m_pendingImport = m_importPath.data();
+            m_pendingOpen = m_importPath.data();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();

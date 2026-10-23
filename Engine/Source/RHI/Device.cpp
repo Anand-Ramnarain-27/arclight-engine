@@ -95,6 +95,9 @@ namespace arc::rhi
                        "Texture '{}' asks for {} mip levels; its size allows 1 to {}", desc.debugName,
                        desc.mipLevels, fullMipCount(desc.size));
             ARC_ASSERT(desc.usage != TextureUsage::None, "Texture '{}' has no usage", desc.debugName);
+            ARC_ASSERT(desc.type != TextureType::Cube ||
+                           (desc.size.width == desc.size.height && desc.usage == TextureUsage::Sampled),
+                       "Cube texture '{}' must be square and only sampled", desc.debugName);
             const bool depthUsage = hasFlag(desc.usage, TextureUsage::DepthStencil);
             ARC_ASSERT(depthUsage == isDepthFormat(desc.format),
                        "Texture '{}': DepthStencil usage and a depth format go together", desc.debugName);

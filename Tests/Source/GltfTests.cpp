@@ -295,7 +295,8 @@ TEST_CASE("glTF: materials, samplers and embedded images")
     // On the GPU, the undecodable texture is left null for the renderer's "missing" stand-in.
     auto device = rhi::createNullDevice({});
     REQUIRE(device);
-    const auto gpuModel = Model::create(*device, *model);
+    GeometryPool geometry(*device);
+    const auto gpuModel = Model::create(*device, geometry, *model);
     REQUIRE(gpuModel);
     CHECK(gpuModel->texture(0) != nullptr);
     CHECK(gpuModel->texture(0)->desc().format == rhi::Format::RGBA8_UNORM_SRGB);

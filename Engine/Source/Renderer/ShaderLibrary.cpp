@@ -1,14 +1,14 @@
 #include "Renderer/ShaderLibrary.h"
 
 #include "Core/Log.h"
+#include "Platform/FileSystem.h"
 #include "RHI/Device.h"
 #include "RHI/Shader.h"
 
-#include <SDL3/SDL.h>
-
 #include <cstddef>
 #include <format>
-#include <span>
+#include <optional>
+#include <vector>
 
 namespace arc
 {
@@ -37,9 +37,9 @@ namespace arc
 
     ShaderLibrary::ShaderLibrary(rhi::Device& device) : m_device(device)
     {
-        // The executable's folder rather than the working directory, which the IDEs set to Game/.
-        const char* basePath = SDL_GetBasePath();
-        m_directory = std::string(basePath ? basePath : "") + "Shaders/";
+        // The engine mount is the executable's folder, where the build puts the compiled shaders,
+        // rather than the working directory, which the IDEs set to Game/.
+        m_directory = "engine://Shaders/";
     }
 
     std::unique_ptr<rhi::Shader> ShaderLibrary::load(std::string_view name, rhi::ShaderStage stage,
@@ -48,23 +48,18 @@ namespace arc
         const std::string fileName = std::format("{}.{}.{}", name, stageSuffix(stage), formatExtension(m_device.shaderFormat()));
         const std::string path = m_directory + fileName;
 
-        // SDL_LoadFile handles UTF-8 paths on every platform, including Windows.
-        size_t size = 0;
-        void* data = SDL_LoadFile(path.c_str(), &size);
-        if (!data)
+        const std::optional<std::vector<std::byte>> bytecode = readFile(path);
+        if (!bytecode)
         {
-            ARC_LOG_ERROR("Cannot read shader '{}': {}", path, SDL_GetError());
+            ARC_LOG_ERROR("Cannot read shader '{}'", path);
             return nullptr;
         }
 
         rhi::ShaderDesc desc;
         desc.stage = stage;
-        desc.bytecode = std::span(static_cast<const std::byte*>(data), size);
+        desc.bytecode = *bytecode;
         desc.entryPoint = entryPoint;
         desc.debugName = fileName;
-
-        auto shader = m_device.createShader(desc);
-        SDL_free(data);
-        return shader;
+        return m_device.createShader(desc);
     }
 }

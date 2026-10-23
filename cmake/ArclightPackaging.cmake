@@ -20,6 +20,8 @@ install(FILES
 # SDL3 and Dear ImGui are linked statically, so their notices ship with the binary.
 install(FILES ${sdl3_SOURCE_DIR}/LICENSE.txt  DESTINATION ThirdPartyLicenses RENAME SDL3.txt)
 install(FILES ${imgui_SOURCE_DIR}/LICENSE.txt DESTINATION ThirdPartyLicenses RENAME DearImGui.txt)
+install(FILES ${imguizmo_SOURCE_DIR}/LICENSE DESTINATION ThirdPartyLicenses RENAME ImGuizmo.txt)
+install(FILES ${meshoptimizer_SOURCE_DIR}/LICENSE.md DESTINATION ThirdPartyLicenses RENAME meshoptimizer.txt)
 install(FILES ${tinygltf_SOURCE_DIR}/LICENSE DESTINATION ThirdPartyLicenses RENAME tinygltf.txt)
 # nlohmann/json, vendored by tinygltf, carries its MIT notice in the comment that opens json.hpp.
 file(READ "${tinygltf_SOURCE_DIR}/json.hpp" nlohmann_json_header LIMIT 4096)
@@ -44,8 +46,8 @@ if(WIN32)
     install(FILES "${CMAKE_BINARY_DIR}/Generated/RenderDoc.txt" DESTINATION ThirdPartyLicenses)
 endif()
 
-# findAssetPath() looks for Assets/ in the working directory first (Game/ when run from an IDE),
-# then next to the executable, which is where the package puts it.
+# The package's Assets/ is the read-only assets:// layer next to the executable. The .meta files go
+# with it, so the packaged editor gives assets the same ids as the project.
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/Game/Assets/ DESTINATION Assets)
 install(FILES "${ARCLIGHT_SAMPLE_MODEL}" DESTINATION Assets/Models)
 

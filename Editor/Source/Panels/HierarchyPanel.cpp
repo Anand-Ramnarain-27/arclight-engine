@@ -154,6 +154,8 @@ namespace arc
             ImGui::Separator();
             if (ImGui::MenuItem("Frame in Scene View"))
                 request(Action::Frame);
+            if (ImGui::MenuItem("Save as Prefab...") && onSavePrefab)
+                onSavePrefab(object);
             ImGui::EndPopup();
         }
 
