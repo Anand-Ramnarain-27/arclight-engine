@@ -155,6 +155,19 @@ namespace arc::rhi::d3d12
         }
     }
 
+    void D3D12CommandList::setBuffer(uint32_t slot, Buffer& buffer)
+    {
+        ARC_ASSERT(m_inRenderPass, "setBuffer outside a render pass");
+        validateBufferBinding(slot, buffer);
+        // Shares the texture table: a StructuredBuffer is an SRV like a texture, in a t register.
+        const D3D12_CPU_DESCRIPTOR_HANDLE srv = static_cast<D3D12Buffer&>(buffer).srv();
+        if (m_textures[slot].ptr != srv.ptr)
+        {
+            m_textures[slot] = srv;
+            m_texturesDirty = true;
+        }
+    }
+
     void D3D12CommandList::setSampler(uint32_t slot, Sampler& sampler)
     {
         ARC_ASSERT(m_inRenderPass, "setSampler outside a render pass");

@@ -9,7 +9,9 @@
 #include "RHI/Shader.h"
 #include "RHI/Texture.h"
 #include "RHI/TextureUtils.h"
+#include "Math/Color.h"
 #include "Renderer/CubeMap.h"
+#include "Renderer/Lighting.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderLibrary.h"
 
@@ -35,14 +37,9 @@ namespace arc
         constexpr const char* kExtensions[] = {".png", ".jpg", ".jpeg", ".tga", ".bmp"};
         constexpr uint32_t kProceduralSize = 128;
 
-        // The direction the mesh shader's light comes from (lightDirection in Mesh.hlsl).
-        constexpr Vec3 kSunDirection{0.4f, 0.8f, 0.45f};
-
         std::byte encodeSrgb(float linear)
         {
-            const float c = std::clamp(linear, 0.0f, 1.0f);
-            const float encoded = c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
-            return static_cast<std::byte>(std::lround(encoded * 255.0f));
+            return static_cast<std::byte>(std::lround(linearToSrgb(linear) * 255.0f));
         }
 
         // Linear RGB of the sky in a world direction (unit length).
@@ -59,7 +56,8 @@ namespace arc
                 color = lerp(horizon, ground, std::min(1.0f, -direction.y * 6.0f));
 
             // A disc of about 1.5 degrees, and a glow around it that fades over tens of degrees.
-            const float cosine = dot(direction, normalize(kSunDirection));
+            static const Vec3 toSun = -defaultSunLight().direction;
+            const float cosine = dot(direction, toSun);
             const float glow = std::pow(std::max(cosine, 0.0f), 48.0f) * 0.35f;
             const float disc = cosine > std::cos(toRadians(1.5f)) ? 1.0f : 0.0f;
             return color + Vec3{1.0f, 0.92f, 0.8f} * (glow + disc);

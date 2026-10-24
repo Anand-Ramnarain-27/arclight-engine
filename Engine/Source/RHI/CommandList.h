@@ -82,6 +82,13 @@ namespace arc::rhi
         /// shader reads must be bound: Metal's API validation rejects a draw with a missing texture.
         virtual void setTexture(uint32_t slot, Texture& texture) = 0;
 
+        /// Binds a Structured buffer to slot t<slot> of both shader stages, read as a StructuredBuffer,
+        /// for the draws that follow in this pass. `slot` is at least kFirstStructuredBufferSlot. A
+        /// GPU-only buffer must be in the ShaderRead or Common state (promoted on first use, as with
+        /// vertex buffers); an Upload buffer may be bound as it is, but the CPU must not write the
+        /// part a frame in flight still reads.
+        virtual void setBuffer(uint32_t slot, Buffer& buffer) = 0;
+
         /// Binds a sampler to slot s<slot> of both shader stages. Same rules as setTexture().
         virtual void setSampler(uint32_t slot, Sampler& sampler) = 0;
 
@@ -162,6 +169,7 @@ namespace arc::rhi
                                         ResourceState textureState, const Buffer& buffer, uint64_t bufferOffset,
                                         uint32_t rowPitch, ResourceState bufferState);
         static void validateTextureBinding(uint32_t slot, const Texture& texture);
+        static void validateBufferBinding(uint32_t slot, const Buffer& buffer);
 
         /// Checks the attachments and remembers their formats for validatePipelineForPass().
         void validateRenderPass(const RenderPassDesc& desc);

@@ -1,11 +1,13 @@
 #pragma once
 
 #include "Panels/Panel.h"
+#include "Scene/GameObject.h"
 #include "Scene/TransformGizmo.h"
 
 #include <array>
 #include <functional>
 #include <string>
+#include <vector>
 
 struct ImVec2;
 
@@ -19,8 +21,9 @@ namespace arc
     class SceneModule;
     class SelectionOutline;
 
-    /// Shows the renderer's scene target and drives the editor camera. The target is resized to the
-    /// panel's size in pixels, so the scene always renders at the resolution it is displayed at.
+    /// Shows the renderer's tone-mapped scene and drives the editor camera. The scene targets are
+    /// resized to the panel's size in pixels, so the scene always renders at the resolution it is
+    /// displayed at.
     ///
     /// The panel owns the mouse and keyboard while the pointer is over the image, or while a drag
     /// that started there is held: Input stops reporting them as captured by the UI, and the camera
@@ -29,8 +32,10 @@ namespace arc
     /// over a gizmo handle, or a handle is dragged, the mouse goes to the gizmo instead.
     ///
     /// Overlays: resolution and API (top left); the View menu (camera, grid, shading, gizmo and
-    /// outline settings) and the gizmo toolbar (below); an axis gizmo (top right) whose axis ends
-    /// turn the view to look along them.
+    /// outline settings), the Lighting menu (lighting model, ambient light, exposure and tone
+    /// curve) and the gizmo toolbar (below); an axis gizmo (top right) whose axis ends turn the view
+    /// to look along them. Every light has an icon, which selects it when clicked; the selected
+    /// light also shows its direction, range or cone.
     class ScenePanel final : public Panel
     {
     public:
@@ -56,6 +61,12 @@ namespace arc
         void browseForSkybox();
         void setSkyboxFolder(const std::string& folder);
         void drawSettings();
+        void drawLightingSettings();
+        /// Finds the lights to draw icons for this frame and where they are on screen.
+        void placeLightIcons(ImVec2 viewMin, ImVec2 viewSize);
+        void drawLightIcons(ImVec2 viewMin, ImVec2 viewSize);
+        /// The light whose icon is under `mouse`, or null.
+        [[nodiscard]] GameObject* lightIconAt(ImVec2 mouse) const;
         void drawGizmoToolbar();
         void handleGizmoShortcuts();
         /// Selects what is under `mouse` (screen coordinates, in points), or clears the selection.
@@ -75,5 +86,14 @@ namespace arc
         /// texture uploads and waits for the GPU.
         std::string m_pendingSkyboxFolder;
         bool m_pendingProceduralSky = false;
+
+        struct LightIcon
+        {
+            GameObjectHandle object;
+            float x = 0.0f;   // Screen position, in points.
+            float y = 0.0f;
+        };
+        std::vector<LightIcon> m_lightIcons;
+        bool m_showLightIcons = true;
     };
 }

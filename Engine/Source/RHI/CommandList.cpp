@@ -71,6 +71,18 @@ namespace arc::rhi
                    texture.desc().debugName, resourceStateName(texture.state()));
     }
 
+    void CommandList::validateBufferBinding(uint32_t slot, const Buffer& buffer)
+    {
+        ARC_ASSERT(slot >= kFirstStructuredBufferSlot && slot < kMaxTextureSlots,
+                   "Structured buffer slot {} is outside [{}, {})", slot, kFirstStructuredBufferSlot, kMaxTextureSlots);
+        const BufferDesc& desc = buffer.desc();
+        ARC_ASSERT(hasFlag(desc.usage, BufferUsage::Structured), "'{}' was not created with Structured usage",
+                   desc.debugName);
+        ARC_ASSERT(desc.memory == MemoryType::Upload || buffer.state() == ResourceState::Common ||
+                       buffer.state() == ResourceState::ShaderRead,
+                   "Structured buffer '{}' is in state {}", desc.debugName, resourceStateName(buffer.state()));
+    }
+
     void CommandList::validateSamplerBinding(uint32_t slot)
     {
         ARC_ASSERT(slot < kMaxSamplerSlots, "Sampler slot {} is out of range", slot);

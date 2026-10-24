@@ -1,7 +1,9 @@
 #include "Panels/InspectorPanel.h"
 
 #include "EditorSelection.h"
+#include "Math/Color.h"
 #include "Renderer/Model.h"
+#include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/SceneModule.h"
 
@@ -51,6 +53,11 @@ namespace arc
             .type = &MeshComponent::staticType(),
             .create = [] { return std::make_unique<MeshComponent>(); },
             .draw = [this](Component& component) { drawMeshComponent(component); },
+        });
+        m_editors.push_back({
+            .type = &LightComponent::staticType(),
+            .create = [] { return std::make_unique<LightComponent>(defaultLightDesc(LightType::Point)); },
+            .draw = [this](Component& component) { drawLightComponent(component); },
         });
     }
 
@@ -264,5 +271,71 @@ namespace arc
             }
             ImGui::TreePop();
         }
+    }
+
+    void InspectorPanel::drawLightComponent(Component& component)
+    {
+        LightDesc& light = static_cast<LightComponent&>(component).light;
+
+        beginRow("Type");
+        if (ImGui::BeginCombo("##Type", lightTypeName(light.type)))
+        {
+            for (const LightType type : {LightType::Directional, LightType::Point, LightType::Spot})
+            {
+                if (ImGui::Selectable(lightTypeName(type), type == light.type) && type != light.type)
+                {
+                    // Directional intensities are in lux and the others in candela, so a value
+                    // carried over would mean something else entirely.
+                    const LightDesc defaults = defaultLightDesc(type);
+                    light.type = type;
+                    light.intensity = defaults.intensity;
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        // The picker shows sRGB-encoded values, as image editors do; the light stores linear colour.
+        Vec3 color = linearToSrgb(light.color);
+        beginRow("Colour");
+        if (ImGui::ColorEdit3("##Colour", &color.x, ImGuiColorEditFlags_NoInputs))
+            light.color = srgbToLinear(color);
+
+        const bool directional = light.type == LightType::Directional;
+        beginRow("Intensity");
+        ImGui::DragFloat("##Intensity", &light.intensity, 0.05f, 0.0f, 1.0e6f, directional ? "%.2f lux" : "%.2f cd",
+                         ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        ImGui::SetItemTooltip(directional ? "Illuminance on a surface facing the light, in lux (lm/m^2)."
+                                          : "Luminous intensity in candela (lm/sr): the light reaching a surface "
+                                            "1 m away, facing it, is this many lux, and falls off with the square "
+                                            "of the distance.");
+
+        if (!directional)
+        {
+            beginRow("Range");
+            ImGui::DragFloat("##Range", &light.range, 0.05f, 0.0f, 1.0e5f, light.range > 0.0f ? "%.2f m" : "No limit",
+                             ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SetItemTooltip("Distance at which the light has faded to zero. 0 for no limit: the light then "
+                                  "reaches every surface, only ever dimmer.");
+        }
+
+        if (light.type == LightType::Spot)
+        {
+            float outer = toDegrees(light.outerConeAngle);
+            float inner = toDegrees(light.innerConeAngle);
+            beginRow("Outer cone");
+            if (ImGui::DragFloat("##Outer", &outer, 0.25f, 0.1f, 90.0f, "%.1f deg", ImGuiSliderFlags_AlwaysClamp))
+            {
+                light.outerConeAngle = toRadians(outer);
+                light.innerConeAngle = std::min(light.innerConeAngle, light.outerConeAngle);
+            }
+            ImGui::SetItemTooltip("Angle from the axis at which the light reaches zero.");
+            beginRow("Inner cone");
+            if (ImGui::DragFloat("##Inner", &inner, 0.25f, 0.0f, outer, "%.1f deg", ImGuiSliderFlags_AlwaysClamp))
+                light.innerConeAngle = std::min(toRadians(inner), light.outerConeAngle);
+            ImGui::SetItemTooltip("Angle from the axis at which the light starts to fade.");
+        }
+
+        if (light.type != LightType::Point)
+            ImGui::TextDisabled("Shines along the object's -Z axis.");
     }
 }

@@ -52,6 +52,7 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Virtual file system and system file dialogs | Working | Working |
 | Asset pipeline: .meta files, cooked formats, resource manager | Working | Working |
 | Scene and prefab files, Play mode that restores the scene | Working | Working |
+| Lights, HDR and tone mapping, Blinn-Phong | In progress | In progress |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -165,7 +166,7 @@ The sample *Lantern* model opens at start-up. To import another model, choose **
 | + / - / 0 | Double / halve / reset the time scale |
 | F11 | Capture a GPU frame (when started from RenderDoc, with `--pix`, or from Xcode) |
 
-The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`.
+The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`. Its **Lighting** menu holds the reflectance model (Lambert, Phong or Blinn-Phong, with energy conservation and Fresnel switchable to compare), the ambient light, exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it.
 
 Scenes are saved with **File > Save Scene** (Ctrl+S, Cmd+S on macOS) and opened with **File > Open Scene** or by double-clicking a `.scene` file in the Files panel; the last one opens again at start-up. Right-click an object in the Hierarchy and choose **Save as Prefab** to reuse it, then double-click the `.prefab` or drag it into the Scene view to place copies. Changes made while playing (F5) are undone on Stop.
 
@@ -198,7 +199,7 @@ The tests use the Null backend, so they need no GPU. Configure with `-DARCLIGHT_
 
 GitHub Actions runs two workflows:
 
-- **[CI](.github/workflows/ci.yml)**, on every push to `main` and `phase-3` and on every pull request: configures, builds, tests and packages Windows and macOS, and keeps the zips as workflow artifacts.
+- **[CI](.github/workflows/ci.yml)**, on every push to `main` and `phase-4` and on every pull request: configures, builds, tests and packages Windows and macOS, and keeps the zips as workflow artifacts.
 - **[Release](.github/workflows/release.yml)**, on every `v*` tag: the same build, with both zips attached to a draft GitHub release. The steps are in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Roadmap
@@ -209,7 +210,7 @@ GitHub Actions runs two workflows:
 | ✔︎ | **Rendering hardware interface** (0.2.0): Direct3D 12 and Metal backends, shaders, pipelines, GPU capture |
 | ✔︎ | **Meshes, textures, camera and viewport** (0.3.0): textures, resource lifetimes, scene viewport, editor camera, glTF |
 | ✔︎ | **Engine architecture** (0.4.0): scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail, virtual file system, asset pipeline, scene serialization |
-| Planned | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
+| In progress | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
 | Planned | **Advanced rendering**: shadows, deferred and Forward+ shading, post-processing |
 | Planned | **Compute, VFX, animation and gameplay**: job system, Tracy profiling, particles, skinning, Jolt physics, navigation, audio |
 

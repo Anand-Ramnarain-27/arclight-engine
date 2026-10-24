@@ -26,6 +26,7 @@ namespace arc::rhi::metal
             case Format::RGBA8_UNORM_SRGB: return MTLPixelFormatRGBA8Unorm_sRGB;
             case Format::BGRA8_UNORM:      return MTLPixelFormatBGRA8Unorm;
             case Format::D32_FLOAT:        return MTLPixelFormatDepth32Float;
+            case Format::RGBA16_FLOAT:     return MTLPixelFormatRGBA16Float;
         }
         return MTLPixelFormatInvalid;
     }

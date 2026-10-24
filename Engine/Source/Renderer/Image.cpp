@@ -2,6 +2,7 @@
 
 #include "Core/Assert.h"
 #include "Core/Log.h"
+#include "Math/Color.h"
 #include "Platform/FileSystem.h"
 #include "RHI/RHITypes.h"
 
@@ -17,17 +18,6 @@ namespace arc
 {
     namespace
     {
-        // IEC 61966-2-1, the transfer function sRGB formats use when the GPU decodes and encodes.
-        float srgbToLinear(float value)
-        {
-            return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
-        }
-
-        float linearToSrgb(float value)
-        {
-            return value <= 0.0031308f ? value * 12.92f : 1.055f * std::pow(value, 1.0f / 2.4f) - 0.055f;
-        }
-
         const std::array<float, 256>& srgbDecodeTable()
         {
             static const std::array<float, 256> table = [] {

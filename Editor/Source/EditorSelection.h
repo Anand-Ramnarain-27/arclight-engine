@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Renderer/Lighting.h"
 #include "Scene/GameObject.h"
 
 #include <string>
@@ -29,6 +30,8 @@ namespace arc
 
         /// A new empty object at the end of `parent`'s children (or the top level), selected.
         GameObject& createEmpty(GameObject* parent, std::string name = "GameObject");
+        /// A new top-level light, selected. See arc::createLight() for where it is placed.
+        GameObject& createLight(LightType type, const Vec3& position);
         /// Duplicates the selected object and selects the copy.
         void duplicateSelected();
         /// Destroys the selected object and everything below it.

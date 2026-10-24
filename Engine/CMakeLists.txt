@@ -13,6 +13,7 @@ add_library(ArclightEngine STATIC
     Source/Core/Time.cpp
     Source/Math/Math.h
     Source/Math/MathUtils.h
+    Source/Math/Color.h
     Source/Math/Vector.h
     Source/Math/Quaternion.h
     Source/Math/Quaternion.cpp
@@ -87,6 +88,12 @@ add_library(ArclightEngine STATIC
     Source/Renderer/Image.cpp
     Source/Renderer/TextureLoader.h
     Source/Renderer/TextureLoader.cpp
+    Source/Renderer/ToneMapper.h
+    Source/Renderer/ToneMapper.cpp
+    Source/Renderer/Lighting.h
+    Source/Renderer/Lighting.cpp
+    Source/Renderer/LightBuffer.h
+    Source/Renderer/LightBuffer.cpp
     Source/Scene/Uuid.h
     Source/Scene/Uuid.cpp
     Source/Scene/Component.h
@@ -98,6 +105,8 @@ add_library(ArclightEngine STATIC
     Source/Scene/Scene.cpp
     Source/Scene/MeshComponent.h
     Source/Scene/MeshComponent.cpp
+    Source/Scene/LightComponent.h
+    Source/Scene/LightComponent.cpp
     Source/Scene/Raycast.h
     Source/Scene/Raycast.cpp
     Source/Scene/ModelInstantiation.h
@@ -180,6 +189,7 @@ arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Mesh.hlsl VER
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/SelectionMask.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Outline.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Skybox.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/ToneMap.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

@@ -156,6 +156,17 @@ namespace arc::rhi::metal
         [m_renderEncoder setFragmentTexture:native atIndex:slot];
     }
 
+    void MetalCommandList::setBuffer(uint32_t slot, Buffer& buffer)
+    {
+        ARC_ASSERT(m_renderEncoder != nil, "setBuffer outside a render pass");
+        validateBufferBinding(slot, buffer);
+        // SPIRV-Cross turns a StructuredBuffer in register(t<slot>) into a device buffer argument at
+        // [[buffer(<slot>)]], kept equal to the register by --msl-decoration-binding.
+        id<MTLBuffer> native = static_cast<MetalBuffer&>(buffer).native();
+        [m_renderEncoder setVertexBuffer:native offset:0 atIndex:slot];
+        [m_renderEncoder setFragmentBuffer:native offset:0 atIndex:slot];
+    }
+
     void MetalCommandList::setSampler(uint32_t slot, Sampler& sampler)
     {
         ARC_ASSERT(m_renderEncoder != nil, "setSampler outside a render pass");

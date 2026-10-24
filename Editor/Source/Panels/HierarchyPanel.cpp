@@ -54,6 +54,9 @@ namespace arc
                 m_selection.createEmpty(nullptr);
             if (ImGui::MenuItem("Empty Child", nullptr, false, m_selection.object() != nullptr))
                 m_selection.createEmpty(m_selection.object());
+            for (const LightType type : {LightType::Directional, LightType::Point, LightType::Spot})
+                if (ImGui::MenuItem((std::string(lightTypeName(type)) + " Light").c_str()))
+                    m_selection.createLight(type, m_camera.focusPoint());
             ImGui::EndPopup();
         }
         ImGui::SameLine();

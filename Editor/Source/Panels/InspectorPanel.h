@@ -45,6 +45,7 @@ namespace arc
         void drawComponents(GameObject& object);
         void drawAddComponent(GameObject& object);
         void drawMeshComponent(Component& component);
+        void drawLightComponent(Component& component);
         [[nodiscard]] const ComponentEditor* editorFor(const ComponentType& type) const;
 
         SceneModule& m_scene;

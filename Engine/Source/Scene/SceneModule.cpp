@@ -6,6 +6,8 @@
 #include "Platform/FileSystem.h"
 #include "Scene/SceneSerializer.h"
 #include "Renderer/Model.h"
+#include "Renderer/ToneMapper.h"
+#include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/ModelInstantiation.h"
 
@@ -173,6 +175,14 @@ namespace arc
         m_renderList.clear();
         cullAndCollect(m_cullCamera.frustum(m_cullAspect), lods);
         m_renderList.sort(camera.position, camera.forward(), sortDraws);
+
+        m_lights.clear();
+        m_sceneLightCount = collectLights(*m_scene, m_lights);
+        m_usedDefaultLight = m_sceneLightCount == 0 && lighting.defaultLight;
+        if (m_usedDefaultLight)
+            m_lights.push_back(defaultSunLight());
+        m_meshRenderer.setLighting(renderer, m_lights, lighting);
+        renderer.toneMapper().passThrough = MeshRenderer::isDataView(debugView);
 
         m_stats = {};
         const bool drawSky = m_skybox.visible;

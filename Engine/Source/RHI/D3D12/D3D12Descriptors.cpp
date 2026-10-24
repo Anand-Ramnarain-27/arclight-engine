@@ -160,6 +160,7 @@ namespace arc::rhi::d3d12
 
     D3D12Buffer::~D3D12Buffer()
     {
+        m_device.cpuSrvHeap().free(m_srvDescriptor);
         m_device.retire(std::move(m_resource));
     }
 

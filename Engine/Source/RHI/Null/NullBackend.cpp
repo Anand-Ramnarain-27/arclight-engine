@@ -174,6 +174,12 @@ namespace arc::rhi
                 validateTextureBinding(slot, texture);
             }
 
+            void setBuffer(uint32_t slot, Buffer& buffer) override
+            {
+                ARC_ASSERT(m_inRenderPass, "setBuffer outside a render pass");
+                validateBufferBinding(slot, buffer);
+            }
+
             void setSampler(uint32_t slot, Sampler& /*sampler*/) override
             {
                 ARC_ASSERT(m_inRenderPass, "setSampler outside a render pass");

@@ -34,7 +34,7 @@ namespace arc
         [[nodiscard]] bool init(Renderer& renderer);
         void shutdown();
 
-        /// Resizes the mask to the scene target. Must be called outside a frame, after the scene
+        /// Resizes the mask to the scene targets. Must be called outside a frame, after the scene
         /// target has its size for the frame.
         void prepare(Renderer& renderer);
 
@@ -42,7 +42,7 @@ namespace arc
         /// called outside a render pass, after the scene has been drawn.
         void render(Renderer& renderer, const GameObject* selected);
 
-        /// Written to the scene target as is, which holds display-ready (sRGB-encoded) values.
+        /// Written to the display target as is, after tone mapping: display-ready (sRGB-encoded).
         Vec4 color{1.0f, 0.55f, 0.1f, 1.0f};
         /// Pixels, 1 to 4. Multiplied by the display scale, so it looks the same on high-DPI screens.
         int thickness = 2;

@@ -26,6 +26,11 @@ namespace arc
         /// the rotated Z (intrinsic Y-X-Z), which keeps the horizon level for cameras.
         [[nodiscard]] static Quat fromEuler(const Vec3& pitchYawRoll);
 
+        /// The rotation that turns -Z (the forward axis of cameras and lights) to `forward`, with no
+        /// roll: the result's local X stays horizontal. `forward` need not be unit length but must
+        /// not be zero.
+        [[nodiscard]] static Quat fromForward(const Vec3& forward);
+
         /// The rotation of a matrix whose upper 3x3 is orthonormal with determinant +1 (no scale,
         /// no mirroring). Translation is ignored.
         [[nodiscard]] static Quat fromRotationMatrix(const Mat4& m);

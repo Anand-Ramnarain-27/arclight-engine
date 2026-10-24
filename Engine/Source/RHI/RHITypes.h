@@ -24,17 +24,24 @@ namespace arc::rhi
     /// allocators, upload memory) are created this many times and reused round-robin.
     inline constexpr uint32_t kMaxFramesInFlight = 2;
 
-    /// Texture slots t0..t7 and sampler slots s0..s3 that every pipeline can read, in both the
-    /// vertex and the pixel stage. The HLSL register number is the slot: register(t2) reads
-    /// whatever setTexture(2, ...) bound. On Metal the slot is the [[texture(n)]] / [[sampler(n)]]
-    /// index, which the shader build keeps equal to the register number.
-    inline constexpr uint32_t kMaxTextureSlots = 8;
+    /// Shader resource slots t0..t15 and sampler slots s0..s3 that every pipeline can read, in both
+    /// the vertex and the pixel stage. A t slot holds a texture (setTexture) or a structured buffer
+    /// (setBuffer). The HLSL register number is the slot: register(t2) reads whatever was bound to
+    /// slot 2. On Metal the slot is the [[texture(n)]] / [[sampler(n)]] index, which the shader build
+    /// keeps equal to the register number.
+    inline constexpr uint32_t kMaxTextureSlots = 16;
     inline constexpr uint32_t kMaxSamplerSlots = 4;
 
-    /// Constant buffer slots b0..b2, bound with CommandList::setConstants(). By convention b0 holds
-    /// per-view data (camera), b1 per-draw data (transform) and b2 per-material data. On Metal the
-    /// slot is the [[buffer(n)]] index, again kept equal to the HLSL register by the shader build.
-    inline constexpr uint32_t kMaxConstantSlots = 3;
+    /// Constant buffer slots b0..b3, bound with CommandList::setConstants(). By convention b0 holds
+    /// per-view data (camera), b1 per-draw data (transform), b2 per-material data and b3 per-frame
+    /// lighting. On Metal the slot is the [[buffer(n)]] index, again kept equal to the HLSL register
+    /// by the shader build.
+    inline constexpr uint32_t kMaxConstantSlots = 4;
+
+    /// The lowest t slot a structured buffer may use. On Metal a structured buffer in t<n> becomes
+    /// [[buffer(n)]], which shares its numbering with the constant buffers, so t0..t3 would collide
+    /// with b0..b3.
+    inline constexpr uint32_t kFirstStructuredBufferSlot = kMaxConstantSlots;
 
     /// Constant data is placed at multiples of this many bytes (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT),
     /// which also satisfies Metal's buffer offset rules.
@@ -67,6 +74,8 @@ namespace arc::rhi
         /// encodes when rendering. For colour textures such as albedo, never for data such as normals.
         RGBA8_UNORM_SRGB,
         BGRA8_UNORM,
+        /// Four 16-bit floats: linear colour above 1, for HDR render targets. 8 bytes a pixel.
+        RGBA16_FLOAT,
         /// 32-bit float depth, no stencil. For DepthStencil textures only: sampling depth needs a
         /// typeless resource with a separate shader view on D3D12, which nothing uses yet.
         D32_FLOAT,
@@ -108,6 +117,9 @@ namespace arc::rhi
         Vertex   = 1 << 0,
         Index    = 1 << 1,
         Constant = 1 << 2,
+        /// Read by shaders as a StructuredBuffer<T> in a t slot, bound with CommandList::setBuffer().
+        /// BufferDesc::stride is sizeof(T).
+        Structured = 1 << 3,
     };
 
     [[nodiscard]] constexpr BufferUsage operator|(BufferUsage a, BufferUsage b)
@@ -164,6 +176,8 @@ namespace arc::rhi
     {
         uint64_t size = 0;           // Bytes.
         BufferUsage usage = BufferUsage::None;
+        /// Bytes per element of a Structured buffer, a multiple of 4 that divides `size`. Unused otherwise.
+        uint32_t stride = 0;
         MemoryType memory = MemoryType::GpuOnly;
         std::string debugName{};
     };

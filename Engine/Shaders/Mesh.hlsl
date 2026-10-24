@@ -1,8 +1,12 @@
-// Meshes imported from glTF: a base colour (factor times texture) under placeholder lighting, a
-// fixed directional light and a sky/ground ambient, until physically based lighting is added.
+// Meshes imported from glTF, lit by the scene's lights (Lighting.hlsli) into the HDR scene target.
+// The material is the glTF base colour (factor times texture) and roughness factor. Every surface is
+// shaded as a dielectric until the metal/roughness textures are read: glTF's metallic factor
+// defaults to 1 and is meant to be multiplied by a texture, so using it alone would turn most
+// textured models into bare metal.
 
 #include "Common.hlsli"
 #include "Constants.hlsli"
+#include "Lighting.hlsli"
 
 // Mirrored by MeshDrawConstants in Engine/Source/Renderer/MeshRenderer.cpp.
 cbuffer DrawConstants : register(b1)
@@ -18,6 +22,7 @@ cbuffer MaterialConstants : register(b2)
     float4 baseColorFactor;  // Linear RGB and alpha, multiplied with the texture.
     float alphaCutoff;
     uint alphaMode;          // One of the ALPHA_MODE_ values below.
+    float roughnessFactor;   // Perceptual roughness, 0 to 1.
 };
 
 // Match arc::AlphaMode and MeshRenderer::DebugView.
@@ -29,6 +34,12 @@ cbuffer MaterialConstants : register(b2)
 #define DEBUG_VIEW_BASE_COLOR 1
 #define DEBUG_VIEW_NORMALS 2
 #define DEBUG_VIEW_TEXCOORDS 3
+#define DEBUG_VIEW_DIFFUSE 4
+#define DEBUG_VIEW_SPECULAR 5
+#define DEBUG_VIEW_LIGHTING 6
+
+// Specular reflectance at normal incidence of common dielectrics (index of refraction about 1.5).
+static const float kDielectricF0 = 0.04;
 
 Texture2D<float4> g_baseColor : register(t0);
 SamplerState g_sampler : register(s0);
@@ -43,6 +54,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
+    float3 worldPosition : POSITION;
     float3 normal : NORMAL;   // World space, not normalised: interpolation shortens it anyway.
     float2 uv : TEXCOORD0;
 };
@@ -50,7 +62,9 @@ struct VSOutput
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    output.position = mul(viewProjection, mul(world, float4(input.position, 1.0)));
+    const float4 worldPosition = mul(world, float4(input.position, 1.0));
+    output.position = mul(viewProjection, worldPosition);
+    output.worldPosition = worldPosition.xyz;
     output.normal = mul((float3x3)normalMatrix, input.normal);
     output.uv = input.uv;
     return output;
@@ -69,18 +83,30 @@ float4 PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
     if (!isFrontFace)
         normal = -normal;
 
+    // Data views are shown untouched by exposure and the tone curve (ToneMapper::passThrough), which
+    // still sRGB-encodes, so values meant to be seen as they are are decoded here first.
     if (debugView == DEBUG_VIEW_NORMALS)
-        return float4(normal * 0.5 + 0.5, 1.0);
+        return float4(SrgbToLinear(normal * 0.5 + 0.5), 1.0);
     if (debugView == DEBUG_VIEW_TEXCOORDS)
-        return float4(frac(input.uv), 0.0, 1.0);
+        return float4(SrgbToLinear(float3(frac(input.uv), 0.0)), 1.0);
     if (debugView == DEBUG_VIEW_BASE_COLOR)
-        return float4(LinearToSrgb(baseColor.rgb), alpha);
+        return float4(baseColor.rgb, alpha);
 
-    const float3 lightDirection = normalize(float3(0.4, 0.8, 0.45));   // Toward the light.
-    const float3 skyColor = float3(0.30, 0.34, 0.42);
-    const float3 groundColor = float3(0.12, 0.10, 0.09);
-    const float3 ambient = lerp(groundColor, skyColor, normal.y * 0.5 + 0.5);
-    const float diffuse = saturate(dot(normal, lightDirection));
-    const float3 color = baseColor.rgb * (ambient + diffuse * float3(1.0, 0.96, 0.9));
-    return float4(LinearToSrgb(color), alpha);
+    Surface surface;
+    surface.position = input.worldPosition;
+    surface.normal = normal;
+    surface.view = normalize(cameraPosition - input.worldPosition);
+    surface.diffuseColor = debugView == DEBUG_VIEW_LIGHTING ? 1.0 : baseColor.rgb;
+    surface.f0 = kDielectricF0;
+    surface.roughness = roughnessOverride >= 0.0 ? roughnessOverride : saturate(roughnessFactor);
+
+    float3 diffuse;
+    float3 specular;
+    ShadeSurface(surface, diffuse, specular);
+
+    if (debugView == DEBUG_VIEW_DIFFUSE)
+        return float4(diffuse, alpha);
+    if (debugView == DEBUG_VIEW_SPECULAR)
+        return float4(specular, alpha);
+    return float4(diffuse + specular, alpha);
 }

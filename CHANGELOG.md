@@ -5,6 +5,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+Phase 4: lighting and PBR.
+
+### Added
+
+#### HDR and tone mapping
+- The scene renders into an `RGBA16_FLOAT` target in linear light, then a tone-mapping pass (`Renderer/ToneMapper`, `ToneMap.hlsl`) applies exposure, a tone curve (none, Reinhard, Stephen Hill's ACES fit or Khronos PBR Neutral, the default) and sRGB encoding into the `RGBA8` target the Scene panel shows.
+- `Renderer::beginOverlayPass()`: editor visuals (the grid and the selection outline) are drawn after tone mapping, into the display target with the scene depth, so their colours are exact.
+- `Math/Color.h`: `srgbToLinear()` and `linearToSrgb()`, now shared by image decoding, the procedural sky and the editor's colour pickers.
+
+#### Lights
+- `Scene/LightComponent`: directional, point and spot lights in `KHR_lights_punctual` units (lux, candela, metres), shining along the object's -Z, saved in scene files. `createLight()` and `collectLights()`.
+- `Renderer/Lighting`: `GpuLight` (64 bytes, mirrored by `Lighting.hlsli`), `LightingSettings` and the per-frame `LightingConstants` (b3). Range windowing and spot cones as in `KHR_lights_punctual`.
+- `Renderer/LightBuffer`: up to 256 lights a frame in a structured buffer per frame in flight, read by `Mesh.hlsl` at t8.
+- `Mesh.hlsl` lights every surface: Lambert diffuse plus Phong or Blinn-Phong specular, with optional energy-conserving normalisation and Schlick Fresnel, using the glTF roughness factor (Blinn-Phong exponent 2/α² − 2 with α = roughness²) and a hemisphere ambient. New debug views: diffuse light, specular light and lighting only.
+- When a scene has no lights, a default sun lights it (switchable), so older scenes are not left dark. New scenes and the start-up sample get a directional light.
+- `Quat::fromForward()`: the rotation that turns -Z to a direction, without roll.
+- Editor: *GameObject > Light* and the Hierarchy's *+ Create* menu add lights at the camera's focus point; the Inspector edits them (type, colour, intensity, range, cone angles); light icons in the Scene view select a light when clicked, and the selected light shows its direction, range or cone.
+- Editor: the Scene panel's *Lighting* menu: reflectance model, energy conservation, Fresnel, a roughness override, ambient colours and intensity, exposure and the tone curve.
+- Unit tests for light conversion, spot cones, light collection, light component files, `Quat::fromForward()`, sRGB conversion, HDR render targets and structured buffers.
+
+#### RHI
+- `Format::RGBA16_FLOAT`.
+- Structured buffers: `BufferUsage::Structured` with `BufferDesc::stride`, bound with `CommandList::setBuffer()` to a t slot (an SRV in the texture table on Direct3D 12, `[[buffer(n)]]` on Metal).
+- 16 texture slots (t0 to t15) instead of 8, and a fourth constant slot (b3).
+
+### Changed
+- Scene shaders (meshes, sky, texture demo) write linear colour; only the tone-mapping pass encodes sRGB. `Renderer::sceneTexture()` is now `displayTexture()`.
+- Every surface is shaded as a dielectric until the metallic-roughness textures are read: the glTF metallic factor defaults to 1 and is meant to multiply a texture.
+- CI runs on pushes to `phase-4` instead of `phase-3`.
+
 ## [0.4.0] - 2026-10-23
 
 Phase 3: engine architecture.

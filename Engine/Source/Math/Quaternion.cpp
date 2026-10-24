@@ -1,6 +1,7 @@
 #include "Math/Quaternion.h"
 #include "Math/Matrix.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace arc
@@ -18,6 +19,16 @@ namespace arc
         const Quat pitch = fromAxisAngle(Vec3::right(), pitchYawRoll.x);
         const Quat roll = fromAxisAngle({0.0f, 0.0f, 1.0f}, pitchYawRoll.z);
         return yaw * pitch * roll;
+    }
+
+    Quat Quat::fromForward(const Vec3& forward)
+    {
+        // fromEuler turns -Z into (-cos(pitch) sin(yaw), sin(pitch), -cos(pitch) cos(yaw)); solved
+        // for pitch and yaw. Straight up or down, any yaw works, and 0 reads best in the Inspector.
+        const Vec3 d = normalize(forward);
+        const float pitch = std::asin(std::clamp(d.y, -1.0f, 1.0f));
+        const float yaw = d.x * d.x + d.z * d.z > 1e-12f ? std::atan2(-d.x, -d.z) : 0.0f;
+        return fromEuler({pitch, yaw, 0.0f});
     }
 
     Quat Quat::fromRotationMatrix(const Mat4& m)

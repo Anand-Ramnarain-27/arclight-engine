@@ -83,7 +83,8 @@ PSOutput PSMain(VSOutput input)
     const float xAxis = AxisCoverage(hit.z);   // The line z = 0 runs along X.
     const float zAxis = AxisCoverage(hit.x);
 
-    // Display-referred colours: the scene target stores what is shown (see Renderer::sceneFormat).
+    // Display-referred colours: the grid is drawn into the display target after tone mapping
+    // (see Renderer::beginOverlayPass).
     float3 color = float3(0.55, 0.55, 0.58);
     float alpha = max(minor, major);
     color = lerp(color, float3(0.90, 0.25, 0.25), xAxis);

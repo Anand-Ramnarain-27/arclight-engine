@@ -1,6 +1,7 @@
 #include "Renderer/MeshRenderer.h"
 
 #include "Core/Log.h"
+#include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Pipeline.h"
@@ -38,17 +39,19 @@ namespace arc
         static_assert(offsetof(MeshDrawConstants, debugView) == 128);
         static_assert(sizeof(MeshDrawConstants) == 144);
 
-        // Mirrors MaterialConstants in Mesh.hlsl: a float4 row, then two scalars packed into the
+        // Mirrors MaterialConstants in Mesh.hlsl: a float4 row, then three scalars packed into the
         // next row.
         struct MaterialConstants
         {
             Vec4 baseColorFactor;
             float alphaCutoff = 0.5f;
             uint32_t alphaMode = 0;
-            float padding[2]{};
+            float roughnessFactor = 1.0f;
+            float padding = 0.0f;
         };
         static_assert(offsetof(MaterialConstants, alphaCutoff) == 16);
         static_assert(offsetof(MaterialConstants, alphaMode) == 20);
+        static_assert(offsetof(MaterialConstants, roughnessFactor) == 24);
         static_assert(sizeof(MaterialConstants) == 32);
 
         Image solidImage(Extent2D size, uint32_t cellSize, std::array<uint8_t, 4> a, std::array<uint8_t, 4> b)
@@ -134,7 +137,7 @@ namespace arc
         samplerDesc.maxAnisotropy = 8;
         samplerDesc.debugName = "Mesh Default Sampler";
         m_defaultSampler = device.createSampler(samplerDesc);
-        return m_whiteTexture && m_missingTexture && m_defaultSampler;
+        return m_whiteTexture && m_missingTexture && m_defaultSampler && m_lights.init(device);
     }
 
     void MeshRenderer::shutdown()
@@ -144,6 +147,18 @@ namespace arc
         m_whiteTexture.reset();
         m_missingTexture.reset();
         m_defaultSampler.reset();
+        m_lights.shutdown();
+    }
+
+    void MeshRenderer::setLighting(Renderer& renderer, std::span<const GpuLight> lights, const LightingSettings& settings)
+    {
+        if (!renderer.isFrameActive())
+            return;
+        // beginFrame() waited until the GPU finished the frame that last used this slot, so its
+        // buffer is free to overwrite.
+        m_lightSlot = renderer.device().frameSlot();
+        const uint32_t count = m_lights.write(m_lightSlot, lights);
+        m_lightingConstants = makeLightingConstants(settings, count);
     }
 
     RenderStats MeshRenderer::draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView)
@@ -153,6 +168,9 @@ namespace arc
         const bool reversedZ = renderer.sceneCamera().reversedZ;
         const MaterialData defaultMaterial;
         commandList.setConstants(0, renderer.sceneViewConstants());
+        commandList.setConstants(kLightingConstantsSlot, m_lightingConstants);
+        if (rhi::Buffer* lights = m_lights.buffer(m_lightSlot))
+            commandList.setBuffer(kLightBufferSlot, *lights);
 
         // The state bound so far, so a draw only changes what differs from the one before it.
         // Bindings stay across pipeline changes; buffers need a pipeline set first only because the
@@ -241,6 +259,7 @@ namespace arc
                                                     .baseColorFactor = itemMaterial.baseColorFactor,
                                                     .alphaCutoff = itemMaterial.alphaCutoff,
                                                     .alphaMode = static_cast<uint32_t>(itemMaterial.alphaMode),
+                                                    .roughnessFactor = itemMaterial.roughnessFactor,
                                                 });
                     material = &itemMaterial;
                     ++stats.constantUploads;

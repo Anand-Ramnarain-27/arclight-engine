@@ -82,7 +82,7 @@ namespace arc
         rhi::PipelineDesc outline;
         outline.vertexShader = outlineVertex.get();
         outline.pixelShader = outlinePixel.get();
-        outline.colorFormat = Renderer::sceneFormat();
+        outline.colorFormat = Renderer::displayFormat();
         outline.depthFormat = Renderer::sceneDepthFormat();
         // No depth test: the outline shows through whatever covers the selection, as in most editors.
         outline.blend = rhi::BlendMode::AlphaBlend;
@@ -177,7 +177,7 @@ namespace arc
         commandList.endRenderPass();
         commandList.barrier(*m_mask, rhi::ResourceState::ShaderRead);
 
-        if (!renderer.beginScenePass("Selection Outline"))
+        if (!renderer.beginOverlayPass("Selection Outline"))
             return;
         // The mask is in pixels, so the outline's width is too; scaling by the display scale keeps
         // it the same width in points on high-DPI screens.
@@ -187,6 +187,6 @@ namespace arc
         commandList.setTexture(0, *m_mask);
         commandList.setConstants(1, OutlineConstants{.color = color, .radius = radius});
         commandList.draw(3);
-        renderer.endScenePass();
+        renderer.endOverlayPass();
     }
 }

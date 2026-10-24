@@ -12,6 +12,7 @@
 #include "Panels/SystemInfoPanel.h"
 #include "Platform/FileSystem.h"
 #include "RHI/Device.h"
+#include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/SceneModule.h"
 #include "Scene/TransformGizmo.h"
@@ -84,6 +85,7 @@ namespace arc
                 ARC_LOG_WARN("{} not found; re-run CMake to download it, or drop a glTF file on the window", samplePath);
             else
                 importModel(samplePath, false);
+            createLight(m_scene.scene(), LightType::Directional);
             // A new scene with the sample in it has nothing to save yet.
             m_document.markSaved();
         }
@@ -388,6 +390,13 @@ namespace arc
             m_selection.createEmpty(nullptr);
         if (ImGui::MenuItem("Create Empty Child", nullptr, false, selected != nullptr))
             m_selection.createEmpty(selected);
+        if (ImGui::BeginMenu("Light"))
+        {
+            for (const LightType type : {LightType::Directional, LightType::Point, LightType::Spot})
+                if (ImGui::MenuItem(lightTypeName(type)))
+                    m_selection.createLight(type, m_camera.focusPoint());
+            ImGui::EndMenu();
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, selected != nullptr))
             m_selection.duplicateSelected();

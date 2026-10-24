@@ -10,7 +10,7 @@ Status: **Done** (released or merged and working on both platforms), **In progre
 | [Rendering hardware interface](#rendering-hardware-interface) | 0.2.0 | Done |
 | [Meshes, textures, camera and viewport](#meshes-textures-camera-and-viewport) | 0.3.0 | Done |
 | [Engine architecture](#engine-architecture) | 0.4.0 | Done |
-| [Lighting and PBR](#lighting-and-pbr) | | Planned |
+| [Lighting and PBR](#lighting-and-pbr) | | In progress |
 | [Compute, threading and profiling](#compute-threading-and-profiling) | | Planned |
 | [Advanced rendering](#advanced-rendering) | | Planned |
 | [Visual effects](#visual-effects) | | Planned |
@@ -66,9 +66,9 @@ Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned as
 
 ## Lighting and PBR
 
-**Planned.**
+**In progress.**
 
-- Directional, point and spot lights from a structured buffer; HDR rendering with tone mapping.
+- Directional, point and spot lights from a structured buffer; HDR rendering with tone mapping; Lambert, Phong and Blinn-Phong with energy-conserving normalisation and Schlick Fresnel. *(In progress.)*
 - Cook-Torrance GGX with the glTF metallic-roughness model; normal maps, ambient occlusion and emissive.
 - Image-based lighting: irradiance, prefiltered specular and a BRDF lookup table.
 - Block-compressed textures (BC1 to BC7) cooked offline.

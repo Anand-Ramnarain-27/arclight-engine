@@ -4,6 +4,7 @@
 #include "Renderer/MeshRenderer.h"
 #include "Math/Frustum.h"
 #include "Renderer/Camera.h"
+#include "Renderer/Lighting.h"
 #include "Renderer/RenderList.h"
 #include "Renderer/Skybox.h"
 #include "Scene/Scene.h"
@@ -29,10 +30,10 @@ namespace arc
         uint32_t meshesCulled = 0;     // Meshes not drawn, by either test.
     };
 
-    /// Owns the scene, updates it, and draws it into the scene target: every frame the active
-    /// meshes the camera can see go into a RenderList, each at a level of detail for its size on
-    /// screen, which is sorted and drawn in one scene pass with the skybox between the opaque and
-    /// the blended queue.
+    /// Owns the scene, updates it, and draws it into the scene target: every frame the enabled light
+    /// components are gathered into the light list, and the active meshes the camera can see go into
+    /// a RenderList, each at a level of detail for its size on screen, which is sorted and drawn in
+    /// one scene pass with the skybox between the opaque and the blended queue.
     ///
     /// Culling is hierarchical: each object's bounds enclose its own meshes and its whole subtree,
     /// so a subtree entirely outside the frustum is skipped with one test, and one entirely inside
@@ -94,7 +95,11 @@ namespace arc
         /// A new copy of the prefab at the end of `parent`'s children, or null after logging.
         GameObject* instantiatePrefab(const std::string& path, GameObject* parent = nullptr);
 
+        /// Data views (base colour, normals, texture coordinates) also turn off exposure and the tone
+        /// curve, so their values are shown as they are.
         MeshRenderer::DebugView debugView = MeshRenderer::DebugView::Lit;
+
+        LightingSettings lighting;
 
         /// Off draws opaque primitives in scene order, to compare the state changes with sorting.
         bool sortDraws = true;
@@ -114,6 +119,11 @@ namespace arc
         /// What the last frame drew.
         [[nodiscard]] const RenderStats& renderStats() const { return m_stats; }
         [[nodiscard]] const CullingStats& cullingStats() const { return m_cullingStats; }
+
+        /// Enabled lights on active objects in the last frame. Only the first kMaxLights are shaded.
+        [[nodiscard]] uint32_t sceneLightCount() const { return m_sceneLightCount; }
+        /// The last frame had no lights of its own and was lit by defaultSunLight().
+        [[nodiscard]] bool usedDefaultLight() const { return m_usedDefaultLight; }
 
     private:
         struct CullNode
@@ -139,5 +149,8 @@ namespace arc
         CullingStats m_cullingStats;
         Camera m_cullCamera;
         float m_cullAspect = 1.0f;
+        std::vector<GpuLight> m_lights;
+        uint32_t m_sceneLightCount = 0;
+        bool m_usedDefaultLight = false;
     };
 }

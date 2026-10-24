@@ -1,5 +1,6 @@
 #include "Scene/ComponentRegistry.h"
 
+#include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
 
 #include <algorithm>
@@ -30,6 +31,7 @@ namespace arc
         static const ComponentRegistry registry = [] {
             ComponentRegistry result;
             result.add<MeshComponent>();
+            result.add<LightComponent>();
             return result;
         }();
         return registry;

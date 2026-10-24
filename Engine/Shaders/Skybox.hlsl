@@ -2,7 +2,6 @@
 // view direction. Depth-tested but not written, so it only covers pixels nothing has drawn to, and
 // is drawn after the opaque meshes so those pixels are never shaded twice.
 
-#include "Common.hlsli"
 #include "Constants.hlsli"
 
 // Mirrored by SkyboxConstants in Engine/Source/Renderer/Skybox.cpp.
@@ -38,5 +37,5 @@ float4 PSMain(VSOutput input) : SV_Target0
     // Cube faces are laid out for a left-handed space with +Z forward; the world is right-handed
     // with -Z forward, so Z is flipped to see the +Z face straight ahead.
     const float3 color = g_sky.SampleLevel(g_sampler, float3(direction.x, direction.y, -direction.z), 0).rgb;
-    return float4(LinearToSrgb(color * intensity), 1.0);
+    return float4(color * intensity, 1.0);
 }

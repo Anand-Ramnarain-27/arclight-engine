@@ -1,12 +1,15 @@
 #pragma once
 
 #include "Math/Math.h"
+#include "Renderer/LightBuffer.h"
+#include "Renderer/Lighting.h"
 #include "Renderer/ModelData.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace arc
 {
@@ -49,7 +52,8 @@ namespace arc
         }
     };
 
-    /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene.
+    /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene, lit by the lights given to
+    /// setLighting() each frame.
     ///
     /// Owns the pipelines (one per combination of depth convention, culling, blending and winding)
     /// and the stand-in textures: white for materials without a base colour texture, so the factor
@@ -65,7 +69,16 @@ namespace arc
             BaseColor = 1,
             Normals = 2,      // World-space normal, mapped from [-1, 1] to [0, 1].
             TexCoords = 3,    // TEXCOORD_0's fractional part in red and green.
+            Diffuse = 4,      // The diffuse part of the lighting alone.
+            Specular = 5,     // The specular part alone.
+            Lighting = 6,     // Every surface white, so only the light shows.
         };
+
+        /// Views whose output is data rather than light, to be shown without exposure or a tone curve.
+        [[nodiscard]] static bool isDataView(DebugView view)
+        {
+            return view == DebugView::BaseColor || view == DebugView::Normals || view == DebugView::TexCoords;
+        }
 
         MeshRenderer();
         ~MeshRenderer();
@@ -82,6 +95,10 @@ namespace arc
             Opaque,
             Blended,
         };
+
+        /// The lights and lighting settings for this frame's draws. Call once a frame, between the
+        /// renderer's beginFrame() and the first draw(); the first kMaxLights lights are used.
+        void setLighting(Renderer& renderer, std::span<const GpuLight> lights, const LightingSettings& settings);
 
         /// Records one of the list's queues in a debug group named after it. Must be called inside a
         /// scene pass, with the list already sorted; the opaque queue goes first, and anything that
@@ -108,5 +125,8 @@ namespace arc
         std::unique_ptr<rhi::Texture> m_whiteTexture;
         std::unique_ptr<rhi::Texture> m_missingTexture;
         std::unique_ptr<rhi::Sampler> m_defaultSampler;
+        LightBuffer m_lights;
+        LightingConstants m_lightingConstants;
+        uint32_t m_lightSlot = 0;   // The frame slot whose light buffer setLighting() filled.
     };
 }

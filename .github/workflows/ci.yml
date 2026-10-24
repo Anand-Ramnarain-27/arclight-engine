@@ -4,7 +4,7 @@ name: CI
 # Release zips are only published by release.yml; here they are kept as workflow artifacts.
 on:
   push:
-    branches: [ main, phase-3 ]
+    branches: [ main, phase-4 ]
   pull_request:
   workflow_dispatch:
 

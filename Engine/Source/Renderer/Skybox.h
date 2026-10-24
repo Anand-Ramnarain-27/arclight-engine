@@ -20,8 +20,8 @@ namespace arc
 
     /// Draws a cube texture behind everything in the scene (Engine/Shaders/Skybox.hlsl).
     ///
-    /// Starts with a procedural sky, a gradient from horizon to zenith with a sun where the mesh
-    /// shader's light comes from; load() replaces it with six face images.
+    /// Starts with a procedural sky, a gradient from horizon to zenith with a sun where the default
+    /// light (defaultSunLight()) comes from; load() replaces it with six face images.
     class Skybox
     {
     public:

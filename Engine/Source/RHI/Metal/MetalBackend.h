@@ -35,8 +35,8 @@ namespace arc::rhi::metal
 
     [[nodiscard]] MTLPixelFormat toMTLPixelFormat(Format format);
 
-    // SPIRV-Cross assigns [[buffer(n)]] indices to constant and structured buffers from 0
-    // upwards, so the vertex buffer goes in the last of Metal's 31 buffer slots to stay clear.
+    // Constant buffers take [[buffer(0)]] upwards and structured buffers [[buffer(t slot)]], so the
+    // vertex buffer goes in the last of Metal's 31 buffer slots to stay clear of both.
     inline constexpr NSUInteger kVertexBufferIndex = 30;
 
     class MetalTexture final : public Texture
@@ -139,6 +139,7 @@ namespace arc::rhi::metal
         void setVertexBuffer(Buffer& buffer, uint64_t offset) override;
         void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset) override;
         void setTexture(uint32_t slot, Texture& texture) override;
+        void setBuffer(uint32_t slot, Buffer& buffer) override;
         void setSampler(uint32_t slot, Sampler& sampler) override;
         void draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
         void drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex,

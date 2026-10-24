@@ -32,6 +32,7 @@ namespace arc::rhi
             case Format::RGBA8_UNORM_SRGB:
             case Format::BGRA8_UNORM:
             case Format::D32_FLOAT:        return 4;
+            case Format::RGBA16_FLOAT:     return 8;
         }
         return 0;
     }
@@ -85,6 +86,14 @@ namespace arc::rhi
         void validateBufferDesc(const BufferDesc& desc)
         {
             ARC_ASSERT(desc.size > 0, "Buffer '{}' has zero size", desc.debugName);
+            if (hasFlag(desc.usage, BufferUsage::Structured))
+            {
+                ARC_ASSERT(desc.stride > 0 && desc.stride % 4 == 0 && desc.size % desc.stride == 0,
+                           "Structured buffer '{}': stride {} must be a non-zero multiple of 4 that divides the size {}",
+                           desc.debugName, desc.stride, desc.size);
+                ARC_ASSERT(desc.memory != MemoryType::Readback, "Structured buffer '{}' cannot be in readback memory",
+                           desc.debugName);
+            }
         }
 
         void validateTextureDesc(const TextureDesc& desc)

@@ -45,7 +45,7 @@ namespace arc
             rhi::PipelineDesc desc;
             desc.vertexShader = vertexShader.get();
             desc.pixelShader = pixelShader.get();
-            desc.colorFormat = Renderer::sceneFormat();
+            desc.colorFormat = Renderer::displayFormat();
             desc.depthFormat = Renderer::sceneDepthFormat();
             desc.depth = {.test = true, .write = false, .compare = camera.depthCompare()};
             desc.blend = rhi::BlendMode::AlphaBlend;
@@ -69,7 +69,7 @@ namespace arc
     void EditorGrid::render(Renderer& renderer)
     {
         rhi::Pipeline* pipeline = m_pipelines[renderer.sceneCamera().reversedZ].get();
-        if (!visible || !pipeline || !renderer.isFrameActive() || !renderer.beginScenePass("Grid"))
+        if (!visible || !pipeline || !renderer.isFrameActive() || !renderer.beginOverlayPass("Grid"))
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
@@ -77,6 +77,6 @@ namespace arc
         commandList.setConstants(0, renderer.sceneViewConstants());
         commandList.setConstants(1, GridConstants{cellSize, majorEvery, fadeDistance, opacity});
         commandList.draw(3);
-        renderer.endScenePass();
+        renderer.endOverlayPass();
     }
 }

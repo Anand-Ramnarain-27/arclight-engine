@@ -141,10 +141,12 @@ namespace arc::rhi::d3d12
     class D3D12Buffer final : public Buffer
     {
     public:
+        /// Takes ownership of the view, which is freed with the buffer.
         D3D12Buffer(D3D12Device& device, ComPtr<ID3D12Resource> resource, const BufferDesc& desc, void* mapped,
-                    ResourceState state)
+                    ResourceState state, const D3D12Descriptor& srv)
             : m_device(device)
             , m_resource(std::move(resource))
+            , m_srvDescriptor(srv)
         {
             m_desc = desc;
             m_mapped = mapped;
@@ -155,9 +157,14 @@ namespace arc::rhi::d3d12
         [[nodiscard]] ID3D12Resource* resource() const { return m_resource.Get(); }
         [[nodiscard]] D3D12_GPU_VIRTUAL_ADDRESS gpuAddress() const { return m_resource->GetGPUVirtualAddress(); }
 
+        /// A StructuredBuffer view in the device's CPU-only SRV heap, copied into a shader-visible
+        /// table at draw time like a texture's. Zero unless the buffer has Structured usage.
+        [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE srv() const { return m_srvDescriptor.cpu; }
+
     private:
         D3D12Device& m_device;
         ComPtr<ID3D12Resource> m_resource;
+        D3D12Descriptor m_srvDescriptor;
     };
 
     [[nodiscard]] D3D12_RESOURCE_STATES toD3D12State(ResourceState state);
@@ -165,7 +172,7 @@ namespace arc::rhi::d3d12
     /// Root parameters of the root signature every pipeline shares.
     enum RootParameter : UINT
     {
-        kRootTextureTable = 0,   // SRV table, t0 .. t(kMaxTextureSlots - 1).
+        kRootTextureTable = 0,   // SRV table, t0 .. t(kMaxTextureSlots - 1): textures and structured buffers.
         kRootSamplerTable = 1,   // Sampler table, s0 .. s(kMaxSamplerSlots - 1).
         kRootFirstConstants = 2, // Root CBVs b0 .. b(kMaxConstantSlots - 1), one parameter each.
         kRootParameterCount = kRootFirstConstants + kMaxConstantSlots,
@@ -227,6 +234,7 @@ namespace arc::rhi::d3d12
         void setVertexBuffer(Buffer& buffer, uint64_t offset) override;
         void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset) override;
         void setTexture(uint32_t slot, Texture& texture) override;
+        void setBuffer(uint32_t slot, Buffer& buffer) override;
         void setSampler(uint32_t slot, Sampler& sampler) override;
         void draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
         void drawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex,
@@ -262,7 +270,7 @@ namespace arc::rhi::d3d12
         D3D12Pipeline* m_pipeline = nullptr;
         ID3D12RootSignature* m_rootSignature = nullptr;   // As last set on the native list.
         uint32_t m_transientRegion = 0;
-        std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxTextureSlots> m_textures{};
+        std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxTextureSlots> m_textures{};   // Texture or buffer SRVs.
         std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxSamplerSlots> m_samplers{};
         std::array<D3D12_GPU_VIRTUAL_ADDRESS, kMaxConstantSlots> m_constants{};
         bool m_texturesDirty = true;
