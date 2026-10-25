@@ -32,7 +32,36 @@ namespace arc
             ModelData& model;
             std::string_view name;
             std::vector<bool> imageNeeded;
+            std::vector<std::optional<ColorSpace>> imageColorSpaces;
         };
+
+        // Marks the texture's image for decoding in the colour space of the slot that uses it, and
+        // returns the texture index, or -1 if it is out of range.
+        int32_t useTexture(Importer& importer, const tinygltf::Material& material, int index, int texCoord,
+                           ColorSpace colorSpace, std::string_view slot)
+        {
+            ModelData& model = importer.model;
+            if (index < 0 || static_cast<size_t>(index) >= model.textures.size())
+                return -1;
+            const int32_t image = model.textures[static_cast<size_t>(index)].image;
+            if (image >= 0)
+            {
+                const auto i = static_cast<size_t>(image);
+                importer.imageNeeded[i] = true;
+                // One GPU texture per image, so an image used as both colour and data keeps the first
+                // use's encoding. Real files keep the two apart; the warning catches the ones that don't.
+                if (!importer.imageColorSpaces[i])
+                    importer.imageColorSpaces[i] = colorSpace;
+                else if (*importer.imageColorSpaces[i] != colorSpace)
+                    ARC_LOG_WARN("{}: image {} is used both as colour and as data; it is decoded as {}", importer.name,
+                                 image, *importer.imageColorSpaces[i] == ColorSpace::Srgb ? "sRGB" : "linear");
+            }
+            if (texCoord != 0)
+                ARC_LOG_WARN("{}: material '{}' uses TEXCOORD_{} for its {}; only TEXCOORD_0 is imported, so it is used "
+                             "instead",
+                             importer.name, material.name, texCoord, slot);
+            return index;
+        }
 
         // One component of an accessor element as a float. Normalized integers map to [0, 1] or
         // [-1, 1] as glTF defines (signed values use max(c / max, -1), so the most negative value
@@ -630,18 +659,11 @@ namespace arc
                 else if (source.alphaMode == "BLEND")
                     material.alphaMode = AlphaMode::Blend;
 
-                const int texture = pbr.baseColorTexture.index;
-                if (texture >= 0 && static_cast<size_t>(texture) < model.textures.size())
-                {
-                    material.baseColorTexture = texture;
-                    const int32_t image = model.textures[static_cast<size_t>(texture)].image;
-                    if (image >= 0)
-                        importer.imageNeeded[static_cast<size_t>(image)] = true;
-                    if (pbr.baseColorTexture.texCoord != 0)
-                        ARC_LOG_WARN("{}: material '{}' uses TEXCOORD_{} for its base colour; only TEXCOORD_0 is "
-                                     "imported, so it is used instead",
-                                     importer.name, material.name, pbr.baseColorTexture.texCoord);
-                }
+                material.baseColorTexture = useTexture(importer, source, pbr.baseColorTexture.index,
+                                                       pbr.baseColorTexture.texCoord, ColorSpace::Srgb, "base colour");
+                material.metallicRoughnessTexture =
+                    useTexture(importer, source, pbr.metallicRoughnessTexture.index, pbr.metallicRoughnessTexture.texCoord,
+                               ColorSpace::Linear, "metallic-roughness texture");
                 model.materials.push_back(material);
             }
         }
@@ -650,6 +672,10 @@ namespace arc
         {
             const tinygltf::Model& gltf = importer.gltf;
             importer.model.images.resize(gltf.images.size());
+            importer.model.imageColorSpaces.resize(gltf.images.size(), ColorSpace::Srgb);
+            for (size_t i = 0; i < gltf.images.size(); ++i)
+                if (importer.imageColorSpaces[i])
+                    importer.model.imageColorSpaces[i] = *importer.imageColorSpaces[i];
             for (size_t i = 0; i < gltf.images.size(); ++i)
             {
                 if (!importer.imageNeeded[i])
@@ -803,7 +829,8 @@ namespace arc
 
         ModelData model;
         model.name = std::string(name);
-        Importer importer{gltf, model, name, std::vector<bool>(gltf.images.size(), false)};
+        Importer importer{gltf, model, name, std::vector<bool>(gltf.images.size(), false),
+                          std::vector<std::optional<ColorSpace>>(gltf.images.size())};
 
         importMaterials(importer);
         importImages(importer);

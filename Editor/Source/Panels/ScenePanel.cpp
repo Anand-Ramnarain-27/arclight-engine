@@ -385,10 +385,10 @@ namespace arc
         int view = static_cast<int>(m_scene.debugView);
         if (ImGui::Combo("Shading", &view,
                          "Lit\0Base colour\0Normals\0Texture coordinates\0Diffuse light\0Specular light\0"
-                         "Lighting only\0"))
+                         "Lighting only\0Metallic\0Roughness\0"))
             m_scene.debugView = static_cast<MeshRenderer::DebugView>(view);
-        ImGui::SetItemTooltip("Base colour, normals and texture coordinates are data, shown without exposure or "
-                              "tone mapping. The lighting views are light, and go through both.");
+        ImGui::SetItemTooltip("Base colour, normals, texture coordinates, metallic and roughness are data, shown "
+                              "without exposure or tone mapping. The lighting views are light, and go through both.");
         ImGui::Checkbox("Light icons", &m_showLightIcons);
 
         ImGui::SeparatorText("Rendering");
@@ -538,12 +538,14 @@ namespace arc
         ImGui::SeparatorText("Reflectance");
         int model = static_cast<int>(lighting.model);
         const char* models[] = {lightingModelName(LightingModel::Lambert), lightingModelName(LightingModel::Phong),
-                                lightingModelName(LightingModel::BlinnPhong)};
+                                lightingModelName(LightingModel::BlinnPhong), lightingModelName(LightingModel::CookTorrance)};
         if (ImGui::Combo("Model", &model, models, static_cast<int>(std::size(models))))
             lighting.model = static_cast<LightingModel>(model);
         ImGui::SetItemTooltip("Lambert: diffuse only. Phong: a highlight around the mirror direction. Blinn-Phong: "
-                              "around the normal, using the half vector, which stretches correctly at grazing angles.");
-        ImGui::BeginDisabled(lighting.model == LightingModel::Lambert);
+                              "around the normal, using the half vector, which stretches correctly at grazing angles. "
+                              "Cook-Torrance: microfacets with GGX's long-tailed highlight and Smith shadowing, as "
+                              "glTF materials are authored for.");
+        ImGui::BeginDisabled(lighting.model == LightingModel::Lambert || lighting.model == LightingModel::CookTorrance);
         ImGui::Checkbox("Energy conserving", &lighting.energyConserving);
         ImGui::SetItemTooltip("Normalises the highlight so the light it reflects in total does not depend on how "
                               "sharp it is. Off, smoother surfaces only get a smaller highlight; on, it also gets "
@@ -558,8 +560,16 @@ namespace arc
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
         ImGui::SliderFloat("##Roughness", &lighting.roughness, 0.0f, 1.0f, "%.2f");
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("Every material gets this roughness instead of its own. The highlight's exponent is "
-                              "2 / roughness^4 - 2.");
+        ImGui::SetItemTooltip("Every material gets this roughness instead of its own. GGX uses alpha = roughness^2; "
+                              "Phong and Blinn-Phong the exponent 2 / roughness^4 - 2.");
+        ImGui::Checkbox("Override metallic", &lighting.overrideMetallic);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!lighting.overrideMetallic);
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+        ImGui::SliderFloat("##Metallic", &lighting.metallic, 0.0f, 1.0f, "%.2f");
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Every material gets this metallic instead of its own: 0 is a dielectric (4%% specular, "
+                              "coloured diffuse), 1 a metal (base-coloured specular, no diffuse).");
 
         ImGui::SeparatorText("Ambient");
         Vec3 sky = linearToSrgb(lighting.ambientSky);

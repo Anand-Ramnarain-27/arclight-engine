@@ -305,6 +305,50 @@ TEST_CASE("glTF: materials, samplers and embedded images")
     CHECK(gpuModel->textureCount() == 1);
 }
 
+TEST_CASE("glTF: metallic-roughness textures are imported as linear data")
+{
+    Bytes buffer;
+    buffer.add<float>({0, 0, 0,   1, 0, 0,   0, 1, 0});
+    const std::string pixel = std::string("data:image/png;base64,") + kRedPixelPng;
+
+    const auto model = importJson(R"(
+        "bufferViews": [{"buffer": 0, "byteLength": 36}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        "images": [{"uri": ")" + pixel + R"("}, {"uri": ")" + pixel + R"("}, {"uri": ")" + pixel + R"("}],
+        "textures": [{"source": 0}, {"source": 1}, {"source": 2}],
+        "materials": [
+            {"name": "Metal", "pbrMetallicRoughness": {"baseColorTexture": {"index": 0},
+             "metallicRoughnessTexture": {"index": 1}, "metallicFactor": 0.5, "roughnessFactor": 0.25}},
+            {"name": "Mixed", "pbrMetallicRoughness": {"baseColorTexture": {"index": 2},
+             "metallicRoughnessTexture": {"index": 2}}},
+            {"name": "Out of range", "pbrMetallicRoughness": {"metallicRoughnessTexture": {"index": 9}}}
+        ],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+        "nodes": [{"mesh": 0}])",
+                                 buffer);
+    REQUIRE(model);
+    REQUIRE(model->materials.size() == 3);
+    CHECK(model->materials[0].metallicRoughnessTexture == 1);
+    CHECK(model->materials[0].metallicFactor == 0.5f);
+    CHECK(model->materials[0].roughnessFactor == 0.25f);
+    CHECK(model->materials[2].metallicRoughnessTexture == -1);
+
+    REQUIRE(model->imageColorSpaces.size() == 3);
+    CHECK(model->imageColorSpaces[0] == ColorSpace::Srgb);
+    CHECK(model->imageColorSpaces[1] == ColorSpace::Linear);
+    // Used as both: the first use, base colour, decides.
+    CHECK(model->imageColorSpaces[2] == ColorSpace::Srgb);
+
+    auto device = rhi::createNullDevice({});
+    REQUIRE(device);
+    GeometryPool geometry(*device);
+    const auto gpuModel = Model::create(*device, geometry, *model);
+    REQUIRE(gpuModel);
+    REQUIRE(gpuModel->texture(1));
+    CHECK(gpuModel->texture(0)->desc().format == rhi::Format::RGBA8_UNORM_SRGB);
+    CHECK(gpuModel->texture(1)->desc().format == rhi::Format::RGBA8_UNORM);
+}
+
 TEST_CASE("glTF: binary files")
 {
     Bytes bin;

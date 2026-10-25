@@ -59,6 +59,8 @@ namespace
         material.name = "Red";
         material.baseColorFactor = {1, 0, 0, 0.5f};
         material.baseColorTexture = 0;
+        material.metallicRoughnessTexture = 1;
+        material.metallicFactor = 0.25f;
         material.alphaMode = AlphaMode::Blend;
         material.doubleSided = true;
         data.materials = {material};
@@ -66,12 +68,15 @@ namespace
         texture.image = 0;
         texture.sampler.addressU = rhi::AddressMode::ClampToEdge;
         texture.sampler.maxAnisotropy = 8;
-        data.textures = {texture};
+        TextureData dataTexture;
+        dataTexture.image = 1;
+        data.textures = {texture, dataTexture};
         Image image;
         image.size = {4, 2};
         image.pixels.assign(4 * 2 * 4, std::byte{200});
-        data.imageMips = {generateMipChain(image, ColorSpace::Srgb)};
-        data.images.resize(1);
+        data.imageMips = {generateMipChain(image, ColorSpace::Srgb), generateMipChain(image, ColorSpace::Linear)};
+        data.imageColorSpaces = {ColorSpace::Srgb, ColorSpace::Linear};
+        data.images.resize(2);
         data.bounds.expand(Vec3{2, 0, 0});
         data.bounds.expand(Vec3{3, 1, 0});
         return data;
@@ -237,10 +242,13 @@ TEST_CASE("Cooked models round-trip and are validated")
     CHECK(read->materials[0].baseColorFactor.w == 0.5f);
     CHECK(read->textures[0].sampler.addressU == rhi::AddressMode::ClampToEdge);
     CHECK(read->textures[0].sampler.maxAnisotropy == 8);
-    REQUIRE(read->imageMips.size() == 1);
+    CHECK(read->materials[0].metallicRoughnessTexture == 1);
+    CHECK(read->materials[0].metallicFactor == 0.25f);
+    REQUIRE(read->imageMips.size() == 2);
     CHECK(read->imageMips[0].size() == original.imageMips[0].size());
     CHECK(read->imageMips[0][0].pixels == original.imageMips[0][0].pixels);
-    CHECK(read->images.size() == 1);
+    CHECK(read->imageColorSpaces == original.imageColorSpaces);
+    CHECK(read->images.size() == 2);
     CHECK(read->bounds.max.x == 3.0f);
 
     const std::optional<CookedHeader> onlyHeader =
@@ -278,7 +286,14 @@ TEST_CASE("Cooked models round-trip and are validated")
     SUBCASE("a texture pointing at a missing image fails")
     {
         ModelData broken = original;
-        broken.textures[0].image = 1;
+        broken.textures[0].image = 2;
+        CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
+    }
+
+    SUBCASE("a metallic-roughness texture out of range fails")
+    {
+        ModelData broken = original;
+        broken.materials[0].metallicRoughnessTexture = 2;
         CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
     }
 

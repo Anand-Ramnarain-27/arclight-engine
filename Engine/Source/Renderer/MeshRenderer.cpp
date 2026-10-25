@@ -47,11 +47,12 @@ namespace arc
             float alphaCutoff = 0.5f;
             uint32_t alphaMode = 0;
             float roughnessFactor = 1.0f;
-            float padding = 0.0f;
+            float metallicFactor = 1.0f;
         };
         static_assert(offsetof(MaterialConstants, alphaCutoff) == 16);
         static_assert(offsetof(MaterialConstants, alphaMode) == 20);
         static_assert(offsetof(MaterialConstants, roughnessFactor) == 24);
+        static_assert(offsetof(MaterialConstants, metallicFactor) == 28);
         static_assert(sizeof(MaterialConstants) == 32);
 
         Image solidImage(Extent2D size, uint32_t cellSize, std::array<uint8_t, 4> a, std::array<uint8_t, 4> b)
@@ -179,7 +180,7 @@ namespace arc
         const rhi::Buffer* vertexBuffer = nullptr;
         const rhi::Buffer* indexBuffer = nullptr;
         uint32_t transform = std::numeric_limits<uint32_t>::max();
-        const rhi::Texture* texture = nullptr;
+        std::array<const rhi::Texture*, kMaterialTextureSlots> textures{};
         const rhi::Sampler* sampler = nullptr;
         const MaterialData* material = nullptr;
 
@@ -233,25 +234,38 @@ namespace arc
                     ++stats.constantUploads;
                 }
 
-                rhi::Texture* itemTexture = m_whiteTexture.get();
-                rhi::Sampler* itemSampler = m_defaultSampler.get();
+                std::array<rhi::Texture*, kMaterialTextureSlots> itemTextures{m_whiteTexture.get(), m_whiteTexture.get()};
+                rhi::Sampler* itemSampler = nullptr;
                 if (itemMaterial.baseColorTexture >= 0)
                 {
-                    itemTexture = model.texture(itemMaterial.baseColorTexture);
+                    rhi::Texture* baseColor = model.texture(itemMaterial.baseColorTexture);
                     itemSampler = model.sampler(itemMaterial.baseColorTexture);
-                    if (!itemTexture || !itemSampler)
+                    itemTextures[kBaseColorSlot] = baseColor && itemSampler ? baseColor : m_missingTexture.get();
+                }
+                if (itemMaterial.metallicRoughnessTexture >= 0)
+                {
+                    if (rhi::Texture* metallicRoughness = model.texture(itemMaterial.metallicRoughnessTexture))
                     {
-                        itemTexture = m_missingTexture.get();
-                        itemSampler = m_defaultSampler.get();
+                        itemTextures[kMetallicRoughnessSlot] = metallicRoughness;
+                        if (!itemSampler)
+                            itemSampler = model.sampler(itemMaterial.metallicRoughnessTexture);
                     }
                 }
-                if (itemTexture != texture || itemSampler != sampler)
+                if (!itemSampler)
+                    itemSampler = m_defaultSampler.get();
+                for (uint32_t slot = 0; slot < kMaterialTextureSlots; ++slot)
                 {
-                    commandList.setTexture(0, *itemTexture);
+                    if (itemTextures[slot] != textures[slot])
+                    {
+                        commandList.setTexture(slot, *itemTextures[slot]);
+                        textures[slot] = itemTextures[slot];
+                        ++stats.textureBinds;
+                    }
+                }
+                if (itemSampler != sampler)
+                {
                     commandList.setSampler(0, *itemSampler);
-                    texture = itemTexture;
                     sampler = itemSampler;
-                    ++stats.textureBinds;
                 }
                 if (&itemMaterial != material)
                 {
@@ -260,6 +274,7 @@ namespace arc
                                                     .alphaCutoff = itemMaterial.alphaCutoff,
                                                     .alphaMode = static_cast<uint32_t>(itemMaterial.alphaMode),
                                                     .roughnessFactor = itemMaterial.roughnessFactor,
+                                                    .metallicFactor = itemMaterial.metallicFactor,
                                                 });
                     material = &itemMaterial;
                     ++stats.constantUploads;

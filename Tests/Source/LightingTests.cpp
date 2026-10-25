@@ -217,10 +217,15 @@ TEST_CASE("Lighting constants carry the settings")
     CHECK(near(constants.ambientSky, settings.ambientSky * 2.0f));
     CHECK(constants.roughnessOverride < 0.0f);
 
+    CHECK(constants.metallicOverride < 0.0f);
+
     settings.overrideRoughness = true;
     settings.roughness = 1.5f;
+    settings.overrideMetallic = true;
+    settings.metallic = 0.25f;
     constants = makeLightingConstants(settings, 0);
     CHECK(constants.roughnessOverride == 1.0f);
+    CHECK(constants.metallicOverride == 0.25f);
 }
 
 TEST_CASE("sRGB conversion round-trips and clamps")

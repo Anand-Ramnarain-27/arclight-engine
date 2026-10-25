@@ -56,11 +56,12 @@ namespace arc
             generateLods(*data, lods);
         }
 
-        // Only base colour images are decoded by the glTF importer, and they hold colour.
+        // Mips are averaged in each image's own colour space: sRGB colour in linear light, data as it is.
         data->imageMips.resize(data->images.size());
+        data->imageColorSpaces.resize(data->images.size(), ColorSpace::Srgb);
         for (size_t i = 0; i < data->images.size(); ++i)
             if (!data->images[i].empty())
-                data->imageMips[i] = generateMipChain(std::move(data->images[i]), ColorSpace::Srgb);
+                data->imageMips[i] = generateMipChain(std::move(data->images[i]), data->imageColorSpaces[i]);
         data->images.assign(data->imageMips.size(), Image{});
         return data;
     }

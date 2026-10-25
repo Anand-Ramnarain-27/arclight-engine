@@ -35,8 +35,8 @@ namespace arc
         Blend = 2,
     };
 
-    /// The glTF metallic-roughness material. Only the base colour is drawn so far; the other factors
-    /// are kept so models need no re-import once physically based lighting uses them.
+    /// The glTF metallic-roughness material. Each factor multiplies its texture; without the texture
+    /// the factor alone is the value.
     struct MaterialData
     {
         std::string name;
@@ -44,6 +44,9 @@ namespace arc
         int32_t baseColorTexture = -1;                   // Into ModelData::textures; -1 for none.
         float metallicFactor = 1.0f;
         float roughnessFactor = 1.0f;
+        /// Linear data: blue is metallic, green is roughness (red is unused, or occlusion in packed
+        /// ORM textures). -1 for none.
+        int32_t metallicRoughnessTexture = -1;
         AlphaMode alphaMode = AlphaMode::Opaque;
         float alphaCutoff = 0.5f;
         /// Back faces are drawn too, lit with their normal flipped.
@@ -130,6 +133,9 @@ namespace arc
         /// Decoded RGBA8. Only images used by a material slot that is drawn are decoded; the rest
         /// stay empty.
         std::vector<Image> images;
+        /// How each image is stored, from the material slot that uses it: sRGB for base colour,
+        /// linear for data. Indexed like `images` and `imageMips`.
+        std::vector<ColorSpace> imageColorSpaces;
         /// Every mip level of each image, level 0 first, when they were made ahead of time (cooked
         /// models have these and no `images`). Model::create() uploads these as they are, and builds
         /// the levels from `images` only for an image that has none here.

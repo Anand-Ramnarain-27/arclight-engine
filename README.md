@@ -52,7 +52,8 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Virtual file system and system file dialogs | Working | Working |
 | Asset pipeline: .meta files, cooked formats, resource manager | Working | Working |
 | Scene and prefab files, Play mode that restores the scene | Working | Working |
-| Lights, HDR and tone mapping, Blinn-Phong | In progress | In progress |
+| Lights, HDR and tone mapping, Blinn-Phong | Working | Working |
+| Cook-Torrance GGX, metallic-roughness materials | In progress | In progress |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -166,7 +167,7 @@ The sample *Lantern* model opens at start-up. To import another model, choose **
 | + / - / 0 | Double / halve / reset the time scale |
 | F11 | Capture a GPU frame (when started from RenderDoc, with `--pix`, or from Xcode) |
 
-The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`. Its **Lighting** menu holds the reflectance model (Lambert, Phong or Blinn-Phong, with energy conservation and Fresnel switchable to compare), the ambient light, exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it.
+The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`. Its **Lighting** menu holds the reflectance model (Cook-Torrance GGX by default; Lambert, Phong and Blinn-Phong to compare, with energy conservation and Fresnel switchable), roughness and metallic overrides, the ambient light, exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it.
 
 Scenes are saved with **File > Save Scene** (Ctrl+S, Cmd+S on macOS) and opened with **File > Open Scene** or by double-clicking a `.scene` file in the Files panel; the last one opens again at start-up. Right-click an object in the Hierarchy and choose **Save as Prefab** to reuse it, then double-click the `.prefab` or drag it into the Scene view to place copies. Changes made while playing (F5) are undone on Stop.
 

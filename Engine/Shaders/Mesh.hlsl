@@ -1,8 +1,11 @@
 // Meshes imported from glTF, lit by the scene's lights (Lighting.hlsli) into the HDR scene target.
-// The material is the glTF base colour (factor times texture) and roughness factor. Every surface is
-// shaded as a dielectric until the metal/roughness textures are read: glTF's metallic factor
-// defaults to 1 and is meant to be multiplied by a texture, so using it alone would turn most
-// textured models into bare metal.
+// The material is glTF's metallic-roughness model: base colour, metallic and roughness, each a factor
+// times a texture.
+//
+// Material textures have fixed slots (MaterialTextureSlot in MeshRenderer.h), filled with a white
+// stand-in when a material has no such texture, so the factor alone decides. They share the base
+// colour texture's sampler in s0: glTF lets each texture name its own, but files almost never use
+// different ones within a material.
 
 #include "Common.hlsli"
 #include "Constants.hlsli"
@@ -23,6 +26,7 @@ cbuffer MaterialConstants : register(b2)
     float alphaCutoff;
     uint alphaMode;          // One of the ALPHA_MODE_ values below.
     float roughnessFactor;   // Perceptual roughness, 0 to 1.
+    float metallicFactor;    // 0 for a dielectric, 1 for a metal.
 };
 
 // Match arc::AlphaMode and MeshRenderer::DebugView.
@@ -37,11 +41,14 @@ cbuffer MaterialConstants : register(b2)
 #define DEBUG_VIEW_DIFFUSE 4
 #define DEBUG_VIEW_SPECULAR 5
 #define DEBUG_VIEW_LIGHTING 6
+#define DEBUG_VIEW_METALLIC 7
+#define DEBUG_VIEW_ROUGHNESS 8
 
 // Specular reflectance at normal incidence of common dielectrics (index of refraction about 1.5).
 static const float kDielectricF0 = 0.04;
 
-Texture2D<float4> g_baseColor : register(t0);
+Texture2D<float4> g_baseColor : register(t0);           // sRGB colour, alpha.
+Texture2D<float4> g_metallicRoughness : register(t1);   // Linear: green = roughness, blue = metallic.
 SamplerState g_sampler : register(s0);
 
 struct VSInput
@@ -92,13 +99,28 @@ float4 PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
     if (debugView == DEBUG_VIEW_BASE_COLOR)
         return float4(baseColor.rgb, alpha);
 
+    const float4 metallicRoughness = g_metallicRoughness.Sample(g_sampler, input.uv);
+    float metallic = saturate(metallicFactor * metallicRoughness.b);
+    float roughness = saturate(roughnessFactor * metallicRoughness.g);
+    if (metallicOverride >= 0.0)
+        metallic = metallicOverride;
+    if (roughnessOverride >= 0.0)
+        roughness = roughnessOverride;
+    if (debugView == DEBUG_VIEW_METALLIC)
+        return float4(SrgbToLinear(metallic.xxx), 1.0);
+    if (debugView == DEBUG_VIEW_ROUGHNESS)
+        return float4(SrgbToLinear(roughness.xxx), 1.0);
+
+    // A metal reflects its base colour and absorbs what it refracts, so it has no diffuse part; a
+    // dielectric reflects about 4% whatever its colour, and its base colour is the diffuse albedo.
+    const float3 albedo = debugView == DEBUG_VIEW_LIGHTING ? 1.0 : baseColor.rgb;
     Surface surface;
     surface.position = input.worldPosition;
     surface.normal = normal;
     surface.view = normalize(cameraPosition - input.worldPosition);
-    surface.diffuseColor = debugView == DEBUG_VIEW_LIGHTING ? 1.0 : baseColor.rgb;
-    surface.f0 = kDielectricF0;
-    surface.roughness = roughnessOverride >= 0.0 ? roughnessOverride : saturate(roughnessFactor);
+    surface.diffuseColor = albedo * (1.0 - metallic);
+    surface.f0 = lerp(kDielectricF0.xxx, albedo, metallic);
+    surface.roughness = lightingModel == LIGHTING_MODEL_COOK_TORRANCE ? max(roughness, kMinRoughness) : roughness;
 
     float3 diffuse;
     float3 specular;

@@ -25,6 +25,15 @@ Phase 4: lighting and PBR.
 - Editor: the Scene panel's *Lighting* menu: reflectance model, energy conservation, Fresnel, a roughness override, ambient colours and intensity, exposure and the tone curve.
 - Unit tests for light conversion, spot cones, light collection, light component files, `Quat::fromForward()`, sRGB conversion, HDR render targets and structured buffers.
 
+#### Physically based shading
+- Cook-Torrance specular, the new default lighting model: the GGX distribution, Smith's height-correlated masking-shadowing and Schlick's Fresnel, as glTF's metallic-roughness model defines; roughness clamped at 0.045 so point-light highlights don't alias.
+- Metallic: F0 = mix(0.04, base colour, metallic) and diffuse = base colour × (1 − metallic), from the factor times the metallic-roughness texture (blue = metallic, green = roughness).
+- The hemisphere ambient now also lights specular reflections, through Karis' analytic fit of the split-sum environment BRDF, so metals aren't black away from the lights.
+- Material texture slots (`MeshRenderer::MaterialTextureSlot`): t0 base colour, t1 metallic-roughness, white when absent; the material's textures share the base colour texture's sampler.
+- Importer: metallic-roughness textures, with each image marked sRGB or linear by the slot that uses it (`ModelData::imageColorSpaces`); mips are averaged in that space and linear images get a UNORM format. Cooked model format 2 and model importer version 2, so existing cooked models are rebuilt once.
+- `Renderer/Brdf.h`: CPU copies of the shader's BRDF functions, and unit tests that integrate them: Lambert and normalised Phong conserve energy, GGX's distribution integrates to 1, Cook-Torrance never reflects more than it receives (and keeps 1 − ln 2 at roughness 1), and the analytic environment BRDF stays close to the integrated one.
+- Editor: *Cook-Torrance (GGX)* in the Lighting menu, a metallic override, *Metallic* and *Roughness* debug views, and each material's metallic and roughness in the Inspector.
+
 #### RHI
 - `Format::RGBA16_FLOAT`.
 - Structured buffers: `BufferUsage::Structured` with `BufferDesc::stride`, bound with `CommandList::setBuffer()` to a t slot (an SRV in the texture table on Direct3D 12, `[[buffer(n)]]` on Metal).
@@ -32,7 +41,6 @@ Phase 4: lighting and PBR.
 
 ### Changed
 - Scene shaders (meshes, sky, texture demo) write linear colour; only the tone-mapping pass encodes sRGB. `Renderer::sceneTexture()` is now `displayTexture()`.
-- Every surface is shaded as a dielectric until the metallic-roughness textures are read: the glTF metallic factor defaults to 1 and is meant to multiply a texture.
 - CI runs on pushes to `phase-4` instead of `phase-3`.
 
 ## [0.4.0] - 2026-10-23

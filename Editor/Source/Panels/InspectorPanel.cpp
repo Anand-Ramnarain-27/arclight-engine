@@ -267,6 +267,12 @@ namespace arc
                                                                                              : "texture missing";
                 ImGui::Text("%s: %s, %s%s", material.name.empty() ? "(unnamed)" : material.name.c_str(), texture,
                             alphaModeName(material.alphaMode), material.doubleSided ? ", double-sided" : "");
+                const char* metallicRoughness = material.metallicRoughnessTexture < 0 ? ""
+                                                : model->texture(material.metallicRoughnessTexture) != nullptr
+                                                    ? " x texture"
+                                                    : " (texture missing)";
+                ImGui::TextDisabled("    metallic %.2f, roughness %.2f%s", material.metallicFactor,
+                                    material.roughnessFactor, metallicRoughness);
                 ImGui::PopID();
             }
             ImGui::TreePop();

@@ -20,9 +20,10 @@ namespace arc
     {
         switch (model)
         {
-            case LightingModel::Lambert:    return "Lambert";
-            case LightingModel::Phong:      return "Phong";
-            case LightingModel::BlinnPhong: return "Blinn-Phong";
+            case LightingModel::Lambert:      return "Lambert";
+            case LightingModel::Phong:        return "Phong";
+            case LightingModel::BlinnPhong:   return "Blinn-Phong";
+            case LightingModel::CookTorrance: return "Cook-Torrance (GGX)";
         }
         return "";
     }
@@ -73,6 +74,7 @@ namespace arc
         constants.flags = (settings.energyConserving ? kLightingFlagEnergyConserving : 0u) |
                           (settings.fresnel ? kLightingFlagFresnel : 0u);
         constants.roughnessOverride = settings.overrideRoughness ? std::clamp(settings.roughness, 0.0f, 1.0f) : -1.0f;
+        constants.metallicOverride = settings.overrideMetallic ? std::clamp(settings.metallic, 0.0f, 1.0f) : -1.0f;
         return constants;
     }
 }

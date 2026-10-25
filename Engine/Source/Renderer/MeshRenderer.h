@@ -33,7 +33,7 @@ namespace arc
         uint32_t triangles = 0;
         uint32_t pipelineChanges = 0;
         uint32_t bufferBinds = 0;          // Vertex and index buffers.
-        uint32_t textureBinds = 0;         // Texture and sampler pairs.
+        uint32_t textureBinds = 0;         // Material texture slots changed.
         uint32_t constantUploads = 0;      // Per-object and per-material cbuffers.
         std::array<uint32_t, 1 + kMaxLodLevels> drawsPerLod{};
 
@@ -56,9 +56,10 @@ namespace arc
     /// setLighting() each frame.
     ///
     /// Owns the pipelines (one per combination of depth convention, culling, blending and winding)
-    /// and the stand-in textures: white for materials without a base colour texture, so the factor
-    /// alone decides the colour, and a magenta checker for textures whose image is missing or could
-    /// not be decoded, so the gap is obvious instead of silently white.
+    /// and the stand-in textures: white for a material slot without a texture, so the factor alone
+    /// decides the value, and a magenta checker for base colour textures whose image is missing or
+    /// could not be decoded, so the gap is obvious instead of silently white (a missing data texture
+    /// falls back to white, since magenta would read as arbitrary metallic and roughness).
     class MeshRenderer
     {
     public:
@@ -72,13 +73,25 @@ namespace arc
             Diffuse = 4,      // The diffuse part of the lighting alone.
             Specular = 5,     // The specular part alone.
             Lighting = 6,     // Every surface white, so only the light shows.
+            Metallic = 7,     // Factor times texture, as grey.
+            Roughness = 8,    // Factor times texture, as grey.
         };
 
         /// Views whose output is data rather than light, to be shown without exposure or a tone curve.
         [[nodiscard]] static bool isDataView(DebugView view)
         {
-            return view == DebugView::BaseColor || view == DebugView::Normals || view == DebugView::TexCoords;
+            return view == DebugView::BaseColor || view == DebugView::Normals || view == DebugView::TexCoords ||
+                   view == DebugView::Metallic || view == DebugView::Roughness;
         }
+
+        /// Where each material texture is bound (t0..t4 in Mesh.hlsl). Normal, occlusion and
+        /// emissive are reserved for the next step.
+        enum MaterialTextureSlot : uint32_t
+        {
+            kBaseColorSlot = 0,
+            kMetallicRoughnessSlot = 1,
+            kMaterialTextureSlots = 2,
+        };
 
         MeshRenderer();
         ~MeshRenderer();

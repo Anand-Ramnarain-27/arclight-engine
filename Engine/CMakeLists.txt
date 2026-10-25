@@ -91,6 +91,7 @@ add_library(ArclightEngine STATIC
     Source/Renderer/ToneMapper.h
     Source/Renderer/ToneMapper.cpp
     Source/Renderer/Lighting.h
+    Source/Renderer/Brdf.h
     Source/Renderer/Lighting.cpp
     Source/Renderer/LightBuffer.h
     Source/Renderer/LightBuffer.cpp

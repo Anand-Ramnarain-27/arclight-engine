@@ -13,7 +13,7 @@ namespace arc
 {
     // Raised whenever an importer's output changes for the same source and settings, so every
     // cooked file it wrote before is rebuilt.
-    inline constexpr uint32_t kModelImporterVersion = 1;
+    inline constexpr uint32_t kModelImporterVersion = 2;
     inline constexpr uint32_t kTextureImporterVersion = 1;
 
     [[nodiscard]] uint32_t importerVersion(AssetType type);

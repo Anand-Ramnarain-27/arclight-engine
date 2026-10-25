@@ -24,8 +24,9 @@ namespace arc
     ///   - 8, 16 and 32-bit indices, all widened to 32 bits.
     ///   - The default scene's node hierarchy, both as nodes with local transforms and flattened into
     ///     mesh instances with complete transforms.
-    ///   - Materials: base colour factor and texture, metallic and roughness factors, alpha mode and
-    ///     cutoff, double-sidedness. Samplers.
+    ///   - Materials: base colour factor and texture, metallic and roughness factors and their
+    ///     texture, alpha mode and cutoff, double-sidedness. Samplers. Images are decoded only when a
+    ///     material uses them, and marked sRGB (base colour) or linear (metallic-roughness).
     ///
     /// glTF's conventions match the engine's (right-handed, +Y up, metres, counter-clockwise front
     /// faces, column-major matrices), so nothing is flipped or converted.

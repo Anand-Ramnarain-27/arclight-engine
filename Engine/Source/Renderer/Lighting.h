@@ -86,6 +86,10 @@ namespace arc
         /// Specular lobe around the normal: cos(normal, half vector)^n. Closer to measured
         /// materials than Phong, especially at grazing angles, where Phong's highlight stays round.
         BlinnPhong = 2,
+        /// Microfacet specular D * G * F / (4 cos cos): the GGX distribution of facet normals, Smith's
+        /// height-correlated shadowing-masking and Schlick's Fresnel, as glTF's metallic-roughness
+        /// model defines. Normalised by construction.
+        CookTorrance = 3,
     };
 
     [[nodiscard]] const char* lightingModelName(LightingModel model);
@@ -93,22 +97,25 @@ namespace arc
     /// Scene-wide lighting choices. Not saved with the scene yet.
     struct LightingSettings
     {
-        LightingModel model = LightingModel::BlinnPhong;
-        /// Divides the specular lobe by its integral, so a shinier (narrower) highlight is brighter
-        /// rather than the surface reflecting more light in total.
+        LightingModel model = LightingModel::CookTorrance;
+        /// Phong and Blinn-Phong only: divides the specular lobe by its integral, so a shinier
+        /// (narrower) highlight is brighter rather than the surface reflecting more light in total.
         bool energyConserving = true;
         /// Schlick's approximation: reflectance rises toward 1 at grazing angles. Off uses F0 everywhere.
         bool fresnel = true;
         /// A hemisphere of ambient light until image-based lighting replaces it: the sky colour from
-        /// above, the ground colour from below. Multiplies the surface's diffuse colour.
+        /// above, the ground colour from below. Lights the diffuse colour, and the specular
+        /// reflectance through an analytic fit of the split-sum BRDF (see EnvBrdfApprox).
         Vec3 ambientSky{0.30f, 0.34f, 0.42f};
         Vec3 ambientGround{0.12f, 0.10f, 0.09f};
         float ambientIntensity = 1.0f;
         /// Light the scene with defaultSunLight() while it has no lights of its own.
         bool defaultLight = true;
-        /// Shade every material with `roughness` instead of its own, to compare lobes.
+        /// Shade every material with `roughness` / `metallic` instead of its own, to compare lobes.
         bool overrideRoughness = false;
         float roughness = 0.5f;
+        bool overrideMetallic = false;
+        float metallic = 1.0f;
     };
 
     /// Mirrors LightingConstants (b3) in Lighting.hlsli.
@@ -120,13 +127,15 @@ namespace arc
         uint32_t model = 0;
         uint32_t flags = 0;   // LIGHTING_FLAG_ bits.
         float roughnessOverride = -1.0f;   // Negative: each material's own.
-        uint32_t padding[2]{};
+        float metallicOverride = -1.0f;    // Negative: each material's own.
+        uint32_t padding = 0;
     };
     static_assert(offsetof(LightingConstants, lightCount) == 12);
     static_assert(offsetof(LightingConstants, ambientGround) == 16);
     static_assert(offsetof(LightingConstants, model) == 28);
     static_assert(offsetof(LightingConstants, flags) == 32);
     static_assert(offsetof(LightingConstants, roughnessOverride) == 36);
+    static_assert(offsetof(LightingConstants, metallicOverride) == 40);
     static_assert(sizeof(LightingConstants) == 48);
 
     /// Match LIGHTING_FLAG_ in Lighting.hlsli.

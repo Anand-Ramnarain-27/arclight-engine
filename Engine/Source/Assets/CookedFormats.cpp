@@ -14,7 +14,7 @@ namespace arc
         constexpr uint32_t kModelMagic = 0x4D435241;
         constexpr uint32_t kTextureMagic = 0x54435241;
         // Bumped whenever the layout below changes; older files are then rebuilt, not misread.
-        constexpr uint32_t kFormatVersion = 1;
+        constexpr uint32_t kFormatVersion = 2;
 
         // Limits on counts read from a file, so a corrupt count fails instead of allocating gigabytes.
         constexpr uint32_t kMaxVertices = 1u << 26;
@@ -91,6 +91,24 @@ namespace arc
         }
 
         template <typename Enum>
+        bool readEnum(BinaryReader& reader, Enum& value, uint8_t last);
+
+        // Each image is its colour space, then its mip chain.
+        bool readImages(BinaryReader& reader, ModelData& data)
+        {
+            uint32_t count = 0;
+            if (!reader.read(count) || count > kMaxElements)
+                return false;
+            data.imageMips.resize(count);
+            data.imageColorSpaces.resize(count);
+            for (uint32_t i = 0; i < count; ++i)
+                if (!readEnum(reader, data.imageColorSpaces[i], static_cast<uint8_t>(ColorSpace::Linear)) ||
+                    !readMipChain(reader, data.imageMips[i]))
+                    return false;
+            return true;
+        }
+
+        template <typename Enum>
         bool readEnum(BinaryReader& reader, Enum& value, uint8_t last)
         {
             uint8_t raw = 0;
@@ -145,8 +163,11 @@ namespace arc
                     node.mesh >= static_cast<int64_t>(data.meshes.size()))
                     return false;
             }
+            const auto textureInRange = [&](int32_t texture) {
+                return texture >= -1 && texture < static_cast<int64_t>(data.textures.size());
+            };
             for (const MaterialData& material : data.materials)
-                if (material.baseColorTexture < -1 || material.baseColorTexture >= static_cast<int64_t>(data.textures.size()))
+                if (!textureInRange(material.baseColorTexture) || !textureInRange(material.metallicRoughnessTexture))
                     return false;
             for (const TextureData& texture : data.textures)
                 if (texture.image < -1 || texture.image >= static_cast<int64_t>(data.imageMips.size()))
@@ -216,6 +237,7 @@ namespace arc
             writer.write(material.baseColorTexture);
             writer.write(material.metallicFactor);
             writer.write(material.roughnessFactor);
+            writer.write(material.metallicRoughnessTexture);
             writer.write(static_cast<uint8_t>(material.alphaMode));
             writer.write(material.alphaCutoff);
             writer.write(static_cast<uint8_t>(material.doubleSided));
@@ -239,8 +261,12 @@ namespace arc
         }
 
         writer.write(static_cast<uint32_t>(data.imageMips.size()));
-        for (const std::vector<Image>& levels : data.imageMips)
-            writeMipChain(writer, levels);
+        for (size_t i = 0; i < data.imageMips.size(); ++i)
+        {
+            const ColorSpace colorSpace = i < data.imageColorSpaces.size() ? data.imageColorSpaces[i] : ColorSpace::Srgb;
+            writer.write(static_cast<uint8_t>(colorSpace));
+            writeMipChain(writer, data.imageMips[i]);
+        }
 
         writer.write(data.bounds);
         return writer.take();
@@ -283,7 +309,7 @@ namespace arc
                                 uint8_t doubleSided = 0;
                                 const bool ok = r.readString(material.name) && r.read(material.baseColorFactor) &&
                                                 r.read(material.baseColorTexture) && r.read(material.metallicFactor) &&
-                                                r.read(material.roughnessFactor) &&
+                                                r.read(material.roughnessFactor) && r.read(material.metallicRoughnessTexture) &&
                                                 readEnum(r, material.alphaMode, static_cast<uint8_t>(AlphaMode::Blend)) &&
                                                 r.read(material.alphaCutoff) && r.read(doubleSided) && doubleSided <= 1;
                                 material.doubleSided = doubleSided != 0;
@@ -303,7 +329,7 @@ namespace arc
                                        sampler.maxAnisotropy >= 1 && sampler.maxAnisotropy <= 16 && r.read(sampler.minLod) &&
                                        r.read(sampler.maxLod);
                             }) &&
-            reader.readEach(data.imageMips, kMaxElements, readMipChain) && reader.read(data.bounds) && reader.atEnd();
+            readImages(reader, data) && reader.read(data.bounds) && reader.atEnd();
         if (!read || !validate(data))
             return std::nullopt;
 
