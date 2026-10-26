@@ -27,6 +27,14 @@ namespace arc::rhi::metal
             case Format::BGRA8_UNORM:      return MTLPixelFormatBGRA8Unorm;
             case Format::D32_FLOAT:        return MTLPixelFormatDepth32Float;
             case Format::RGBA16_FLOAT:     return MTLPixelFormatRGBA16Float;
+            case Format::BC1_UNORM:        return MTLPixelFormatBC1_RGBA;
+            case Format::BC1_UNORM_SRGB:   return MTLPixelFormatBC1_RGBA_sRGB;
+            case Format::BC3_UNORM:        return MTLPixelFormatBC3_RGBA;
+            case Format::BC3_UNORM_SRGB:   return MTLPixelFormatBC3_RGBA_sRGB;
+            case Format::BC4_UNORM:        return MTLPixelFormatBC4_RUnorm;
+            case Format::BC5_UNORM:        return MTLPixelFormatBC5_RGUnorm;
+            case Format::BC7_UNORM:        return MTLPixelFormatBC7_RGBAUnorm;
+            case Format::BC7_UNORM_SRGB:   return MTLPixelFormatBC7_RGBAUnorm_sRGB;
         }
         return MTLPixelFormatInvalid;
     }
@@ -96,6 +104,7 @@ namespace arc::rhi::metal
         m_adapterInfo.backend = Backend::Metal;
         m_adapterInfo.name = m_device.name.UTF8String;
         m_adapterInfo.unifiedMemory = m_device.hasUnifiedMemory;
+        m_adapterInfo.blockCompression = m_device.supportsBCTextureCompression;
         // Metal has no fixed VRAM figure; this is the memory budget Metal recommends for the device.
         m_adapterInfo.videoMemoryMB = m_device.recommendedMaxWorkingSetSize / (1024 * 1024);
         // Metal drivers ship with the OS, so the OS version identifies the driver.

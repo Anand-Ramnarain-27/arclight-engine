@@ -56,7 +56,7 @@ static const float kDielectricF0 = 0.04;
 
 Texture2D<float4> g_baseColor : register(t0);           // sRGB colour, alpha.
 Texture2D<float4> g_metallicRoughness : register(t1);   // Linear: green = roughness, blue = metallic.
-Texture2D<float4> g_normal : register(t2);              // Linear: tangent-space normal * 0.5 + 0.5.
+Texture2D<float4> g_normal : register(t2);              // Linear: tangent-space normal's x, y * 0.5 + 0.5.
 Texture2D<float4> g_occlusion : register(t3);           // Linear: red = ambient light reaching the surface.
 Texture2D<float4> g_emissive : register(t4);            // sRGB colour.
 SamplerState g_sampler : register(s0);
@@ -96,7 +96,11 @@ VSOutput VSMain(VSInput input)
 // bitangent.
 float3 MappedNormal(float3 normal, float3 tangent, float3 bitangent, float2 uv)
 {
-    float3 tangentSpace = g_normal.Sample(g_sampler, uv).xyz * 2.0 - 1.0;
+    // Only x and y are read: z of a unit normal facing out of the surface follows from them, which
+    // lets cooked normal maps be two-channel BC5 (whose blue reads 0).
+    float3 tangentSpace;
+    tangentSpace.xy = g_normal.Sample(g_sampler, uv).xy * 2.0 - 1.0;
+    tangentSpace.z = sqrt(saturate(1.0 - dot(tangentSpace.xy, tangentSpace.xy)));
     tangentSpace.xy *= normalScale;
     return normalize(tangent * tangentSpace.x + bitangent * tangentSpace.y + normal * tangentSpace.z);
 }

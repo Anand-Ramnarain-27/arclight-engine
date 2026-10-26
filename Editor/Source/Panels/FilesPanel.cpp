@@ -29,6 +29,18 @@ namespace arc
             return std::format("{:.1f} MB", kilobytes / 1024.0);
         }
 
+        void compressionCombo(const char* label, TextureCompression& compression)
+        {
+            int choice = static_cast<int>(compression);
+            const char* names[] = {textureCompressionName(TextureCompression::None),
+                                   textureCompressionName(TextureCompression::Quality),
+                                   textureCompressionName(TextureCompression::Small)};
+            if (ImGui::Combo(label, &choice, names, static_cast<int>(std::size(names))))
+                compression = static_cast<TextureCompression>(choice);
+            ImGui::SetItemTooltip("None: RGBA8, 4 bytes a pixel. Quality: BC7, 1 byte a pixel. Small: BC1 (BC3 with "
+                                  "alpha), half a byte. Normal maps are BC5 and occlusion BC4 when compressed.");
+        }
+
         std::string_view stem(std::string_view name)
         {
             const size_t dot = name.rfind('.');
@@ -304,6 +316,7 @@ namespace arc
                 m_modelSettings.lodLevels = static_cast<uint32_t>(levels);
             ImGui::SliderFloat("Reduction per level", &m_modelSettings.lodReduction, 0.05f, 0.95f, "%.2f");
             ImGui::EndDisabled();
+            compressionCombo("Texture compression", m_modelSettings.textureCompression);
         }
         else if (record->meta.type == AssetType::Texture)
         {
@@ -314,6 +327,7 @@ namespace arc
             int maxSize = static_cast<int>(m_textureSettings.maxSize);
             if (ImGui::InputInt("Max size", &maxSize, 256, 1024))
                 m_textureSettings.maxSize = static_cast<uint32_t>(std::clamp(maxSize, 1, 16384));
+            compressionCombo("Compression", m_textureSettings.compression);
         }
 
         const bool changed = !(m_modelSettings == record->meta.model) || !(m_textureSettings == record->meta.texture);

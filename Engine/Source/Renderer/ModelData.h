@@ -4,6 +4,7 @@
 #include "Math/Math.h"
 #include "RHI/RHITypes.h"
 #include "Renderer/Image.h"
+#include "Renderer/TextureEncoding.h"
 
 #include <array>
 #include <cstdint>
@@ -151,12 +152,12 @@ namespace arc
         /// stay empty.
         std::vector<Image> images;
         /// How each image is stored, from the material slot that uses it: sRGB for base colour,
-        /// linear for data. Indexed like `images` and `imageMips`.
+        /// linear for data. Indexed like `images` and `encodedImages`.
         std::vector<ColorSpace> imageColorSpaces;
-        /// Every mip level of each image, level 0 first, when they were made ahead of time (cooked
-        /// models have these and no `images`). Model::create() uploads these as they are, and builds
-        /// the levels from `images` only for an image that has none here.
-        std::vector<std::vector<Image>> imageMips;
+        /// Each image ready for the GPU, with its mip chain, when it was made ahead of time: cooked
+        /// models have these, often block-compressed, and no `images`. Model::create() uploads these
+        /// as they are, and builds RGBA8 levels from `images` only for an image that has none here.
+        std::vector<EncodedTexture> encodedImages;
 
         /// Model space: every instance's primitives, transformed.
         Aabb bounds;

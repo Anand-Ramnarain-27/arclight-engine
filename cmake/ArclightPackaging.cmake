@@ -45,6 +45,7 @@ math(EXPR mikktspace_notice_length "${mikktspace_notice_end} - ${mikktspace_noti
 string(SUBSTRING "${mikktspace_header}" ${mikktspace_notice_start} ${mikktspace_notice_length} mikktspace_notice)
 file(WRITE "${CMAKE_BINARY_DIR}/Generated/MikkTSpace.txt" " *  ${mikktspace_notice}")
 install(FILES "${CMAKE_BINARY_DIR}/Generated/MikkTSpace.txt" DESTINATION ThirdPartyLicenses)
+install(FILES "${bc7enc_dir}/LICENSE" DESTINATION ThirdPartyLicenses RENAME bc7enc_rdo.txt)
 # The RenderDoc in-app API header (MIT) is compiled into the Windows build; its notice opens the header.
 if(WIN32)
     file(READ "${renderdoc_api_SOURCE_DIR}/renderdoc_app.h" renderdoc_header LIMIT 4096)

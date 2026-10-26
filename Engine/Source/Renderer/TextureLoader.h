@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderer/Image.h"
+#include "Renderer/TextureEncoding.h"
 
 #include <memory>
 #include <span>
@@ -19,6 +20,11 @@ namespace arc
     /// Returns nullptr and logs on failure.
     [[nodiscard]] std::unique_ptr<rhi::Texture> createTexture(rhi::Device& device, std::span<const Image> levels,
                                                               ColorSpace colorSpace, std::string debugName);
+
+    /// Creates a sampled texture from encoded levels. A block-compressed texture is decoded to RGBA8
+    /// first on a device without block compression. Returns nullptr and logs on failure.
+    [[nodiscard]] std::unique_ptr<rhi::Texture> createTexture(rhi::Device& device, const EncodedTexture& texture,
+                                                              std::string debugName);
 
     /// Loads an image file, builds its full mip chain on the CPU and uploads it. Returns nullptr and
     /// logs on failure.

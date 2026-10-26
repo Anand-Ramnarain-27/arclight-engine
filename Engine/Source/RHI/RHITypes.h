@@ -66,6 +66,7 @@ namespace arc::rhi
 
     [[nodiscard]] const char* backendName(Backend backend);
 
+    /// Cooked asset files store these values, so new formats are added at the end.
     enum class Format
     {
         Unknown,
@@ -79,10 +80,48 @@ namespace arc::rhi
         /// 32-bit float depth, no stencil. For DepthStencil textures only: sampling depth needs a
         /// typeless resource with a separate shader view on D3D12, which nothing uses yet.
         D32_FLOAT,
+
+        // Block-compressed formats: each 4x4 block of pixels is stored in 8 or 16 bytes and decoded
+        // by the texture unit when sampled, so they stay compressed in GPU memory. Sampled only (no
+        // render targets), and mip level 0 must be a whole number of blocks; smaller mips are padded
+        // to one. Needs AdapterInfo::blockCompression.
+
+        /// RGB at 5:6:5 endpoints with 4 shades between them, 1-bit alpha: 8 bytes a block (4 bits a pixel).
+        BC1_UNORM,
+        BC1_UNORM_SRGB,
+        /// BC1's colour plus an 8-bit alpha block: 16 bytes a block.
+        BC3_UNORM,
+        BC3_UNORM_SRGB,
+        /// One channel, two 8-bit endpoints and 8 shades: 8 bytes a block. Samples as (r, 0, 0, 1).
+        BC4_UNORM,
+        /// Two BC4 channels: 16 bytes a block. Samples as (r, g, 0, 1); made for normal maps.
+        BC5_UNORM,
+        /// RGBA with 8 modes and up to 3 partitions a block: 16 bytes a block, close to the source
+        /// at 8 bits a pixel.
+        BC7_UNORM,
+        BC7_UNORM_SRGB,
     };
 
-    [[nodiscard]] uint32_t bytesPerPixel(Format format);
+    [[nodiscard]] const char* formatName(Format format);
     [[nodiscard]] bool isDepthFormat(Format format);
+    [[nodiscard]] bool isBlockCompressed(Format format);
+    /// sRGB-encoded formats, which the GPU decodes to linear when sampling.
+    [[nodiscard]] bool isSrgbFormat(Format format);
+
+    /// For uncompressed formats only.
+    [[nodiscard]] uint32_t bytesPerPixel(Format format);
+
+    /// Pixels across (and down) the smallest unit a format stores: 4 for block-compressed formats, 1
+    /// otherwise.
+    [[nodiscard]] uint32_t blockDimension(Format format);
+    /// Bytes of one block, or of one pixel for uncompressed formats.
+    [[nodiscard]] uint32_t bytesPerBlock(Format format);
+    /// Bytes of one row of blocks `width` pixels wide, rounded up to whole blocks.
+    [[nodiscard]] uint32_t rowBytes(Format format, uint32_t width);
+    /// Rows of blocks in `height` pixels, rounded up to whole blocks.
+    [[nodiscard]] uint32_t rowCount(Format format, uint32_t height);
+    /// Bytes of a tightly packed image of `size` pixels.
+    [[nodiscard]] uint64_t imageBytes(Format format, Extent2D size);
 
     enum class LoadOp
     {
@@ -272,6 +311,9 @@ namespace arc::rhi
         std::string driver;
         uint64_t videoMemoryMB = 0;
         bool unifiedMemory = false;
+        /// Sampling BC1 to BC7 textures. Every D3D12 GPU can; on Metal, Apple silicon and the Intel
+        /// and AMD GPUs of macOS 11 or later can, but not iOS devices.
+        bool blockCompression = true;
     };
 
     struct SwapchainDesc

@@ -71,8 +71,8 @@ Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned as
 - Directional, point and spot lights from a structured buffer; HDR rendering with tone mapping; Lambert, Phong and Blinn-Phong with energy-conserving normalisation and Schlick Fresnel. *(Done.)*
 - Cook-Torrance GGX with the glTF metallic-roughness model. *(Done.)*
 - Normal maps with MikkTSpace tangents, ambient occlusion and emissive. *(Done.)*
-- Image-based lighting: irradiance, prefiltered specular and a BRDF lookup table. *(In progress.)*
-- Block-compressed textures (BC1 to BC7) cooked offline.
+- Image-based lighting: irradiance, prefiltered specular and a BRDF lookup table. *(Done.)*
+- Block-compressed textures (BC1 to BC7) cooked offline. *(In progress.)*
 - **Stylized rendering, part 1:** toon/cel lighting (ramp textures, banded diffuse, hard specular, rim light) and inverted-hull outlines.
 
 ## Compute, threading and profiling

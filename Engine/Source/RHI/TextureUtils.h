@@ -22,6 +22,8 @@ namespace arc::rhi
             uint64_t offset = 0;      // Bytes from the start of the buffer.
             uint32_t rowPitch = 0;    // Bytes from one row to the next, including padding.
             uint32_t rowBytes = 0;    // Bytes of pixel data in a row.
+            /// Rows of pixels, or of 4x4 blocks for a block-compressed format.
+            uint32_t rowCount = 0;
             Extent2D size;            // Pixels.
         };
 
@@ -33,7 +35,8 @@ namespace arc::rhi
 
     /// Fills every subresource of a texture through a temporary Upload buffer and leaves it in the
     /// ShaderRead state (Common if it is not Sampled). levels[subresourceIndex(desc, mip, layer)]
-    /// holds that mip level of that layer with tightly packed rows, top row first: a 2D texture's
+    /// holds that mip level of that layer with tightly packed rows (of blocks, for a block-compressed
+    /// format), top row first: a 2D texture's
     /// mips in order, or each cube face's mips in turn. Blocks until the copy has completed.
     /// Returns false and logs on failure.
     [[nodiscard]] bool uploadTexture(Device& device, Texture& texture, std::span<const std::span<const std::byte>> levels);

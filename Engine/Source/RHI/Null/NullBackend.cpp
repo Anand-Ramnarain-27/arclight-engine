@@ -37,8 +37,7 @@ namespace arc::rhi
                     for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
                     {
                         const Extent2D size = mipSize(desc.size, mip);
-                        m_levels[subresourceIndex(desc, mip, layer)].resize(uint64_t{size.width} * size.height *
-                                                                            bytesPerPixel(desc.format));
+                        m_levels[subresourceIndex(desc, mip, layer)].resize(imageBytes(desc.format, size));
                     }
             }
 
@@ -217,8 +216,8 @@ namespace arc::rhi
                 ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
                 validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                                     ResourceState::CopySource);
-                copyRows(static_cast<NullTexture&>(dst).level(mipLevel, arrayLayer), rowBytes(dst, mipLevel),
-                         static_cast<NullBuffer&>(src).bytes() + srcOffset, srcRowPitch, mipSize(dst.desc().size, mipLevel).height);
+                copyRows(static_cast<NullTexture&>(dst).level(mipLevel, arrayLayer), levelRowBytes(dst, mipLevel),
+                         static_cast<NullBuffer&>(src).bytes() + srcOffset, srcRowPitch, levelRowCount(dst, mipLevel));
             }
 
             void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
@@ -227,8 +226,8 @@ namespace arc::rhi
                 ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
                 validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
                                     ResourceState::CopyDest);
-                const uint32_t bytes = rowBytes(src, mipLevel);
-                const uint32_t height = mipSize(src.desc().size, mipLevel).height;
+                const uint32_t bytes = levelRowBytes(src, mipLevel);
+                const uint32_t height = levelRowCount(src, mipLevel);
                 std::byte* out = static_cast<NullBuffer&>(dst).bytes() + dstOffset;
                 const std::byte* in = static_cast<NullTexture&>(src).level(mipLevel, arrayLayer);
                 for (uint32_t row = 0; row < height; ++row)
@@ -271,9 +270,14 @@ namespace arc::rhi
             }
 
         private:
-            static uint32_t rowBytes(const Texture& texture, uint32_t mipLevel)
+            static uint32_t levelRowBytes(const Texture& texture, uint32_t mipLevel)
             {
-                return mipSize(texture.desc().size, mipLevel).width * bytesPerPixel(texture.desc().format);
+                return rowBytes(texture.desc().format, mipSize(texture.desc().size, mipLevel).width);
+            }
+
+            static uint32_t levelRowCount(const Texture& texture, uint32_t mipLevel)
+            {
+                return rowCount(texture.desc().format, mipSize(texture.desc().size, mipLevel).height);
             }
 
             // Tightly packed destination rows from pitched source rows.

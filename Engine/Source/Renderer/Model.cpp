@@ -147,14 +147,15 @@ namespace arc
                 continue;
             const auto image = static_cast<size_t>(texture.image);
             const ColorSpace colorSpace = image < data.imageColorSpaces.size() ? data.imageColorSpaces[image] : ColorSpace::Srgb;
-            const bool hasMips = image < data.imageMips.size() && !data.imageMips[image].empty();
+            const bool encoded = image < data.encodedImages.size() && !data.encodedImages[image].empty();
             const bool hasImage = image < data.images.size() && !data.images[image].empty();
-            if (!hasMips && !hasImage)
+            if (!encoded && !hasImage)
                 continue;
 
-            const std::vector<Image> generated = hasMips ? std::vector<Image>() : generateMipChain(data.images[image], colorSpace);
-            const std::vector<Image>& levels = hasMips ? data.imageMips[image] : generated;
-            model->m_textures[i] = createTexture(device, levels, colorSpace, data.name + " Texture " + std::to_string(i));
+            std::string name = data.name + " Texture " + std::to_string(i);
+            model->m_textures[i] = encoded ? createTexture(device, data.encodedImages[image], std::move(name))
+                                           : createTexture(device, generateMipChain(data.images[image], colorSpace),
+                                                           colorSpace, std::move(name));
 
             const auto shared = std::find_if(model->m_samplers.begin(), model->m_samplers.end(),
                                              [&](const auto& sampler) { return sameSampling(sampler->desc(), texture.sampler); });
@@ -205,5 +206,18 @@ namespace arc
     uint32_t Model::textureCount() const
     {
         return static_cast<uint32_t>(std::count_if(m_textures.begin(), m_textures.end(), [](const auto& t) { return t != nullptr; }));
+    }
+
+    uint64_t Model::textureBytes() const
+    {
+        uint64_t bytes = 0;
+        for (const auto& texture : m_textures)
+            if (texture)
+            {
+                const rhi::TextureDesc& desc = texture->desc();
+                for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+                    bytes += rhi::imageBytes(desc.format, rhi::mipSize(desc.size, mip)) * rhi::arrayLayerCount(desc);
+            }
+        return bytes;
     }
 }

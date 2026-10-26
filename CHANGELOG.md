@@ -51,7 +51,19 @@ Phase 4: lighting and PBR.
 - Editor: *HDR...* and *Faces...* in the View menu's sky section, a rotation slider and a wider intensity range; an ambient *Source* in the Lighting menu; *Use as Sky* on `.hdr` files in the Files panel.
 - `Brdf.h`: CPU copies of `hammersley()`, `importanceSampleGgx()` and the BRDF table's integral, with tests that the importance-sampled table matches the BRDF integrated over the hemisphere. Tests for half floats, `.hdr` decoding, HDR mips, the environment flag and rendering into cube faces.
 
+#### Block-compressed textures
+- Model and texture assets are cooked to block-compressed formats with [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) (`Renderer/TextureEncoding`): base colour and emission BC7 sRGB, metallic-roughness BC7, normal maps BC5 and occlusion BC4, so the Lantern's textures take 21.3 MB of GPU memory instead of 85.3 MB. Images that are not a whole number of 4×4 blocks stay RGBA8, and an image shared by several kinds of slot keeps every channel.
+- Import settings: *Texture compression* for models and *Compression* for textures, *Quality* (BC7) by default, *Small* (BC1, or BC3 with alpha; half a byte a pixel) or *None* (RGBA8), saved in `.meta` files.
+- Blocks are encoded on every hardware thread; the encoder is built optimised even in Debug builds.
+- `Mesh.hlsl` reads only x and y of a normal map and rebuilds z, as two-channel BC5 needs.
+- Devices without block compression get the texture decoded to RGBA8 at load.
+- Cooked format 4, model importer version 4 and texture importer version 2: cooked assets are rebuilt once. Images are stored in their GPU format with each level's bytes checked against its size.
+- Editor: the Inspector shows each material texture's format and the model's texture memory.
+- Unit tests for block sizes and copy layouts, format choice, round-trip quality of every format, partial blocks, BC uploads, compression settings in `.meta` files and slot sharing.
+- bc7enc_rdo's licence ships in `ThirdPartyLicenses/`.
+
 #### RHI
+- `Format::BC1_UNORM` to `BC7_UNORM_SRGB` (BC1, BC3, BC4, BC5, BC7, with sRGB variants of BC1, BC3 and BC7), `formatName()`, `isBlockCompressed()`, `isSrgbFormat()`, `blockDimension()`, `bytesPerBlock()`, `rowBytes()`, `rowCount()`, `imageBytes()`. Copies count rows of blocks; D3D12 footprints round up to whole blocks. `AdapterInfo::blockCompression`.
 - Render passes can target one mip level of one array layer (`ColorAttachment::mipLevel` and `arrayLayer`): an RTV per subresource on Direct3D 12, `level` and `slice` on Metal. Cube textures may be render targets.
 - `Format::RGBA16_FLOAT`.
 - Structured buffers: `BufferUsage::Structured` with `BufferDesc::stride`, bound with `CommandList::setBuffer()` to a t slot (an SRV in the texture table on Direct3D 12, `[[buffer(n)]]` on Metal).

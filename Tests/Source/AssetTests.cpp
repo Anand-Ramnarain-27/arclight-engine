@@ -78,9 +78,10 @@ namespace
         dataTexture.image = 1;
         data.textures = {texture, dataTexture};
         Image image;
-        image.size = {4, 2};
-        image.pixels.assign(4 * 2 * 4, std::byte{200});
-        data.imageMips = {generateMipChain(image, ColorSpace::Srgb), generateMipChain(image, ColorSpace::Linear)};
+        image.size = {4, 4};
+        image.pixels.assign(4 * 4 * 4, std::byte{200});
+        data.encodedImages = {encodeTexture(generateMipChain(image, ColorSpace::Srgb), rhi::Format::RGBA8_UNORM_SRGB),
+                              encodeTexture(generateMipChain(image, ColorSpace::Linear), rhi::Format::BC5_UNORM)};
         data.imageColorSpaces = {ColorSpace::Srgb, ColorSpace::Linear};
         data.images.resize(2);
         data.bounds.expand(Vec3{2, 0, 0});
@@ -168,16 +169,24 @@ TEST_CASE(".meta files round-trip, and hand edits are tolerated")
     AssetMeta model;
     model.id = {0x0123456789abcdefull};
     model.type = AssetType::Model;
-    model.model = {.scale = 0.01f, .generateLods = false, .lodLevels = 2, .lodReduction = 0.25f};
+    model.model = {.scale = 0.01f,
+                   .generateLods = false,
+                   .lodLevels = 2,
+                   .lodReduction = 0.25f,
+                   .textureCompression = TextureCompression::Small};
     const std::string modelJson = writeAssetMeta(model);
     CHECK(modelJson.find("\"id\": \"0123456789abcdef\"") != std::string::npos);
+    CHECK(modelJson.find("\"textureCompression\": \"small\"") != std::string::npos);
     CHECK(modelJson.find("colorSpace") == std::string::npos);
     CHECK(readAssetMeta(modelJson) == model);
 
     AssetMeta texture;
     texture.id = {5};
     texture.type = AssetType::Texture;
-    texture.texture = {.colorSpace = ColorSpace::Linear, .generateMips = false, .maxSize = 512};
+    texture.texture = {.colorSpace = ColorSpace::Linear,
+                       .generateMips = false,
+                       .maxSize = 512,
+                       .compression = TextureCompression::None};
     CHECK(readAssetMeta(writeAssetMeta(texture)) == texture);
 
     const std::optional<AssetMeta> sparse = readAssetMeta(R"({"id":"00000000000000ff","type":"model"})");
@@ -192,6 +201,11 @@ TEST_CASE(".meta files round-trip, and hand edits are tolerated")
     CHECK(clamped->model.lodLevels == kMaxLodLevels);
     CHECK(clamped->model.lodReduction == doctest::Approx(0.95f));
 
+    const std::optional<AssetMeta> unknownCompression =
+        readAssetMeta(R"({"id":"00000000000000ff","type":"model","settings":{"textureCompression":"astc"}})");
+    REQUIRE(unknownCompression);
+    CHECK(unknownCompression->model.textureCompression == TextureCompression::Quality);
+
     CHECK_FALSE(readAssetMeta("not json"));
     CHECK_FALSE(readAssetMeta(R"({"type":"model"})"));
     CHECK_FALSE(readAssetMeta(R"({"id":"0000000000000000","type":"model"})"));
@@ -201,6 +215,9 @@ TEST_CASE(".meta files round-trip, and hand edits are tolerated")
     AssetMeta changed = model;
     CHECK(settingsHash(changed) == settingsHash(model));
     changed.model.lodLevels = 1;
+    CHECK(settingsHash(changed) != settingsHash(model));
+    changed = model;
+    changed.model.textureCompression = TextureCompression::Quality;
     CHECK(settingsHash(changed) != settingsHash(model));
     changed = model;
     changed.texture.maxSize = 64;
@@ -257,9 +274,12 @@ TEST_CASE("Cooked models round-trip and are validated")
     CHECK(read->materials[0].occlusionStrength == 0.75f);
     CHECK(read->materials[0].emissiveTexture == 0);
     CHECK(read->materials[0].emissiveFactor.x == 2.0f);
-    REQUIRE(read->imageMips.size() == 2);
-    CHECK(read->imageMips[0].size() == original.imageMips[0].size());
-    CHECK(read->imageMips[0][0].pixels == original.imageMips[0][0].pixels);
+    REQUIRE(read->encodedImages.size() == 2);
+    CHECK(read->encodedImages[0].format == rhi::Format::RGBA8_UNORM_SRGB);
+    CHECK(read->encodedImages[0].levels == original.encodedImages[0].levels);
+    CHECK(read->encodedImages[1].format == rhi::Format::BC5_UNORM);
+    CHECK(read->encodedImages[1].levels == original.encodedImages[1].levels);
+    // Read from the formats.
     CHECK(read->imageColorSpaces == original.imageColorSpaces);
     CHECK(read->images.size() == 2);
     CHECK(read->bounds.max.x == 3.0f);
@@ -317,7 +337,17 @@ TEST_CASE("Cooked models round-trip and are validated")
     SUBCASE("mip levels of the wrong size fail")
     {
         ModelData broken = original;
-        broken.imageMips[0][1] = broken.imageMips[0][0];
+        broken.encodedImages[0].levels[1] = broken.encodedImages[0].levels[0];
+        CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
+        broken = original;
+        broken.encodedImages[1].levels[0].pop_back();
+        CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
+    }
+
+    SUBCASE("a format no importer writes fails")
+    {
+        ModelData broken = original;
+        broken.encodedImages[0].format = rhi::Format::D32_FLOAT;
         CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
     }
 }
@@ -327,16 +357,20 @@ TEST_CASE("Cooked textures round-trip")
     Image base;
     base.size = {8, 4};
     base.pixels.assign(8 * 4 * 4, std::byte{10});
-    CookedTexture texture{.name = "Grid", .colorSpace = ColorSpace::Linear, .levels = generateMipChain(base, ColorSpace::Linear)};
+    CookedTexture texture{.name = "Grid",
+                          .texture = encodeTexture(generateMipChain(base, ColorSpace::Linear), rhi::Format::BC7_UNORM)};
     const std::vector<std::byte> file = writeCookedTexture(texture, kHeader);
     CookedHeader header;
     const std::optional<CookedTexture> read = readCookedTexture(file, &header);
     REQUIRE(read);
     CHECK(header.stamp == kHeader.stamp);
     CHECK(read->name == "Grid");
-    CHECK(read->colorSpace == ColorSpace::Linear);
-    REQUIRE(read->levels.size() == 4);
-    CHECK(read->levels[3].size.width == 1);
+    CHECK(read->texture.format == rhi::Format::BC7_UNORM);
+    CHECK(read->texture.size.width == 8);
+    REQUIRE(read->texture.levels.size() == 4);
+    // Levels below 4x4 still take one whole block.
+    CHECK(read->texture.levels[3].size() == 16);
+    CHECK(read->texture.levels == texture.texture.levels);
     CHECK_FALSE(readCookedModel(file));
     CHECK_FALSE(readCookedTexture(std::span(file).first(file.size() - 1)));
 }
@@ -348,8 +382,9 @@ TEST_CASE("Importers apply their settings")
         const std::vector<std::byte> bmp = makeBmp(16, 8, 255);
         const std::optional<CookedTexture> full = importTextureAsset(bmp, "a.bmp", {});
         REQUIRE(full);
-        CHECK(full->levels.size() == 5);
-        CHECK(full->levels[0].size.width == 16);
+        CHECK(full->texture.levels.size() == 5);
+        CHECK(full->texture.size.width == 16);
+        CHECK(full->texture.format == rhi::Format::BC7_UNORM_SRGB);
 
         TextureImportSettings settings;
         settings.colorSpace = ColorSpace::Linear;
@@ -357,10 +392,18 @@ TEST_CASE("Importers apply their settings")
         settings.maxSize = 4;
         const std::optional<CookedTexture> small = importTextureAsset(bmp, "a.bmp", settings);
         REQUIRE(small);
-        REQUIRE(small->levels.size() == 1);
-        CHECK(small->levels[0].size.width == 4);
-        CHECK(small->levels[0].size.height == 2);
-        CHECK(small->colorSpace == ColorSpace::Linear);
+        REQUIRE(small->texture.levels.size() == 1);
+        CHECK(small->texture.size.width == 4);
+        CHECK(small->texture.size.height == 2);
+        // 4x2 is not a whole number of blocks, so it stays RGBA8.
+        CHECK(small->texture.format == rhi::Format::RGBA8_UNORM);
+
+        settings.compression = TextureCompression::None;
+        settings.maxSize = 16;
+        const std::optional<CookedTexture> raw = importTextureAsset(bmp, "a.bmp", settings);
+        REQUIRE(raw);
+        CHECK(raw->texture.format == rhi::Format::RGBA8_UNORM);
+        CHECK(raw->texture.levels[0].size() == 16 * 8 * 4);
 
         CHECK_FALSE(importTextureAsset(bytesOf("not an image"), "a.bmp", {}));
     }
@@ -442,7 +485,7 @@ TEST_CASE("The asset database gives assets lasting ids and cooks them on demand"
 
     const std::optional<CookedTexture> cooked = database.loadTexture(textureId);
     REQUIRE(cooked);
-    CHECK(cooked->levels.size() == 4);
+    CHECK(cooked->texture.levels.size() == 4);
     CHECK(database.find(textureId)->state == AssetState::UpToDate);
     const std::string cookedPath = database.cookedPath(*database.find(textureId));
     CHECK(cookedPath == "library://Textures/" + textureId.toString() + ".arctex");
@@ -456,7 +499,7 @@ TEST_CASE("The asset database gives assets lasting ids and cooks them on demand"
         CHECK(database.find(textureId)->state == AssetState::Stale);
         const std::optional<CookedTexture> reloaded = database.loadTexture(textureId);
         REQUIRE(reloaded);
-        CHECK(reloaded->levels[0].pixels[0] != cooked->levels[0].pixels[0]);
+        CHECK(reloaded->texture.levels[0] != cooked->texture.levels[0]);
         CHECK(database.find(textureId)->state == AssetState::UpToDate);
     }
 
@@ -478,7 +521,7 @@ TEST_CASE("The asset database gives assets lasting ids and cooks them on demand"
         CHECK(meta->find("\"generateMips\": false") != std::string::npos);
         const std::optional<CookedTexture> single = database.loadTexture(textureId);
         REQUIRE(single);
-        CHECK(single->levels.size() == 1);
+        CHECK(single->texture.levels.size() == 1);
     }
 
     SUBCASE("a damaged cooked copy is rebuilt")
@@ -489,7 +532,7 @@ TEST_CASE("The asset database gives assets lasting ids and cooks them on demand"
         project.fileSystem.write(cookedPath, *file);
         const std::optional<CookedTexture> rebuilt = database.loadTexture(textureId);
         REQUIRE(rebuilt);
-        CHECK(rebuilt->levels.size() == 4);
+        CHECK(rebuilt->texture.levels.size() == 4);
     }
 
     SUBCASE("models cook too")

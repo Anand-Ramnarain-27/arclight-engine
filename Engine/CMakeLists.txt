@@ -90,6 +90,8 @@ add_library(ArclightEngine STATIC
     Source/Renderer/Image.cpp
     Source/Renderer/HdrImage.h
     Source/Renderer/HdrImage.cpp
+    Source/Renderer/TextureEncoding.h
+    Source/Renderer/TextureEncoding.cpp
     Source/Renderer/EnvironmentMaps.h
     Source/Renderer/EnvironmentMaps.cpp
     Source/Renderer/TextureLoader.h
@@ -186,7 +188,7 @@ target_compile_definitions(ArclightEngine PUBLIC ARCLIGHT_VERSION="${PROJECT_VER
 
 # PRIVATE: no engine header includes SDL, ImGui or a graphics API header, so none of them
 # leak to engine users through the engine.
-target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image tinygltf meshoptimizer mikktspace)
+target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image tinygltf meshoptimizer mikktspace bc7enc)
 
 arclight_set_warnings(ArclightEngine)
 

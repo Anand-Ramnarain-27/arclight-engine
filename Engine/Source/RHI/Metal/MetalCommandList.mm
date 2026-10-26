@@ -242,11 +242,13 @@ namespace arc::rhi::metal
         validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                             ResourceState::CopySource);
 
+        // Metal takes the level's own size in pixels, even when a block-compressed level is smaller
+        // than a block; the bytes per image count rows of blocks.
         const Extent2D size = mipSize(dst.desc().size, mipLevel);
         [blitEncoder() copyFromBuffer:static_cast<MetalBuffer&>(src).native()
                          sourceOffset:srcOffset
                     sourceBytesPerRow:srcRowPitch
-                  sourceBytesPerImage:NSUInteger{srcRowPitch} * size.height
+                  sourceBytesPerImage:NSUInteger{srcRowPitch} * rowCount(dst.desc().format, size.height)
                            sourceSize:MTLSizeMake(size.width, size.height, 1)
                             toTexture:static_cast<MetalTexture&>(dst).native()
                      destinationSlice:arrayLayer
@@ -270,7 +272,7 @@ namespace arc::rhi::metal
                               toBuffer:static_cast<MetalBuffer&>(dst).native()
                      destinationOffset:dstOffset
                 destinationBytesPerRow:dstRowPitch
-              destinationBytesPerImage:NSUInteger{dstRowPitch} * size.height];
+              destinationBytesPerImage:NSUInteger{dstRowPitch} * rowCount(src.desc().format, size.height)];
     }
 
     void MetalCommandList::barrier(Buffer& buffer, ResourceState state)

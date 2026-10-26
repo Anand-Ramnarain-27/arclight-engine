@@ -2,6 +2,7 @@
 
 #include "EditorSelection.h"
 #include "Math/Color.h"
+#include "RHI/Texture.h"
 #include "Renderer/Model.h"
 #include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
@@ -244,6 +245,8 @@ namespace arc
         const Vec3 size = mesh.localBounds().size();
         ImGui::TextDisabled("%u primitives, %u triangles", data.primitiveCount, model->meshTriangleCount(mesh.meshIndex()));
         ImGui::TextDisabled("Size %.2f x %.2f x %.2f (object space)", size.x, size.y, size.z);
+        ImGui::TextDisabled("Model textures: %u, %.1f MB on the GPU", model->textureCount(),
+                            static_cast<double>(model->textureBytes()) / (1024.0 * 1024.0));
 
         if (ImGui::TreeNode("Materials"))
         {
@@ -262,20 +265,18 @@ namespace arc
                 ImGui::ColorButton("##Color", {c.x, c.y, c.z, c.w},
                                    ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_AlphaPreviewHalf, {14.0f, 14.0f});
                 ImGui::SameLine();
-                const char* texture = material.baseColorTexture < 0                       ? "no texture"
-                                      : model->texture(material.baseColorTexture) != nullptr ? "texture"
-                                                                                             : "texture missing";
-                ImGui::Text("%s: %s, %s%s", material.name.empty() ? "(unnamed)" : material.name.c_str(), texture,
-                            alphaModeName(material.alphaMode), material.doubleSided ? ", double-sided" : "");
-                const char* metallicRoughness = material.metallicRoughnessTexture < 0 ? ""
-                                                : model->texture(material.metallicRoughnessTexture) != nullptr
-                                                    ? " x texture"
-                                                    : " (texture missing)";
-                ImGui::TextDisabled("    metallic %.2f, roughness %.2f%s", material.metallicFactor,
-                                    material.roughnessFactor, metallicRoughness);
-                const auto has = [&](int32_t index) {
-                    return index < 0 ? "none" : model->texture(index) != nullptr ? "yes" : "missing";
+                // A texture slot as its format, so what the importer chose shows.
+                const auto has = [&](int32_t index) -> const char* {
+                    if (index < 0)
+                        return "none";
+                    const rhi::Texture* slot = model->texture(index);
+                    return slot ? rhi::formatName(slot->desc().format) : "missing";
                 };
+                ImGui::Text("%s: base colour %s, %s%s", material.name.empty() ? "(unnamed)" : material.name.c_str(),
+                            has(material.baseColorTexture), alphaModeName(material.alphaMode),
+                            material.doubleSided ? ", double-sided" : "");
+                ImGui::TextDisabled("    metallic %.2f, roughness %.2f, texture %s", material.metallicFactor,
+                                    material.roughnessFactor, has(material.metallicRoughnessTexture));
                 ImGui::TextDisabled("    normal map %s, occlusion %s, emissive %s", has(material.normalTexture),
                                     has(material.occlusionTexture), has(material.emissiveTexture));
                 ImGui::PopID();

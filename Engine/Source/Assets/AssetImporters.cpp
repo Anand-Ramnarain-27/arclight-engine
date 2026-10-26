@@ -6,6 +6,8 @@
 #include "Renderer/LodGenerator.h"
 
 #include <algorithm>
+#include <chrono>
+#include <optional>
 
 namespace arc
 {
@@ -40,6 +42,36 @@ namespace arc
         }
     }
 
+    std::vector<TextureContent> imageContents(const ModelData& data)
+    {
+        std::vector<std::optional<TextureContent>> contents(data.images.size());
+        const auto use = [&](int32_t texture, TextureContent content) {
+            if (texture < 0 || static_cast<size_t>(texture) >= data.textures.size())
+                return;
+            const int32_t image = data.textures[static_cast<size_t>(texture)].image;
+            if (image < 0 || static_cast<size_t>(image) >= contents.size())
+                return;
+            std::optional<TextureContent>& current = contents[static_cast<size_t>(image)];
+            if (!current || *current == content)
+                current = content;
+            else
+                current = *current == TextureContent::Color || content == TextureContent::Color ? TextureContent::Color
+                                                                                                : TextureContent::Data;
+        };
+        for (const MaterialData& material : data.materials)
+        {
+            use(material.baseColorTexture, TextureContent::Color);
+            use(material.emissiveTexture, TextureContent::Color);
+            use(material.metallicRoughnessTexture, TextureContent::Data);
+            use(material.normalTexture, TextureContent::Normal);
+            use(material.occlusionTexture, TextureContent::Mask);
+        }
+        std::vector<TextureContent> result(contents.size(), TextureContent::Color);
+        for (size_t i = 0; i < contents.size(); ++i)
+            result[i] = contents[i].value_or(TextureContent::Color);
+        return result;
+    }
+
     std::optional<ModelData> importModelAsset(std::span<const std::byte> source, const std::string& path,
                                               const ModelImportSettings& settings)
     {
@@ -56,13 +88,40 @@ namespace arc
             generateLods(*data, lods);
         }
 
-        // Mips are averaged in each image's own colour space: sRGB colour in linear light, data as it is.
-        data->imageMips.resize(data->images.size());
+        // Mips are averaged in each image's own colour space (sRGB colour in linear light, data as it
+        // is), then every level is encoded.
+        const auto start = std::chrono::steady_clock::now();
+        const std::vector<TextureContent> contents = imageContents(*data);
+        data->encodedImages.resize(data->images.size());
         data->imageColorSpaces.resize(data->images.size(), ColorSpace::Srgb);
+        uint64_t rawBytes = 0;
+        uint64_t encodedBytes = 0;
         for (size_t i = 0; i < data->images.size(); ++i)
-            if (!data->images[i].empty())
-                data->imageMips[i] = generateMipChain(std::move(data->images[i]), data->imageColorSpaces[i]);
-        data->images.assign(data->imageMips.size(), Image{});
+        {
+            Image& image = data->images[i];
+            if (image.empty())
+                continue;
+            const ColorSpace colorSpace = data->imageColorSpaces[i];
+            const bool alpha = contents[i] == TextureContent::Color && hasTransparency(image);
+            const rhi::Format format =
+                chooseTextureFormat(contents[i], colorSpace, alpha, settings.textureCompression, image.size);
+            const std::vector<Image> levels = generateMipChain(std::move(image), colorSpace);
+            data->encodedImages[i] = encodeTexture(levels, format);
+            ARC_LOG_TRACE("'{}' image {}: {}x{} as {}", path, i, levels[0].size.width, levels[0].size.height,
+                          rhi::formatName(format));
+            for (const Image& level : levels)
+                rawBytes += level.pixels.size();
+            encodedBytes += data->encodedImages[i].byteSize();
+        }
+        data->images.assign(data->encodedImages.size(), Image{});
+        if (rawBytes > 0)
+        {
+            const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            ARC_LOG_INFO("'{}': textures {:.1f} MB as RGBA8, {:.1f} MB cooked ({}), in {:.1f} s", path,
+                         static_cast<double>(rawBytes) / (1024.0 * 1024.0),
+                         static_cast<double>(encodedBytes) / (1024.0 * 1024.0),
+                         textureCompressionName(settings.textureCompression), seconds);
+        }
         return data;
     }
 
@@ -76,13 +135,17 @@ namespace arc
         while (image.size.width > maxSize || image.size.height > maxSize)
             image = downsample(image, settings.colorSpace);
 
+        const rhi::Format format = chooseTextureFormat(TextureContent::Color, settings.colorSpace, hasTransparency(image),
+                                                       settings.compression, image.size);
+        std::vector<Image> levels;
+        if (settings.generateMips)
+            levels = generateMipChain(std::move(image), settings.colorSpace);
+        else
+            levels.push_back(std::move(image));
+
         CookedTexture texture;
         texture.name = std::string(fileNameOf(path));
-        texture.colorSpace = settings.colorSpace;
-        if (settings.generateMips)
-            texture.levels = generateMipChain(std::move(image), settings.colorSpace);
-        else
-            texture.levels.push_back(std::move(image));
+        texture.texture = encodeTexture(levels, format);
         return texture;
     }
 }

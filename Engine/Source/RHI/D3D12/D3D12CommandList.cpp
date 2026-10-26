@@ -17,6 +17,15 @@ namespace arc::rhi::d3d12
             const std::string text(name);
             list->BeginEvent(kEventMetadataAnsi, text.c_str(), static_cast<UINT>(text.size() + 1));
         }
+
+        // A footprint of a block-compressed texture covers whole blocks, so a mip level smaller than
+        // a block (2x2, 1x1) is copied as one padded 4x4 block, which D3D12 clips to the level.
+        Extent2D copyExtent(const TextureDesc& desc, uint32_t mipLevel)
+        {
+            const Extent2D size = mipSize(desc.size, mipLevel);
+            const uint32_t block = blockDimension(desc.format);
+            return {(size.width + block - 1) / block * block, (size.height + block - 1) / block * block};
+        }
     }
 
     D3D12_RESOURCE_STATES toD3D12State(ResourceState state)
@@ -269,7 +278,7 @@ namespace arc::rhi::d3d12
         validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                             ResourceState::CopySource);
 
-        const Extent2D size = mipSize(dst.desc().size, mipLevel);
+        const Extent2D size = copyExtent(dst.desc(), mipLevel);
         D3D12_TEXTURE_COPY_LOCATION destination{};
         destination.pResource = static_cast<D3D12Texture&>(dst).resource();
         destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -291,7 +300,7 @@ namespace arc::rhi::d3d12
         validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
                             ResourceState::CopyDest);
 
-        const Extent2D size = mipSize(src.desc().size, mipLevel);
+        const Extent2D size = copyExtent(src.desc(), mipLevel);
         D3D12_TEXTURE_COPY_LOCATION destination{};
         destination.pResource = static_cast<D3D12Buffer&>(dst).resource();
         destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;

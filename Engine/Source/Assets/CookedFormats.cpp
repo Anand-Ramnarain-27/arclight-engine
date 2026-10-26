@@ -14,13 +14,12 @@ namespace arc
         constexpr uint32_t kModelMagic = 0x4D435241;
         constexpr uint32_t kTextureMagic = 0x54435241;
         // Bumped whenever the layout below changes; older files are then rebuilt, not misread.
-        constexpr uint32_t kFormatVersion = 3;
+        constexpr uint32_t kFormatVersion = 4;
 
         // Limits on counts read from a file, so a corrupt count fails instead of allocating gigabytes.
         constexpr uint32_t kMaxVertices = 1u << 26;
         constexpr uint32_t kMaxIndices = 1u << 28;
         constexpr uint32_t kMaxElements = 1u << 20;
-        constexpr uint32_t kMaxMipLevels = 16;
         constexpr uint32_t kMaxImageSize = 16384;
 
         static_assert(std::is_trivially_copyable_v<MeshVertex> && std::is_trivially_copyable_v<Mat4> &&
@@ -53,58 +52,69 @@ namespace arc
                    reader.read(header.source.modifiedTime);
         }
 
-        void writeImage(BinaryWriter& writer, const Image& image)
+        // The formats an importer cooks to. Stored as rhi::Format's value, which is why new formats
+        // are only ever added at the end of that enum.
+        bool isCookedFormat(rhi::Format format)
         {
-            writer.write(image.size.width);
-            writer.write(image.size.height);
-            writer.writeArray(std::span<const std::byte>(image.pixels));
+            return format == rhi::Format::RGBA8_UNORM || format == rhi::Format::RGBA8_UNORM_SRGB ||
+                   rhi::isBlockCompressed(format);
         }
 
-        bool readImage(BinaryReader& reader, Image& image)
+        // Its format, its size, then each level's bytes. An empty texture (an image no material
+        // draws) is stored as zero levels.
+        void writeEncodedTexture(BinaryWriter& writer, const EncodedTexture& texture)
         {
-            if (!reader.read(image.size.width) || !reader.read(image.size.height) || image.size.width == 0 ||
-                image.size.height == 0 || image.size.width > kMaxImageSize || image.size.height > kMaxImageSize)
+            writer.write(static_cast<uint8_t>(texture.format));
+            writer.write(texture.size.width);
+            writer.write(texture.size.height);
+            writer.write(static_cast<uint32_t>(texture.levels.size()));
+            for (const std::vector<std::byte>& level : texture.levels)
+                writer.writeArray(std::span<const std::byte>(level));
+        }
+
+        // Every level must hold exactly the bytes its size needs in the format, so the texture can
+        // be uploaded without further checks.
+        bool readEncodedTexture(BinaryReader& reader, EncodedTexture& texture)
+        {
+            uint8_t format = 0;
+            uint32_t levelCount = 0;
+            if (!reader.read(format) || !reader.read(texture.size.width) || !reader.read(texture.size.height) ||
+                !reader.read(levelCount))
                 return false;
-            const uint64_t expected = uint64_t{image.size.width} * image.size.height * 4;
-            return reader.readArray(image.pixels, static_cast<uint32_t>(expected)) && image.pixels.size() == expected;
-        }
-
-        void writeMipChain(BinaryWriter& writer, const std::vector<Image>& levels)
-        {
-            writer.write(static_cast<uint32_t>(levels.size()));
-            for (const Image& level : levels)
-                writeImage(writer, level);
-        }
-
-        // Every level must be the size createTexture() expects for its index.
-        bool readMipChain(BinaryReader& reader, std::vector<Image>& levels)
-        {
-            if (!reader.readEach(levels, kMaxMipLevels, readImage))
+            texture.format = static_cast<rhi::Format>(format);
+            if (levelCount == 0)
+                return true;
+            const Extent2D size = texture.size;
+            if (!isCookedFormat(texture.format) || size.width == 0 || size.height == 0 || size.width > kMaxImageSize ||
+                size.height > kMaxImageSize || levelCount > rhi::fullMipCount(size) ||
+                (rhi::isBlockCompressed(texture.format) && (size.width % 4 != 0 || size.height % 4 != 0)))
                 return false;
-            for (size_t i = 1; i < levels.size(); ++i)
+            texture.levels.resize(levelCount);
+            for (uint32_t mip = 0; mip < levelCount; ++mip)
             {
-                const Extent2D expected = rhi::mipSize(levels[0].size, static_cast<uint32_t>(i));
-                if (levels[i].size.width != expected.width || levels[i].size.height != expected.height)
+                const uint64_t expected = rhi::imageBytes(texture.format, rhi::mipSize(size, mip));
+                if (!reader.readArray(texture.levels[mip], static_cast<uint32_t>(expected)) ||
+                    texture.levels[mip].size() != expected)
                     return false;
             }
             return true;
         }
 
-        template <typename Enum>
-        bool readEnum(BinaryReader& reader, Enum& value, uint8_t last);
-
-        // Each image is its colour space, then its mip chain.
+        // Each image's encoded texture; the colour space follows from its format.
         bool readImages(BinaryReader& reader, ModelData& data)
         {
             uint32_t count = 0;
             if (!reader.read(count) || count > kMaxElements)
                 return false;
-            data.imageMips.resize(count);
+            data.encodedImages.resize(count);
             data.imageColorSpaces.resize(count);
             for (uint32_t i = 0; i < count; ++i)
-                if (!readEnum(reader, data.imageColorSpaces[i], static_cast<uint8_t>(ColorSpace::Linear)) ||
-                    !readMipChain(reader, data.imageMips[i]))
+            {
+                if (!readEncodedTexture(reader, data.encodedImages[i]))
                     return false;
+                const bool linear = !data.encodedImages[i].empty() && !rhi::isSrgbFormat(data.encodedImages[i].format);
+                data.imageColorSpaces[i] = linear ? ColorSpace::Linear : ColorSpace::Srgb;
+            }
             return true;
         }
 
@@ -172,7 +182,7 @@ namespace arc
                     !textureInRange(material.emissiveTexture))
                     return false;
             for (const TextureData& texture : data.textures)
-                if (texture.image < -1 || texture.image >= static_cast<int64_t>(data.imageMips.size()))
+                if (texture.image < -1 || texture.image >= static_cast<int64_t>(data.encodedImages.size()))
                     return false;
             return true;
         }
@@ -268,13 +278,9 @@ namespace arc
             writer.write(sampler.maxLod);
         }
 
-        writer.write(static_cast<uint32_t>(data.imageMips.size()));
-        for (size_t i = 0; i < data.imageMips.size(); ++i)
-        {
-            const ColorSpace colorSpace = i < data.imageColorSpaces.size() ? data.imageColorSpaces[i] : ColorSpace::Srgb;
-            writer.write(static_cast<uint8_t>(colorSpace));
-            writeMipChain(writer, data.imageMips[i]);
-        }
+        writer.write(static_cast<uint32_t>(data.encodedImages.size()));
+        for (const EncodedTexture& image : data.encodedImages)
+            writeEncodedTexture(writer, image);
 
         writer.write(data.bounds);
         return writer.take();
@@ -344,7 +350,7 @@ namespace arc
         if (!read || !validate(data))
             return std::nullopt;
 
-        data.images.resize(data.imageMips.size());
+        data.images.resize(data.encodedImages.size());
         if (headerOut)
             *headerOut = header;
         return data;
@@ -355,8 +361,7 @@ namespace arc
         BinaryWriter writer;
         writeHeader(writer, kTextureMagic, header);
         writer.writeString(texture.name);
-        writer.write(static_cast<uint8_t>(texture.colorSpace));
-        writeMipChain(writer, texture.levels);
+        writeEncodedTexture(writer, texture.texture);
         return writer.take();
     }
 
@@ -366,8 +371,7 @@ namespace arc
         CookedHeader header;
         CookedTexture texture;
         if (!readHeader(reader, kTextureMagic, header) || !reader.readString(texture.name) ||
-            !readEnum(reader, texture.colorSpace, static_cast<uint8_t>(ColorSpace::Linear)) ||
-            !readMipChain(reader, texture.levels) || texture.levels.empty() || !reader.atEnd())
+            !readEncodedTexture(reader, texture.texture) || texture.texture.empty() || !reader.atEnd())
             return std::nullopt;
         if (headerOut)
             *headerOut = header;

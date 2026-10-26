@@ -23,6 +23,7 @@ add_executable(ArclightTests
     Source/BrdfTests.cpp
     Source/TangentTests.cpp
     Source/IblTests.cpp
+    Source/TextureEncodingTests.cpp
 )
 
 target_link_libraries(ArclightTests PRIVATE ArclightEngine doctest::doctest)

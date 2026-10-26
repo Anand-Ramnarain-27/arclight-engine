@@ -23,23 +23,105 @@ namespace arc::rhi
         return "Unknown";
     }
 
-    uint32_t bytesPerPixel(Format format)
+    const char* formatName(Format format)
     {
         switch (format)
         {
-            case Format::Unknown:          return 0;
-            case Format::RGBA8_UNORM:
-            case Format::RGBA8_UNORM_SRGB:
-            case Format::BGRA8_UNORM:
-            case Format::D32_FLOAT:        return 4;
-            case Format::RGBA16_FLOAT:     return 8;
+            case Format::Unknown:          return "Unknown";
+            case Format::RGBA8_UNORM:      return "RGBA8";
+            case Format::RGBA8_UNORM_SRGB: return "RGBA8 sRGB";
+            case Format::BGRA8_UNORM:      return "BGRA8";
+            case Format::RGBA16_FLOAT:     return "RGBA16F";
+            case Format::D32_FLOAT:        return "D32F";
+            case Format::BC1_UNORM:        return "BC1";
+            case Format::BC1_UNORM_SRGB:   return "BC1 sRGB";
+            case Format::BC3_UNORM:        return "BC3";
+            case Format::BC3_UNORM_SRGB:   return "BC3 sRGB";
+            case Format::BC4_UNORM:        return "BC4";
+            case Format::BC5_UNORM:        return "BC5";
+            case Format::BC7_UNORM:        return "BC7";
+            case Format::BC7_UNORM_SRGB:   return "BC7 sRGB";
         }
-        return 0;
+        return "Unknown";
     }
 
     bool isDepthFormat(Format format)
     {
         return format == Format::D32_FLOAT;
+    }
+
+    bool isBlockCompressed(Format format)
+    {
+        switch (format)
+        {
+            case Format::BC1_UNORM:
+            case Format::BC1_UNORM_SRGB:
+            case Format::BC3_UNORM:
+            case Format::BC3_UNORM_SRGB:
+            case Format::BC4_UNORM:
+            case Format::BC5_UNORM:
+            case Format::BC7_UNORM:
+            case Format::BC7_UNORM_SRGB: return true;
+            default:                     return false;
+        }
+    }
+
+    bool isSrgbFormat(Format format)
+    {
+        return format == Format::RGBA8_UNORM_SRGB || format == Format::BC1_UNORM_SRGB ||
+               format == Format::BC3_UNORM_SRGB || format == Format::BC7_UNORM_SRGB;
+    }
+
+    uint32_t bytesPerPixel(Format format)
+    {
+        ARC_ASSERT(!isBlockCompressed(format), "{} stores blocks, not pixels", formatName(format));
+        switch (format)
+        {
+            case Format::RGBA8_UNORM:
+            case Format::RGBA8_UNORM_SRGB:
+            case Format::BGRA8_UNORM:
+            case Format::D32_FLOAT:        return 4;
+            case Format::RGBA16_FLOAT:     return 8;
+            default:                       return 0;
+        }
+    }
+
+    uint32_t blockDimension(Format format)
+    {
+        return isBlockCompressed(format) ? 4 : 1;
+    }
+
+    uint32_t bytesPerBlock(Format format)
+    {
+        switch (format)
+        {
+            case Format::BC1_UNORM:
+            case Format::BC1_UNORM_SRGB:
+            case Format::BC4_UNORM:      return 8;
+            case Format::BC3_UNORM:
+            case Format::BC3_UNORM_SRGB:
+            case Format::BC5_UNORM:
+            case Format::BC7_UNORM:
+            case Format::BC7_UNORM_SRGB: return 16;
+            default:                     return bytesPerPixel(format);
+        }
+    }
+
+    uint32_t rowBytes(Format format, uint32_t width)
+    {
+        const uint32_t block = blockDimension(format);
+        return (width + block - 1) / block * bytesPerBlock(format);
+    }
+
+    uint32_t rowCount(Format format, uint32_t height)
+    {
+        const uint32_t block = blockDimension(format);
+        return (height + block - 1) / block;
+    }
+
+    uint64_t imageBytes(Format format, Extent2D size)
+    {
+        return uint64_t{rowBytes(format, size.width)} * rowCount(format, size.height);
     }
 
     uint32_t fullMipCount(Extent2D size)
@@ -100,6 +182,11 @@ namespace arc::rhi
         {
             ARC_ASSERT(desc.size.width > 0 && desc.size.height > 0, "Texture '{}' has zero size", desc.debugName);
             ARC_ASSERT(desc.format != Format::Unknown, "Texture '{}' has no format", desc.debugName);
+            ARC_ASSERT(!isBlockCompressed(desc.format) ||
+                           (desc.usage == TextureUsage::Sampled && desc.size.width % 4 == 0 && desc.size.height % 4 == 0),
+                       "Block-compressed texture '{}' must be only sampled, and a multiple of 4 pixels in each "
+                       "direction; it is {}x{}",
+                       desc.debugName, desc.size.width, desc.size.height);
             ARC_ASSERT(desc.mipLevels >= 1 && desc.mipLevels <= fullMipCount(desc.size),
                        "Texture '{}' asks for {} mip levels; its size allows 1 to {}", desc.debugName,
                        desc.mipLevels, fullMipCount(desc.size));

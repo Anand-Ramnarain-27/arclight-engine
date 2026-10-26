@@ -32,6 +32,14 @@ namespace arc::rhi::d3d12
             case Format::BGRA8_UNORM:      return DXGI_FORMAT_B8G8R8A8_UNORM;
             case Format::D32_FLOAT:        return DXGI_FORMAT_D32_FLOAT;
             case Format::RGBA16_FLOAT:     return DXGI_FORMAT_R16G16B16A16_FLOAT;
+            case Format::BC1_UNORM:        return DXGI_FORMAT_BC1_UNORM;
+            case Format::BC1_UNORM_SRGB:   return DXGI_FORMAT_BC1_UNORM_SRGB;
+            case Format::BC3_UNORM:        return DXGI_FORMAT_BC3_UNORM;
+            case Format::BC3_UNORM_SRGB:   return DXGI_FORMAT_BC3_UNORM_SRGB;
+            case Format::BC4_UNORM:        return DXGI_FORMAT_BC4_UNORM;
+            case Format::BC5_UNORM:        return DXGI_FORMAT_BC5_UNORM;
+            case Format::BC7_UNORM:        return DXGI_FORMAT_BC7_UNORM;
+            case Format::BC7_UNORM_SRGB:   return DXGI_FORMAT_BC7_UNORM_SRGB;
         }
         return DXGI_FORMAT_UNKNOWN;
     }

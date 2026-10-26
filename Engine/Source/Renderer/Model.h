@@ -94,6 +94,8 @@ namespace arc
         [[nodiscard]] uint32_t vertexCount() const { return m_vertexCount; }
         [[nodiscard]] uint32_t triangleCount() const { return m_triangleCount; }
         [[nodiscard]] uint32_t textureCount() const;
+        /// GPU memory the textures take, every mip level included.
+        [[nodiscard]] uint64_t textureBytes() const;
 
     private:
         Model() = default;

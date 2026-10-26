@@ -56,9 +56,9 @@ namespace arc::rhi
                    rowPitch, kTextureCopyRowAlignment);
 
         const Extent2D size = mipSize(desc.size, mipLevel);
-        ARC_ASSERT(rowPitch >= size.width * bytesPerPixel(desc.format), "Row pitch {} is smaller than a row of '{}'",
+        ARC_ASSERT(rowPitch >= rowBytes(desc.format, size.width), "Row pitch {} is smaller than a row of '{}'",
                    rowPitch, desc.debugName);
-        ARC_ASSERT(bufferOffset + uint64_t{rowPitch} * size.height <= buffer.desc().size,
+        ARC_ASSERT(bufferOffset + uint64_t{rowPitch} * rowCount(desc.format, size.height) <= buffer.desc().size,
                    "Texture copy runs past the end of '{}'", buffer.desc().debugName);
     }
 
