@@ -213,11 +213,16 @@ TEST_CASE("Lighting constants carry the settings")
     LightingConstants constants = makeLightingConstants(settings, 3);
     CHECK(constants.lightCount == 3);
     CHECK(constants.model == static_cast<uint32_t>(LightingModel::Phong));
-    CHECK(constants.flags == kLightingFlagFresnel);
+    CHECK(constants.flags == (kLightingFlagFresnel | kLightingFlagNormalMaps | kLightingFlagOcclusion | kLightingFlagEmissive));
     CHECK(near(constants.ambientSky, settings.ambientSky * 2.0f));
     CHECK(constants.roughnessOverride < 0.0f);
 
     CHECK(constants.metallicOverride < 0.0f);
+
+    settings.normalMaps = false;
+    settings.occlusion = false;
+    settings.emissive = false;
+    CHECK(makeLightingConstants(settings, 0).flags == kLightingFlagFresnel);
 
     settings.overrideRoughness = true;
     settings.roughness = 1.5f;

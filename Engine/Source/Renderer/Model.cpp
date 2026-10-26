@@ -133,7 +133,8 @@ namespace arc
         // decodes them to linear before filtering; data stays as stored.
         std::vector<bool> isUsed(data.textures.size(), false);
         for (const MaterialData& material : data.materials)
-            for (const int32_t texture : {material.baseColorTexture, material.metallicRoughnessTexture})
+            for (const int32_t texture : {material.baseColorTexture, material.metallicRoughnessTexture, material.normalTexture,
+                                          material.occlusionTexture, material.emissiveTexture})
                 if (texture >= 0)
                     isUsed[static_cast<size_t>(texture)] = true;
 

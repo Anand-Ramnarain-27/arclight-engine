@@ -61,6 +61,12 @@ namespace
         material.baseColorTexture = 0;
         material.metallicRoughnessTexture = 1;
         material.metallicFactor = 0.25f;
+        material.normalTexture = 1;
+        material.normalScale = 0.5f;
+        material.occlusionTexture = 1;
+        material.occlusionStrength = 0.75f;
+        material.emissiveTexture = 0;
+        material.emissiveFactor = {2, 1, 0};
         material.alphaMode = AlphaMode::Blend;
         material.doubleSided = true;
         data.materials = {material};
@@ -229,6 +235,7 @@ TEST_CASE("Cooked models round-trip and are validated")
     CHECK(read->name == "Sample");
     CHECK(read->vertices.size() == 4);
     CHECK(read->vertices[3].uv.x == 1.0f);
+    CHECK(read->vertices[3].tangent.w == original.vertices[3].tangent.w);
     CHECK(read->indices == original.indices);
     REQUIRE(read->primitives.size() == 1);
     CHECK(read->primitives[0].lodCount == 1);
@@ -244,6 +251,12 @@ TEST_CASE("Cooked models round-trip and are validated")
     CHECK(read->textures[0].sampler.maxAnisotropy == 8);
     CHECK(read->materials[0].metallicRoughnessTexture == 1);
     CHECK(read->materials[0].metallicFactor == 0.25f);
+    CHECK(read->materials[0].normalTexture == 1);
+    CHECK(read->materials[0].normalScale == 0.5f);
+    CHECK(read->materials[0].occlusionTexture == 1);
+    CHECK(read->materials[0].occlusionStrength == 0.75f);
+    CHECK(read->materials[0].emissiveTexture == 0);
+    CHECK(read->materials[0].emissiveFactor.x == 2.0f);
     REQUIRE(read->imageMips.size() == 2);
     CHECK(read->imageMips[0].size() == original.imageMips[0].size());
     CHECK(read->imageMips[0][0].pixels == original.imageMips[0][0].pixels);
@@ -290,11 +303,15 @@ TEST_CASE("Cooked models round-trip and are validated")
         CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
     }
 
-    SUBCASE("a metallic-roughness texture out of range fails")
+    SUBCASE("material textures out of range fail")
     {
-        ModelData broken = original;
-        broken.materials[0].metallicRoughnessTexture = 2;
-        CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
+        for (int32_t MaterialData::*slot : {&MaterialData::metallicRoughnessTexture, &MaterialData::normalTexture,
+                                            &MaterialData::occlusionTexture, &MaterialData::emissiveTexture})
+        {
+            ModelData broken = original;
+            broken.materials[0].*slot = 2;
+            CHECK_FALSE(readCookedModel(writeCookedModel(broken, kHeader)));
+        }
     }
 
     SUBCASE("mip levels of the wrong size fail")

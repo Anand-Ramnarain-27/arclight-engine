@@ -72,7 +72,9 @@ namespace arc
         constants.lightCount = lightCount;
         constants.model = static_cast<uint32_t>(settings.model);
         constants.flags = (settings.energyConserving ? kLightingFlagEnergyConserving : 0u) |
-                          (settings.fresnel ? kLightingFlagFresnel : 0u);
+                          (settings.fresnel ? kLightingFlagFresnel : 0u) |
+                          (settings.normalMaps ? kLightingFlagNormalMaps : 0u) |
+                          (settings.occlusion ? kLightingFlagOcclusion : 0u) | (settings.emissive ? kLightingFlagEmissive : 0u);
         constants.roughnessOverride = settings.overrideRoughness ? std::clamp(settings.roughness, 0.0f, 1.0f) : -1.0f;
         constants.metallicOverride = settings.overrideMetallic ? std::clamp(settings.metallic, 0.0f, 1.0f) : -1.0f;
         return constants;

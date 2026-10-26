@@ -21,6 +21,7 @@ add_executable(ArclightTests
     Source/SceneSerializerTests.cpp
     Source/LightingTests.cpp
     Source/BrdfTests.cpp
+    Source/TangentTests.cpp
 )
 
 target_link_libraries(ArclightTests PRIVATE ArclightEngine doctest::doctest)

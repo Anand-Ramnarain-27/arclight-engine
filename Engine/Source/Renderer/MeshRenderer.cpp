@@ -21,26 +21,29 @@
 #include <limits>
 #include <span>
 #include <string>
+#include <utility>
 
 namespace arc
 {
     namespace
     {
-        // Mirrors DrawConstants in Mesh.hlsl. The uint after the two matrices starts a new 16-byte
+        // Mirrors DrawConstants in Mesh.hlsl. The scalars after the two matrices start a new 16-byte
         // row; HLSL pads the cbuffer to a whole row, so the C++ struct spells out the same padding.
         struct MeshDrawConstants
         {
             Mat4 world;
             Mat4 normalMatrix;
             uint32_t debugView = 0;
-            uint32_t padding[3]{};
+            float handedness = 1.0f;
+            uint32_t padding[2]{};
         };
         static_assert(offsetof(MeshDrawConstants, normalMatrix) == 64);
         static_assert(offsetof(MeshDrawConstants, debugView) == 128);
+        static_assert(offsetof(MeshDrawConstants, handedness) == 132);
         static_assert(sizeof(MeshDrawConstants) == 144);
 
-        // Mirrors MaterialConstants in Mesh.hlsl: a float4 row, then three scalars packed into the
-        // next row.
+        // Mirrors MaterialConstants in Mesh.hlsl: a float4 row, four scalars, a float3 with a scalar,
+        // and a last scalar padded to a whole row.
         struct MaterialConstants
         {
             Vec4 baseColorFactor;
@@ -48,12 +51,19 @@ namespace arc
             uint32_t alphaMode = 0;
             float roughnessFactor = 1.0f;
             float metallicFactor = 1.0f;
+            Vec3 emissiveFactor;
+            float normalScale = 1.0f;
+            float occlusionStrength = 1.0f;
+            float padding[3]{};
         };
         static_assert(offsetof(MaterialConstants, alphaCutoff) == 16);
         static_assert(offsetof(MaterialConstants, alphaMode) == 20);
         static_assert(offsetof(MaterialConstants, roughnessFactor) == 24);
         static_assert(offsetof(MaterialConstants, metallicFactor) == 28);
-        static_assert(sizeof(MaterialConstants) == 32);
+        static_assert(offsetof(MaterialConstants, emissiveFactor) == 32);
+        static_assert(offsetof(MaterialConstants, normalScale) == 44);
+        static_assert(offsetof(MaterialConstants, occlusionStrength) == 48);
+        static_assert(sizeof(MaterialConstants) == 64);
 
         Image solidImage(Extent2D size, uint32_t cellSize, std::array<uint8_t, 4> a, std::array<uint8_t, 4> b)
         {
@@ -100,6 +110,7 @@ namespace arc
                 {.semantic = "POSITION", .format = rhi::VertexFormat::Float3, .offset = offsetof(MeshVertex, position)},
                 {.semantic = "NORMAL", .format = rhi::VertexFormat::Float3, .offset = offsetof(MeshVertex, normal)},
                 {.semantic = "TEXCOORD", .format = rhi::VertexFormat::Float2, .offset = offsetof(MeshVertex, uv)},
+                {.semantic = "TANGENT", .format = rhi::VertexFormat::Float4, .offset = offsetof(MeshVertex, tangent)},
             },
         };
         desc.colorFormat = Renderer::sceneFormat();
@@ -132,13 +143,16 @@ namespace arc
         const Image white = solidImage({1, 1}, 1, {255, 255, 255, 255}, {255, 255, 255, 255});
         const Image missing = solidImage({16, 16}, 4, {255, 0, 255, 255}, {20, 20, 20, 255});
         m_whiteTexture = createTexture(device, std::span(&white, 1), ColorSpace::Srgb, "White");
+        // (0, 0, 1) in tangent space, stored as * 0.5 + 0.5: the surface's own normal.
+        const Image flatNormal = solidImage({1, 1}, 1, {128, 128, 255, 255}, {128, 128, 255, 255});
+        m_flatNormalTexture = createTexture(device, std::span(&flatNormal, 1), ColorSpace::Linear, "Flat Normal");
         m_missingTexture = createTexture(device, std::span(&missing, 1), ColorSpace::Srgb, "Missing Texture");
 
         rhi::SamplerDesc samplerDesc;
         samplerDesc.maxAnisotropy = 8;
         samplerDesc.debugName = "Mesh Default Sampler";
         m_defaultSampler = device.createSampler(samplerDesc);
-        return m_whiteTexture && m_missingTexture && m_defaultSampler && m_lights.init(device);
+        return m_whiteTexture && m_flatNormalTexture && m_missingTexture && m_defaultSampler && m_lights.init(device);
     }
 
     void MeshRenderer::shutdown()
@@ -146,6 +160,7 @@ namespace arc
         for (auto& pipeline : m_pipelines)
             pipeline.reset();
         m_whiteTexture.reset();
+        m_flatNormalTexture.reset();
         m_missingTexture.reset();
         m_defaultSampler.reset();
         m_lights.shutdown();
@@ -229,12 +244,15 @@ namespace arc
                                                     .world = placement.world,
                                                     .normalMatrix = normalMatrixOf(placement.world),
                                                     .debugView = static_cast<uint32_t>(debugView),
+                                                    .handedness = placement.mirrored ? -1.0f : 1.0f,
                                                 });
                     transform = item.transform;
                     ++stats.constantUploads;
                 }
 
-                std::array<rhi::Texture*, kMaterialTextureSlots> itemTextures{m_whiteTexture.get(), m_whiteTexture.get()};
+                std::array<rhi::Texture*, kMaterialTextureSlots> itemTextures{
+                    m_whiteTexture.get(), m_whiteTexture.get(), m_flatNormalTexture.get(), m_whiteTexture.get(),
+                    m_whiteTexture.get()};
                 rhi::Sampler* itemSampler = nullptr;
                 if (itemMaterial.baseColorTexture >= 0)
                 {
@@ -242,13 +260,22 @@ namespace arc
                     itemSampler = model.sampler(itemMaterial.baseColorTexture);
                     itemTextures[kBaseColorSlot] = baseColor && itemSampler ? baseColor : m_missingTexture.get();
                 }
-                if (itemMaterial.metallicRoughnessTexture >= 0)
+                // The first texture the material has decides the sampler when it has no base colour.
+                const std::array<std::pair<uint32_t, int32_t>, 4> dataTextures{{
+                    {kMetallicRoughnessSlot, itemMaterial.metallicRoughnessTexture},
+                    {kNormalSlot, itemMaterial.normalTexture},
+                    {kOcclusionSlot, itemMaterial.occlusionTexture},
+                    {kEmissiveSlot, itemMaterial.emissiveTexture},
+                }};
+                for (const auto& [slot, index] : dataTextures)
                 {
-                    if (rhi::Texture* metallicRoughness = model.texture(itemMaterial.metallicRoughnessTexture))
+                    if (index < 0)
+                        continue;
+                    if (rhi::Texture* texture = model.texture(index))
                     {
-                        itemTextures[kMetallicRoughnessSlot] = metallicRoughness;
+                        itemTextures[slot] = texture;
                         if (!itemSampler)
-                            itemSampler = model.sampler(itemMaterial.metallicRoughnessTexture);
+                            itemSampler = model.sampler(index);
                     }
                 }
                 if (!itemSampler)
@@ -275,6 +302,9 @@ namespace arc
                                                     .alphaMode = static_cast<uint32_t>(itemMaterial.alphaMode),
                                                     .roughnessFactor = itemMaterial.roughnessFactor,
                                                     .metallicFactor = itemMaterial.metallicFactor,
+                                                    .emissiveFactor = itemMaterial.emissiveFactor,
+                                                    .normalScale = itemMaterial.normalScale,
+                                                    .occlusionStrength = itemMaterial.occlusionStrength,
                                                 });
                     material = &itemMaterial;
                     ++stats.constantUploads;

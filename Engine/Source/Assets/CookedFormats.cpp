@@ -14,7 +14,7 @@ namespace arc
         constexpr uint32_t kModelMagic = 0x4D435241;
         constexpr uint32_t kTextureMagic = 0x54435241;
         // Bumped whenever the layout below changes; older files are then rebuilt, not misread.
-        constexpr uint32_t kFormatVersion = 2;
+        constexpr uint32_t kFormatVersion = 3;
 
         // Limits on counts read from a file, so a corrupt count fails instead of allocating gigabytes.
         constexpr uint32_t kMaxVertices = 1u << 26;
@@ -167,7 +167,9 @@ namespace arc
                 return texture >= -1 && texture < static_cast<int64_t>(data.textures.size());
             };
             for (const MaterialData& material : data.materials)
-                if (!textureInRange(material.baseColorTexture) || !textureInRange(material.metallicRoughnessTexture))
+                if (!textureInRange(material.baseColorTexture) || !textureInRange(material.metallicRoughnessTexture) ||
+                    !textureInRange(material.normalTexture) || !textureInRange(material.occlusionTexture) ||
+                    !textureInRange(material.emissiveTexture))
                     return false;
             for (const TextureData& texture : data.textures)
                 if (texture.image < -1 || texture.image >= static_cast<int64_t>(data.imageMips.size()))
@@ -238,6 +240,12 @@ namespace arc
             writer.write(material.metallicFactor);
             writer.write(material.roughnessFactor);
             writer.write(material.metallicRoughnessTexture);
+            writer.write(material.normalTexture);
+            writer.write(material.normalScale);
+            writer.write(material.occlusionTexture);
+            writer.write(material.occlusionStrength);
+            writer.write(material.emissiveFactor);
+            writer.write(material.emissiveTexture);
             writer.write(static_cast<uint8_t>(material.alphaMode));
             writer.write(material.alphaCutoff);
             writer.write(static_cast<uint8_t>(material.doubleSided));
@@ -310,6 +318,9 @@ namespace arc
                                 const bool ok = r.readString(material.name) && r.read(material.baseColorFactor) &&
                                                 r.read(material.baseColorTexture) && r.read(material.metallicFactor) &&
                                                 r.read(material.roughnessFactor) && r.read(material.metallicRoughnessTexture) &&
+                                                r.read(material.normalTexture) && r.read(material.normalScale) &&
+                                                r.read(material.occlusionTexture) && r.read(material.occlusionStrength) &&
+                                                r.read(material.emissiveFactor) && r.read(material.emissiveTexture) &&
                                                 readEnum(r, material.alphaMode, static_cast<uint8_t>(AlphaMode::Blend)) &&
                                                 r.read(material.alphaCutoff) && r.read(doubleSided) && doubleSided <= 1;
                                 material.doubleSided = doubleSided != 0;

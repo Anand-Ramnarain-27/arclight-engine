@@ -21,6 +21,9 @@
 
 #define LIGHTING_FLAG_ENERGY_CONSERVING 1
 #define LIGHTING_FLAG_FRESNEL 2
+#define LIGHTING_FLAG_NORMAL_MAPS 4
+#define LIGHTING_FLAG_OCCLUSION 8
+#define LIGHTING_FLAG_EMISSIVE 16
 
 // Mirrored by GpuLight.
 struct Light
@@ -60,6 +63,7 @@ struct Surface
     float3 diffuseColor;   // Albedo of the diffuse part: base colour, zero for metals.
     float3 f0;             // Specular reflectance at normal incidence: 0.04 for dielectrics, base colour for metals.
     float roughness;       // Perceptual, 0 to 1, as in glTF.
+    float occlusion;       // How much ambient light reaches the surface, 0 to 1.
 };
 
 // Schlick's approximation of Fresnel reflectance: f0 at normal incidence, rising to 1 at grazing.
@@ -208,7 +212,9 @@ void ShadeLight(Surface surface, float3 toLight, float3 incoming, out float3 dif
     diffuse = (fresnel ? 1.0 - reflectance : 1.0) * surface.diffuseColor / PI * light;
 }
 
-// Every light in the list, plus the hemisphere ambient.
+// Every light in the list, plus the hemisphere ambient, which occlusion darkens. Direct light is not
+// occluded: shadows (Phase 6) are what block it, and the occlusion texture is baked for light that
+// arrives from everywhere.
 void ShadeSurface(Surface surface, out float3 diffuse, out float3 specular)
 {
     diffuse = 0.0;
@@ -228,7 +234,7 @@ void ShadeSurface(Surface surface, out float3 diffuse, out float3 specular)
     }
 
     const float3 ambient = lerp(ambientGround, ambientSky, surface.normal.y * 0.5 + 0.5);
-    diffuse += ambient * surface.diffuseColor;
+    diffuse += ambient * surface.diffuseColor * surface.occlusion;
 
     // Reflections of the same hemisphere, seen along the mirror direction. Without them a metal,
     // which has no diffuse colour, is black wherever no light's highlight falls.
@@ -237,7 +243,7 @@ void ShadeSurface(Surface surface, out float3 diffuse, out float3 specular)
         const float nDotV = max(dot(surface.normal, surface.view), 1e-4);
         const float3 reflected = reflect(-surface.view, surface.normal);
         const float3 reflectedAmbient = lerp(ambientGround, ambientSky, reflected.y * 0.5 + 0.5);
-        specular += reflectedAmbient * EnvBrdfApprox(surface.f0, surface.roughness, nDotV);
+        specular += reflectedAmbient * EnvBrdfApprox(surface.f0, surface.roughness, nDotV) * surface.occlusion;
     }
 }
 

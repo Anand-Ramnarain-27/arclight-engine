@@ -2,6 +2,7 @@
 
 #include "Core/Log.h"
 #include "Platform/FileSystem.h"
+#include "Renderer/TangentGenerator.h"
 
 #include <tiny_gltf.h>
 
@@ -393,6 +394,15 @@ namespace arc
                 uvs.clear();
             }
 
+            // Only usable with the normals they were made for.
+            std::vector<std::array<float, 4>> tangents;
+            if (attribute("TANGENT") >= 0 && !normals.empty() &&
+                (!readFloats(importer, attribute("TANGENT"), tangents, "TANGENT") || tangents.size() != vertexCount))
+            {
+                ARC_LOG_WARN("{}: ignoring the unreadable tangents of a primitive of mesh '{}'", importer.name, meshName);
+                tangents.clear();
+            }
+
             // Without indices, the vertices are used in order.
             std::vector<uint32_t> indices;
             if (source.indices >= 0)
@@ -431,6 +441,19 @@ namespace arc
                 vertex.normal = normal;
                 if (!uvs.empty())
                     vertex.uv = {uvs[index][0], uvs[index][1]};
+                if (!tangents.empty())
+                {
+                    // Re-orthogonalised against the normal, and the sign snapped to +-1, since files
+                    // round both.
+                    const std::array<float, 4>& t = tangents[index];
+                    const Vec3 along = Vec3{t[0], t[1], t[2]} - normal * dot(normal, Vec3{t[0], t[1], t[2]});
+                    const float alongLength = length(along);
+                    if (alongLength > 1e-6f)
+                    {
+                        const Vec3 unit = along / alongLength;
+                        vertex.tangent = {unit.x, unit.y, unit.z, t[3] < 0.0f ? -1.0f : 1.0f};
+                    }
+                }
                 return vertex;
             };
 
@@ -440,6 +463,8 @@ namespace arc
             if (source.material >= 0 && static_cast<size_t>(source.material) < importer.gltf.materials.size())
                 primitive.material = source.material;
 
+            std::vector<MeshVertex> vertices;
+            std::vector<uint32_t> primitiveIndices;
             if (normals.empty())
             {
                 // glTF: "When normals are not specified, client implementations MUST calculate flat
@@ -454,22 +479,37 @@ namespace arc
                     const Vec3 normal = normalize(cross(position(1) - position(0), position(2) - position(0)));
                     for (size_t corner = 0; corner < 3; ++corner)
                     {
-                        model.indices.push_back(static_cast<uint32_t>(i + corner));
-                        model.vertices.push_back(toVertex(indices[i + corner], normal));
+                        primitiveIndices.push_back(static_cast<uint32_t>(i + corner));
+                        vertices.push_back(toVertex(indices[i + corner], normal));
                     }
                 }
-                primitive.vertexCount = static_cast<uint32_t>(indices.size());
             }
             else
             {
                 for (size_t i = 0; i < vertexCount; ++i)
                 {
                     const std::array<float, 3>& n = normals[i];
-                    model.vertices.push_back(toVertex(static_cast<uint32_t>(i), normalize(Vec3{n[0], n[1], n[2]})));
+                    vertices.push_back(toVertex(static_cast<uint32_t>(i), normalize(Vec3{n[0], n[1], n[2]})));
                 }
-                model.indices.insert(model.indices.end(), indices.begin(), indices.end());
-                primitive.vertexCount = static_cast<uint32_t>(vertexCount);
+                primitiveIndices = std::move(indices);
             }
+
+            // glTF: "When tangents are not specified, client implementations SHOULD calculate tangents
+            // using default MikkTSpace algorithms." Only materials with a normal map read them, so the
+            // others keep their vertices as they are, with any tangent.
+            const bool normalMapped = primitive.material >= 0 &&
+                                      model.materials[static_cast<size_t>(primitive.material)].normalTexture >= 0;
+            if (tangents.empty())
+            {
+                if (normalMapped && !uvs.empty())
+                    generateTangents(vertices, primitiveIndices);
+                else
+                    fillDefaultTangents(vertices);
+            }
+
+            model.vertices.insert(model.vertices.end(), vertices.begin(), vertices.end());
+            model.indices.insert(model.indices.end(), primitiveIndices.begin(), primitiveIndices.end());
+            primitive.vertexCount = static_cast<uint32_t>(vertices.size());
 
             primitive.indexCount = static_cast<uint32_t>(model.indices.size()) - primitive.firstIndex;
             for (uint32_t i = 0; i < primitive.vertexCount; ++i)
@@ -664,6 +704,29 @@ namespace arc
                 material.metallicRoughnessTexture =
                     useTexture(importer, source, pbr.metallicRoughnessTexture.index, pbr.metallicRoughnessTexture.texCoord,
                                ColorSpace::Linear, "metallic-roughness texture");
+
+                material.normalTexture = useTexture(importer, source, source.normalTexture.index,
+                                                    source.normalTexture.texCoord, ColorSpace::Linear, "normal map");
+                material.normalScale = static_cast<float>(source.normalTexture.scale);
+                material.occlusionTexture = useTexture(importer, source, source.occlusionTexture.index,
+                                                       source.occlusionTexture.texCoord, ColorSpace::Linear,
+                                                       "occlusion texture");
+                material.occlusionStrength = std::clamp(static_cast<float>(source.occlusionTexture.strength), 0.0f, 1.0f);
+
+                material.emissiveTexture = useTexture(importer, source, source.emissiveTexture.index,
+                                                      source.emissiveTexture.texCoord, ColorSpace::Srgb, "emissive texture");
+                if (source.emissiveFactor.size() == 3)
+                    material.emissiveFactor = {static_cast<float>(source.emissiveFactor[0]),
+                                               static_cast<float>(source.emissiveFactor[1]),
+                                               static_cast<float>(source.emissiveFactor[2])};
+                // The factor alone is capped at 1; the extension lifts the cap with a multiplier.
+                if (const auto strength = source.extensions.find("KHR_materials_emissive_strength");
+                    strength != source.extensions.end() && strength->second.Has("emissiveStrength"))
+                {
+                    const tinygltf::Value& value = strength->second.Get("emissiveStrength");
+                    if (value.IsNumber())
+                        material.emissiveFactor = material.emissiveFactor * std::max(static_cast<float>(value.GetNumberAsDouble()), 0.0f);
+                }
                 model.materials.push_back(material);
             }
         }

@@ -54,6 +54,7 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Scene and prefab files, Play mode that restores the scene | Working | Working |
 | Lights, HDR and tone mapping, Blinn-Phong | Working | Working |
 | Cook-Torrance GGX, metallic-roughness materials | In progress | In progress |
+| Normal maps (MikkTSpace), occlusion, emissive | In progress | In progress |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -229,7 +230,8 @@ Third-party code, all downloaded by CMake at pinned versions:
 | [Dear ImGui](https://github.com/ocornut/imgui) (docking branch) | Editor UI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | Transform gizmos in the Scene view | [MIT](https://github.com/CedricGuillemet/ImGuizmo/blob/master/LICENSE) |
 | [stb_image](https://github.com/nothings/stb) | PNG, JPEG, TGA and BMP decoding | [Public domain or MIT](https://github.com/nothings/stb/blob/master/LICENSE) |
-| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Mesh simplification for levels of detail | [MIT](https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md) |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Mesh simplification for levels of detail, vertex welding | [MIT](https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md) |
+| [MikkTSpace](https://github.com/mmikk/MikkTSpace) | Tangents for normal maps | [zlib](https://github.com/mmikk/MikkTSpace/blob/master/mikktspace.h) |
 | [tinygltf](https://github.com/syoyo/tinygltf) | glTF 2.0 parsing | [MIT](https://github.com/syoyo/tinygltf/blob/release/LICENSE) |
 | [nlohmann/json](https://github.com/nlohmann/json) (included with tinygltf) | JSON parsing | [MIT](https://github.com/nlohmann/json/blob/develop/LICENSE.MIT) |
 | [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | GPU capture trigger (Windows, header only) | [MIT](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md) |

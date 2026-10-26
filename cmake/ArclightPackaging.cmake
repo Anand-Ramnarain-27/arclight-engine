@@ -37,6 +37,14 @@ math(EXPR stb_image_notice_length "${stb_image_notice_end} - ${stb_image_notice_
 string(SUBSTRING "${stb_image_header}" ${stb_image_notice_start} ${stb_image_notice_length} stb_image_notice)
 file(WRITE "${CMAKE_BINARY_DIR}/Generated/stb_image.txt" "${stb_image_notice}")
 install(FILES "${CMAKE_BINARY_DIR}/Generated/stb_image.txt" DESTINATION ThirdPartyLicenses)
+# MikkTSpace (zlib) carries its notice in the comment that opens mikktspace.h.
+file(READ "${mikktspace_SOURCE_DIR}/mikktspace.h" mikktspace_header LIMIT 4096)
+string(FIND "${mikktspace_header}" "Copyright" mikktspace_notice_start)
+string(FIND "${mikktspace_header}" "*/\n\n#ifndef" mikktspace_notice_end)
+math(EXPR mikktspace_notice_length "${mikktspace_notice_end} - ${mikktspace_notice_start}")
+string(SUBSTRING "${mikktspace_header}" ${mikktspace_notice_start} ${mikktspace_notice_length} mikktspace_notice)
+file(WRITE "${CMAKE_BINARY_DIR}/Generated/MikkTSpace.txt" " *  ${mikktspace_notice}")
+install(FILES "${CMAKE_BINARY_DIR}/Generated/MikkTSpace.txt" DESTINATION ThirdPartyLicenses)
 # The RenderDoc in-app API header (MIT) is compiled into the Windows build; its notice opens the header.
 if(WIN32)
     file(READ "${renderdoc_api_SOURCE_DIR}/renderdoc_app.h" renderdoc_header LIMIT 4096)

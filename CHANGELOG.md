@@ -34,6 +34,15 @@ Phase 4: lighting and PBR.
 - `Renderer/Brdf.h`: CPU copies of the shader's BRDF functions, and unit tests that integrate them: Lambert and normalised Phong conserve energy, GGX's distribution integrates to 1, Cook-Torrance never reflects more than it receives (and keeps 1 − ln 2 at roughness 1), and the analytic environment BRDF stays close to the integrated one.
 - Editor: *Cook-Torrance (GGX)* in the Lighting menu, a metallic override, *Metallic* and *Roughness* debug views, and each material's metallic and roughness in the Inspector.
 
+#### Normal maps, occlusion and emissive
+- `MeshVertex::tangent` (xyz and a ±1 handedness, 48-byte vertices): read from glTF's TANGENT, re-orthogonalised against the normal, or generated with [MikkTSpace](https://github.com/mmikk/MikkTSpace) for normal-mapped primitives without tangents (`Renderer/TangentGenerator`). Corners are unwelded for MikkTSpace and welded again with meshoptimizer, so vertices split only where a UV seam or mirror needs two tangents.
+- `Mesh.hlsl`: tangent-space normal maps with the glTF normal scale, Gram-Schmidt after interpolation, the bitangent's sign flipped for mirrored instances (`DrawConstants::handedness`) and the whole frame flipped on back faces; ambient occlusion (with its strength) on the ambient light only; emission (with `KHR_materials_emissive_strength`) added to the lit colour.
+- Material slots t2 normal (flat stand-in), t3 occlusion and t4 emissive (white stand-ins); normal and occlusion images linear, emissive sRGB.
+- Cooked model format 3 and model importer version 3: cooked models are rebuilt once.
+- Editor: *Normal maps*, *Occlusion* and *Emissive* switches in the Lighting menu; *Occlusion*, *Emissive* and *Tangents* debug views; normal, occlusion and emissive textures listed in the Inspector.
+- Unit tests for MikkTSpace tangents (direction, handedness, mirrored UVs, seam splitting), TANGENT import and the new material fields in files and cooked models.
+- MikkTSpace's licence notice ships in `ThirdPartyLicenses/`.
+
 #### RHI
 - `Format::RGBA16_FLOAT`.
 - Structured buffers: `BufferUsage::Structured` with `BufferDesc::stride`, bound with `CommandList::setBuffer()` to a t slot (an SRV in the texture table on Direct3D 12, `[[buffer(n)]]` on Metal).

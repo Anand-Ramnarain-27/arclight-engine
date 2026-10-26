@@ -273,6 +273,11 @@ namespace arc
                                                     : " (texture missing)";
                 ImGui::TextDisabled("    metallic %.2f, roughness %.2f%s", material.metallicFactor,
                                     material.roughnessFactor, metallicRoughness);
+                const auto has = [&](int32_t index) {
+                    return index < 0 ? "none" : model->texture(index) != nullptr ? "yes" : "missing";
+                };
+                ImGui::TextDisabled("    normal map %s, occlusion %s, emissive %s", has(material.normalTexture),
+                                    has(material.occlusionTexture), has(material.emissiveTexture));
                 ImGui::PopID();
             }
             ImGui::TreePop();

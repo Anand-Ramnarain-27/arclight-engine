@@ -349,6 +349,77 @@ TEST_CASE("glTF: metallic-roughness textures are imported as linear data")
     CHECK(gpuModel->texture(1)->desc().format == rhi::Format::RGBA8_UNORM);
 }
 
+TEST_CASE("glTF: normal, occlusion and emissive textures, and tangents")
+{
+    // A quad facing +Z with upright texture coordinates (v grows down the image).
+    Bytes buffer;
+    buffer.add<float>({0, 0, 0,   1, 0, 0,   0, 1, 0,   1, 1, 0});   // POSITION, 48 bytes
+    buffer.add<float>({0, 0, 1,   0, 0, 1,   0, 0, 1,   0, 0, 1});   // NORMAL, 48 bytes
+    buffer.add<float>({0, 1,   1, 1,   0, 0,   1, 0});               // TEXCOORD_0, 32 bytes
+    buffer.add<float>({1, 0.1f, 0, -1,   1, 0.1f, 0, -1,   1, 0.1f, 0, -1,   1, 0.1f, 0, -1});   // TANGENT, 64 bytes
+    buffer.add<uint16_t>({0, 1, 2, 2, 1, 3});
+    const std::string pixel = std::string("data:image/png;base64,") + kRedPixelPng;
+
+    const std::string accessors = R"(
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 48}, {"buffer": 0, "byteOffset": 48, "byteLength": 48},
+                        {"buffer": 0, "byteOffset": 96, "byteLength": 32}, {"buffer": 0, "byteOffset": 128, "byteLength": 64},
+                        {"buffer": 0, "byteOffset": 192, "byteLength": 12}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3"},
+                      {"bufferView": 1, "componentType": 5126, "count": 4, "type": "VEC3"},
+                      {"bufferView": 2, "componentType": 5126, "count": 4, "type": "VEC2"},
+                      {"bufferView": 3, "componentType": 5126, "count": 4, "type": "VEC4"},
+                      {"bufferView": 4, "componentType": 5123, "count": 6, "type": "SCALAR"}],
+        "images": [{"uri": ")" + pixel + R"("}, {"uri": ")" + pixel + R"("}, {"uri": ")" + pixel + R"("}],
+        "textures": [{"source": 0}, {"source": 1}, {"source": 2}],
+        "materials": [{"name": "Bumpy", "normalTexture": {"index": 0, "scale": 0.5},
+                       "occlusionTexture": {"index": 1, "strength": 0.25},
+                       "emissiveTexture": {"index": 2}, "emissiveFactor": [1, 0.5, 0],
+                       "extensions": {"KHR_materials_emissive_strength": {"emissiveStrength": 4}}}],)";
+
+    SUBCASE("materials")
+    {
+        const auto model = importJson(accessors + R"(
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 4, "material": 0}]}],
+            "nodes": [{"mesh": 0}])",
+                                     buffer);
+        REQUIRE(model);
+        const MaterialData& material = model->materials[0];
+        CHECK(material.normalTexture == 0);
+        CHECK(material.normalScale == 0.5f);
+        CHECK(material.occlusionTexture == 1);
+        CHECK(material.occlusionStrength == 0.25f);
+        CHECK(material.emissiveTexture == 2);
+        CHECK(material.emissiveFactor.x == 4.0f);
+        CHECK(material.emissiveFactor.y == 2.0f);
+        CHECK(model->imageColorSpaces[0] == ColorSpace::Linear);
+        CHECK(model->imageColorSpaces[1] == ColorSpace::Linear);
+        CHECK(model->imageColorSpaces[2] == ColorSpace::Srgb);
+
+        // No TANGENT and a normal map: MikkTSpace tangents along u, bitangent up the image.
+        REQUIRE(model->vertices.size() == 4);
+        for (const MeshVertex& vertex : model->vertices)
+        {
+            CHECK(vertex.tangent.x == doctest::Approx(1.0f));
+            CHECK(vertex.tangent.w == 1.0f);
+        }
+    }
+
+    SUBCASE("tangents from the file are kept, made perpendicular to the normal")
+    {
+        const auto model = importJson(accessors + R"(
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2, "TANGENT": 3}, "indices": 4, "material": 0}]}],
+            "nodes": [{"mesh": 0}])",
+                                     buffer);
+        REQUIRE(model);
+        for (const MeshVertex& vertex : model->vertices)
+        {
+            CHECK(vertex.tangent.w == -1.0f);
+            CHECK(vertex.tangent.y == doctest::Approx(0.0995f).epsilon(1e-3));
+            CHECK(vertex.tangent.z == doctest::Approx(0.0f));
+        }
+    }
+}
+
 TEST_CASE("glTF: binary files")
 {
     Bytes bin;

@@ -57,9 +57,10 @@ namespace arc
     ///
     /// Owns the pipelines (one per combination of depth convention, culling, blending and winding)
     /// and the stand-in textures: white for a material slot without a texture, so the factor alone
-    /// decides the value, and a magenta checker for base colour textures whose image is missing or
-    /// could not be decoded, so the gap is obvious instead of silently white (a missing data texture
-    /// falls back to white, since magenta would read as arbitrary metallic and roughness).
+    /// decides the value; a flat normal for the normal map; and a magenta checker for base colour
+    /// textures whose image is missing or could not be decoded, so the gap is obvious instead of
+    /// silently white (missing data textures fall back to their stand-ins, since magenta would read
+    /// as arbitrary values).
     class MeshRenderer
     {
     public:
@@ -75,22 +76,28 @@ namespace arc
             Lighting = 6,     // Every surface white, so only the light shows.
             Metallic = 7,     // Factor times texture, as grey.
             Roughness = 8,    // Factor times texture, as grey.
+            Occlusion = 9,    // Ambient occlusion, as grey.
+            Emissive = 10,    // The light the surface gives off itself.
+            Tangents = 11,    // World-space tangent, mapped from [-1, 1] to [0, 1].
         };
 
         /// Views whose output is data rather than light, to be shown without exposure or a tone curve.
         [[nodiscard]] static bool isDataView(DebugView view)
         {
             return view == DebugView::BaseColor || view == DebugView::Normals || view == DebugView::TexCoords ||
-                   view == DebugView::Metallic || view == DebugView::Roughness;
+                   view == DebugView::Metallic || view == DebugView::Roughness || view == DebugView::Occlusion ||
+                   view == DebugView::Tangents;
         }
 
-        /// Where each material texture is bound (t0..t4 in Mesh.hlsl). Normal, occlusion and
-        /// emissive are reserved for the next step.
+        /// Where each material texture is bound (t0..t4 in Mesh.hlsl).
         enum MaterialTextureSlot : uint32_t
         {
             kBaseColorSlot = 0,
             kMetallicRoughnessSlot = 1,
-            kMaterialTextureSlots = 2,
+            kNormalSlot = 2,
+            kOcclusionSlot = 3,
+            kEmissiveSlot = 4,
+            kMaterialTextureSlots = 5,
         };
 
         MeshRenderer();
@@ -136,6 +143,7 @@ namespace arc
 
         std::array<std::unique_ptr<rhi::Pipeline>, 16> m_pipelines;   // By PipelineKey::index().
         std::unique_ptr<rhi::Texture> m_whiteTexture;
+        std::unique_ptr<rhi::Texture> m_flatNormalTexture;
         std::unique_ptr<rhi::Texture> m_missingTexture;
         std::unique_ptr<rhi::Sampler> m_defaultSampler;
         LightBuffer m_lights;

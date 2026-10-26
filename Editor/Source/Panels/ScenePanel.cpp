@@ -385,10 +385,11 @@ namespace arc
         int view = static_cast<int>(m_scene.debugView);
         if (ImGui::Combo("Shading", &view,
                          "Lit\0Base colour\0Normals\0Texture coordinates\0Diffuse light\0Specular light\0"
-                         "Lighting only\0Metallic\0Roughness\0"))
+                         "Lighting only\0Metallic\0Roughness\0Occlusion\0Emissive\0Tangents\0"))
             m_scene.debugView = static_cast<MeshRenderer::DebugView>(view);
-        ImGui::SetItemTooltip("Base colour, normals, texture coordinates, metallic and roughness are data, shown "
-                              "without exposure or tone mapping. The lighting views are light, and go through both.");
+        ImGui::SetItemTooltip("Base colour, normals, tangents, texture coordinates, metallic, roughness and occlusion "
+                              "are data, shown without exposure or tone mapping. The lighting views and emissive are "
+                              "light, and go through both.");
         ImGui::Checkbox("Light icons", &m_showLightIcons);
 
         ImGui::SeparatorText("Rendering");
@@ -554,6 +555,16 @@ namespace arc
         ImGui::Checkbox("Fresnel (Schlick)", &lighting.fresnel);
         ImGui::SetItemTooltip("Reflectance rises from 4%% facing the surface to 100%% at grazing angles. What is "
                               "reflected is taken from the diffuse light.");
+        ImGui::Checkbox("Normal maps", &lighting.normalMaps);
+        ImGui::SetItemTooltip("Bends the shading normal by each material's normal map, in the frame of the surface's "
+                              "tangent, bitangent and normal.");
+        ImGui::SameLine();
+        ImGui::Checkbox("Occlusion", &lighting.occlusion);
+        ImGui::SetItemTooltip("Darkens the ambient light in creases by each material's occlusion texture. Lights "
+                              "are not affected: blocking them takes shadows.");
+        ImGui::SameLine();
+        ImGui::Checkbox("Emissive", &lighting.emissive);
+        ImGui::SetItemTooltip("Adds the light each material gives off itself.");
         ImGui::Checkbox("Override roughness", &lighting.overrideRoughness);
         ImGui::SameLine();
         ImGui::BeginDisabled(!lighting.overrideRoughness);

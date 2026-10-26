@@ -21,8 +21,12 @@ namespace arc
         Vec3 position;   // Object space.
         Vec3 normal;     // Object space, unit length.
         Vec2 uv;         // TEXCOORD_0; (0, 0) is the top-left of the image.
+        /// Object space: xyz is the direction of increasing u, unit length and perpendicular to the
+        /// normal; w (+1 or -1) is the handedness, so the bitangent is cross(normal, xyz) * w, as glTF
+        /// defines. It points up the image (decreasing v), the way a normal map's green channel does.
+        Vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
     };
-    static_assert(sizeof(MeshVertex) == 32, "MeshVertex must be tightly packed to match the vertex layout");
+    static_assert(sizeof(MeshVertex) == 48, "MeshVertex must be tightly packed to match the vertex layout");
 
     /// How a material's alpha is used. The values match AlphaMode in Mesh.hlsl.
     enum class AlphaMode : uint32_t
@@ -47,6 +51,19 @@ namespace arc
         /// Linear data: blue is metallic, green is roughness (red is unused, or occlusion in packed
         /// ORM textures). -1 for none.
         int32_t metallicRoughnessTexture = -1;
+        /// Linear, tangent space: (r, g, b) * 2 - 1 is the normal, +Y pointing up the image. Its x and y
+        /// are multiplied by normalScale. -1 for none.
+        int32_t normalTexture = -1;
+        float normalScale = 1.0f;
+        /// Linear: red is how much of the ambient light reaches the surface, 0 to 1, blended in by
+        /// occlusionStrength. Affects ambient light only; direct lights cast no shadows yet. -1 for none.
+        int32_t occlusionTexture = -1;
+        float occlusionStrength = 1.0f;
+        /// Light the surface gives off itself: linear RGB factor (KHR_materials_emissive_strength
+        /// folded in) times an sRGB texture. glTF's default factor is black, so a texture alone
+        /// emits nothing.
+        Vec3 emissiveFactor;
+        int32_t emissiveTexture = -1;
         AlphaMode alphaMode = AlphaMode::Opaque;
         float alphaCutoff = 0.5f;
         /// Back faces are drawn too, lit with their normal flipped.

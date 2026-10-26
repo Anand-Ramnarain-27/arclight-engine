@@ -103,6 +103,11 @@ namespace arc
         bool energyConserving = true;
         /// Schlick's approximation: reflectance rises toward 1 at grazing angles. Off uses F0 everywhere.
         bool fresnel = true;
+        /// Material textures that can be switched off to compare: normal maps, ambient occlusion and
+        /// emission.
+        bool normalMaps = true;
+        bool occlusion = true;
+        bool emissive = true;
         /// A hemisphere of ambient light until image-based lighting replaces it: the sky colour from
         /// above, the ground colour from below. Lights the diffuse colour, and the specular
         /// reflectance through an analytic fit of the split-sum BRDF (see EnvBrdfApprox).
@@ -141,6 +146,9 @@ namespace arc
     /// Match LIGHTING_FLAG_ in Lighting.hlsli.
     inline constexpr uint32_t kLightingFlagEnergyConserving = 1u << 0;
     inline constexpr uint32_t kLightingFlagFresnel = 1u << 1;
+    inline constexpr uint32_t kLightingFlagNormalMaps = 1u << 2;
+    inline constexpr uint32_t kLightingFlagOcclusion = 1u << 3;
+    inline constexpr uint32_t kLightingFlagEmissive = 1u << 4;
 
     [[nodiscard]] LightingConstants makeLightingConstants(const LightingSettings& settings, uint32_t lightCount);
 }

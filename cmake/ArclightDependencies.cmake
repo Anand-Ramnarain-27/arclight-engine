@@ -88,6 +88,18 @@ FetchContent_Declare(meshoptimizer
 FetchContent_MakeAvailable(meshoptimizer)
 set_target_properties(meshoptimizer PROPERTIES FOLDER "ThirdParty")
 
+# MikkTSpace: tangent frames for normal maps (zlib), the generator glTF names for files without
+# tangents, so normal maps baked by any tool that uses it come out as they were baked. Two C files
+# and no build of its own; pinned to a commit.
+FetchContent_Declare(mikktspace
+    GIT_REPOSITORY https://github.com/mmikk/MikkTSpace.git
+    GIT_TAG        3e895b49d05ea07e4c2133156cfa94369e19e409
+)
+FetchContent_MakeAvailable(mikktspace)
+add_library(mikktspace STATIC ${mikktspace_SOURCE_DIR}/mikktspace.c)
+target_include_directories(mikktspace SYSTEM PUBLIC ${mikktspace_SOURCE_DIR})
+set_target_properties(mikktspace PROPERTIES FOLDER "ThirdParty")
+
 # The sample model the editor opens at start-up: "Lantern" from the Khronos glTF sample assets,
 # CC0 (Microsoft), pinned to a commit of the repository.
 FetchContent_Declare(sample_lantern

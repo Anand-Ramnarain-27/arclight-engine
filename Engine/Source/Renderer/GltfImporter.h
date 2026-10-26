@@ -18,15 +18,17 @@ namespace arc
     /// What is converted:
     ///   - Every mesh primitive drawn as triangles (lists, strips and fans; strips and fans become
     ///     lists). Points and lines are skipped.
-    ///   - POSITION, NORMAL and TEXCOORD_0, from any component type glTF allows (including the
-    ///     normalized integers of KHR_mesh_quantization), with or without a byte stride, sparse or
-    ///     not. Primitives without normals get flat normals, as the glTF specification requires.
+    ///   - POSITION, NORMAL, TANGENT and TEXCOORD_0, from any component type glTF allows (including
+    ///     the normalized integers of KHR_mesh_quantization), with or without a byte stride, sparse
+    ///     or not. Primitives without normals get flat normals, as the glTF specification requires;
+    ///     normal-mapped primitives without tangents get MikkTSpace tangents.
     ///   - 8, 16 and 32-bit indices, all widened to 32 bits.
     ///   - The default scene's node hierarchy, both as nodes with local transforms and flattened into
     ///     mesh instances with complete transforms.
-    ///   - Materials: base colour factor and texture, metallic and roughness factors and their
-    ///     texture, alpha mode and cutoff, double-sidedness. Samplers. Images are decoded only when a
-    ///     material uses them, and marked sRGB (base colour) or linear (metallic-roughness).
+    ///   - Materials: base colour, metallic-roughness, normal (with its scale), occlusion (with its
+    ///     strength) and emissive (with KHR_materials_emissive_strength) factors and textures, alpha
+    ///     mode and cutoff, double-sidedness. Samplers. Images are decoded only when a material uses
+    ///     them, and marked sRGB (base colour, emissive) or linear (the data textures).
     ///
     /// glTF's conventions match the engine's (right-handed, +Y up, metres, counter-clockwise front
     /// faces, column-major matrices), so nothing is flipped or converted.
