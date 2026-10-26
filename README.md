@@ -53,8 +53,9 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Asset pipeline: .meta files, cooked formats, resource manager | Working | Working |
 | Scene and prefab files, Play mode that restores the scene | Working | Working |
 | Lights, HDR and tone mapping, Blinn-Phong | Working | Working |
-| Cook-Torrance GGX, metallic-roughness materials | In progress | In progress |
-| Normal maps (MikkTSpace), occlusion, emissive | In progress | In progress |
+| Cook-Torrance GGX, metallic-roughness materials | Working | Working |
+| Normal maps (MikkTSpace), occlusion, emissive | Working | Working |
+| Image-based lighting from HDR skies | In progress | In progress |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -168,7 +169,7 @@ The sample *Lantern* model opens at start-up. To import another model, choose **
 | + / - / 0 | Double / halve / reset the time scale |
 | F11 | Capture a GPU frame (when started from RenderDoc, with `--pix`, or from Xcode) |
 
-The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`. Its **Lighting** menu holds the reflectance model (Cook-Torrance GGX by default; Lambert, Phong and Blinn-Phong to compare, with energy conservation and Fresnel switchable), roughness and metallic overrides, the ambient light, exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it.
+The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from an equirectangular Radiance `.hdr` file or a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`, and lights the scene through image-based lighting; it can be turned and brightened there too. Free HDR skies are on [Poly Haven](https://polyhaven.com/hdris) (CC0). Its **Lighting** menu holds the reflectance model (Cook-Torrance GGX by default; Lambert, Phong and Blinn-Phong to compare, with energy conservation and Fresnel switchable), roughness and metallic overrides, the ambient light (the sky's image-based lighting, or a sky and ground hemisphere), exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it.
 
 Scenes are saved with **File > Save Scene** (Ctrl+S, Cmd+S on macOS) and opened with **File > Open Scene** or by double-clicking a `.scene` file in the Files panel; the last one opens again at start-up. Right-click an object in the Hierarchy and choose **Save as Prefab** to reuse it, then double-click the `.prefab` or drag it into the Scene view to place copies. Changes made while playing (F5) are undone on Stop.
 
@@ -229,7 +230,7 @@ Third-party code, all downloaded by CMake at pinned versions:
 | [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input, file I/O | [zlib](https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt) |
 | [Dear ImGui](https://github.com/ocornut/imgui) (docking branch) | Editor UI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | Transform gizmos in the Scene view | [MIT](https://github.com/CedricGuillemet/ImGuizmo/blob/master/LICENSE) |
-| [stb_image](https://github.com/nothings/stb) | PNG, JPEG, TGA and BMP decoding | [Public domain or MIT](https://github.com/nothings/stb/blob/master/LICENSE) |
+| [stb_image](https://github.com/nothings/stb) | PNG, JPEG, TGA, BMP and Radiance HDR decoding | [Public domain or MIT](https://github.com/nothings/stb/blob/master/LICENSE) |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | Mesh simplification for levels of detail, vertex welding | [MIT](https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md) |
 | [MikkTSpace](https://github.com/mmikk/MikkTSpace) | Tangents for normal maps | [zlib](https://github.com/mmikk/MikkTSpace/blob/master/mikktspace.h) |
 | [tinygltf](https://github.com/syoyo/tinygltf) | glTF 2.0 parsing | [MIT](https://github.com/syoyo/tinygltf/blob/release/LICENSE) |

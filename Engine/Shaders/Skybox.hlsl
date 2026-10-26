@@ -7,8 +7,9 @@
 // Mirrored by SkyboxConstants in Engine/Source/Renderer/Skybox.cpp.
 cbuffer SkyboxConstants : register(b1)
 {
-    float farDepth;    // NDC depth of the far plane: 1, or 0 with reversed-Z.
-    float intensity;   // Multiplies the sky's colour.
+    float farDepth;      // NDC depth of the far plane: 1, or 0 with reversed-Z.
+    float intensity;     // Multiplies the sky's colour.
+    float2 rotation;     // cos and sin of the sky's turn about +Y, as EnvironmentDirection in Lighting.hlsli.
 };
 
 TextureCube<float4> g_sky : register(t0);
@@ -36,6 +37,8 @@ float4 PSMain(VSOutput input) : SV_Target0
     const float3 direction = normalize(world.xyz / world.w - cameraPosition);
     // Cube faces are laid out for a left-handed space with +Z forward; the world is right-handed
     // with -Z forward, so Z is flipped to see the +Z face straight ahead.
-    const float3 color = g_sky.SampleLevel(g_sampler, float3(direction.x, direction.y, -direction.z), 0).rgb;
+    const float3 turned = float3(rotation.x * direction.x - rotation.y * direction.z, direction.y,
+                                 rotation.y * direction.x + rotation.x * direction.z);
+    const float3 color = g_sky.SampleLevel(g_sampler, float3(turned.x, turned.y, -turned.z), 0).rgb;
     return float4(color * intensity, 1.0);
 }

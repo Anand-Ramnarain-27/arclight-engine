@@ -11,11 +11,13 @@
 #include "RHI/TextureUtils.h"
 #include "Math/Color.h"
 #include "Renderer/CubeMap.h"
+#include "Renderer/HdrImage.h"
 #include "Renderer/Lighting.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderLibrary.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <span>
 #include <vector>
@@ -24,12 +26,12 @@ namespace arc
 {
     namespace
     {
-        // Mirrors SkyboxConstants in Skybox.hlsl: two floats, padded to one 16-byte row.
+        // Mirrors SkyboxConstants in Skybox.hlsl: one 16-byte row.
         struct SkyboxConstants
         {
             float farDepth = 0.0f;
             float intensity = 1.0f;
-            float padding[2]{};
+            float rotation[2] = {1.0f, 0.0f};   // cos and sin.
         };
         static_assert(sizeof(SkyboxConstants) == 16);
 
@@ -125,37 +127,55 @@ namespace arc
         sampler.addressU = sampler.addressV = sampler.addressW = rhi::AddressMode::ClampToEdge;
         sampler.debugName = "Skybox Sampler";
         m_sampler = renderer.device().createSampler(sampler);
-        return m_sampler && useProceduralSky(renderer);
+        return m_sampler && m_environment.init(renderer.device(), renderer.shaders()) && useProceduralSky(renderer);
     }
 
     void Skybox::shutdown()
     {
         for (auto& pipeline : m_pipelines)
             pipeline.reset();
-        m_texture.reset();
+        m_environment.shutdown();
         m_sampler.reset();
+    }
+
+    EnvironmentLighting Skybox::environmentLighting() const
+    {
+        return {
+            .irradiance = m_environment.irradiance(),
+            .prefiltered = m_environment.prefiltered(),
+            .brdfLut = m_environment.brdfLut(),
+            .sampler = m_environment.sampler(),
+            .prefilteredMaxLod = EnvironmentMaps::prefilteredMaxLod(),
+            .intensity = intensity,
+            .rotation = rotation,
+        };
     }
 
     bool Skybox::setFaces(Renderer& renderer, const std::array<Image, 6>& faces, std::string source)
     {
+        // Full mip chains, so the bake can read each face at the resolution of each radiance mip.
+        const uint32_t mipLevels = rhi::fullMipCount(faces[0].size);
         auto texture = renderer.device().createTexture({
             .size = faces[0].size,
             .format = rhi::Format::RGBA8_UNORM_SRGB,
-            .mipLevels = 1,
+            .mipLevels = mipLevels,
             .usage = rhi::TextureUsage::Sampled,
             .type = rhi::TextureType::Cube,
-            .debugName = "Skybox (" + source + ")",
+            .debugName = "Sky Faces (" + source + ")",
         });
         if (!texture)
             return false;
-        std::vector<std::span<const std::byte>> data;
+        // Subresources go face by face, each face's mips in turn (rhi::subresourceIndex).
+        std::vector<Image> levels;
+        levels.reserve(size_t{mipLevels} * 6);
         for (const Image& face : faces)
-            data.emplace_back(face.pixels);
-        if (!rhi::uploadTexture(renderer.device(), *texture, data))
+            for (Image& level : generateMipChain(face, ColorSpace::Srgb))
+                levels.push_back(std::move(level));
+        std::vector<std::span<const std::byte>> data;
+        for (const Image& level : levels)
+            data.emplace_back(level.pixels);
+        if (!rhi::uploadTexture(renderer.device(), *texture, data) || !m_environment.bakeFromCube(*texture, source))
             return false;
-
-        // Frames in flight may still sample the old texture; the device keeps it until they finish.
-        m_texture = std::move(texture);
         m_source = std::move(source);
         return true;
     }
@@ -165,7 +185,49 @@ namespace arc
         return setFaces(renderer, proceduralSky(kProceduralSize), "procedural");
     }
 
-    bool Skybox::load(Renderer& renderer, const std::string& folder)
+    bool Skybox::load(Renderer& renderer, const std::string& path)
+    {
+        std::string extension = path.size() >= 4 ? path.substr(path.size() - 4) : std::string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+                       [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+        return extension == ".hdr" ? loadEquirect(renderer, path) : loadFaces(renderer, path);
+    }
+
+    bool Skybox::loadEquirect(Renderer& renderer, const std::string& path)
+    {
+        HdrImage image = loadHdrImage(path);
+        if (image.empty())
+            return false;
+        if (image.size.width != image.size.height * 2)
+            ARC_LOG_WARN("Sky '{}' is {}x{}; an equirectangular image is twice as wide as it is tall, so it "
+                            "will look stretched",
+                            path, image.size.width, image.size.height);
+        while (image.size.width > kMaxEquirectWidth)
+            image = downsample(image);
+
+        const std::vector<HdrImage> mips = generateMipChain(std::move(image));
+        auto texture = renderer.device().createTexture({
+            .size = mips[0].size,
+            .format = rhi::Format::RGBA16_FLOAT,
+            .mipLevels = static_cast<uint32_t>(mips.size()),
+            .usage = rhi::TextureUsage::Sampled,
+            .debugName = "Sky Equirect (" + path + ")",
+        });
+        if (!texture)
+            return false;
+        std::vector<std::vector<std::byte>> halves;
+        halves.reserve(mips.size());
+        std::vector<std::span<const std::byte>> data;
+        for (const HdrImage& mip : mips)
+            data.emplace_back(halves.emplace_back(toHalfFloatPixels(mip)));
+        if (!rhi::uploadTexture(renderer.device(), *texture, data) || !m_environment.bakeFromEquirect(*texture, path))
+            return false;
+        m_source = path;
+        ARC_LOG_INFO("Loaded sky '{}' ({}x{})", path, mips[0].size.width, mips[0].size.height);
+        return true;
+    }
+
+    bool Skybox::loadFaces(Renderer& renderer, const std::string& folder)
     {
         std::array<Image, 6> faces;
         for (size_t face = 0; face < faces.size(); ++face)
@@ -206,15 +268,18 @@ namespace arc
     {
         const Camera& camera = renderer.sceneCamera();
         rhi::Pipeline* pipeline = m_pipelines[camera.reversedZ].get();
-        if (!visible || !pipeline || !m_texture)
+        rhi::Texture* radiance = m_environment.radiance();
+        if (!visible || !pipeline || !radiance)
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
         const rhi::ScopedDebugGroup group(commandList, "Skybox");
         commandList.setPipeline(*pipeline);
         commandList.setConstants(0, renderer.sceneViewConstants());
-        commandList.setConstants(1, SkyboxConstants{.farDepth = camera.reversedZ ? 0.0f : 1.0f, .intensity = intensity});
-        commandList.setTexture(0, *m_texture);
+        commandList.setConstants(1, SkyboxConstants{.farDepth = camera.reversedZ ? 0.0f : 1.0f,
+                                                     .intensity = intensity,
+                                                     .rotation = {std::cos(rotation), std::sin(rotation)}});
+        commandList.setTexture(0, *radiance);
         commandList.setSampler(0, *m_sampler);
         commandList.draw(3);
     }

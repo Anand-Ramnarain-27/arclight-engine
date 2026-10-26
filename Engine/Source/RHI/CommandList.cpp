@@ -93,6 +93,9 @@ namespace arc::rhi
         ARC_ASSERT(desc.color.texture != nullptr, "A render pass needs a colour target");
         const TextureDesc& color = desc.color.texture->desc();
         ARC_ASSERT(hasFlag(color.usage, TextureUsage::RenderTarget), "'{}' is not a render target", color.debugName);
+        ARC_ASSERT(desc.color.mipLevel < color.mipLevels && desc.color.arrayLayer < arrayLayerCount(color),
+                   "'{}' has no mip level {} of layer {}", color.debugName, desc.color.mipLevel, desc.color.arrayLayer);
+        const Extent2D colorSize = mipSize(color.size, desc.color.mipLevel);
         m_passColorFormat = color.format;
         m_passDepthFormat = Format::Unknown;
 
@@ -100,9 +103,9 @@ namespace arc::rhi
         {
             const TextureDesc& depth = depthTexture->desc();
             ARC_ASSERT(hasFlag(depth.usage, TextureUsage::DepthStencil), "'{}' is not a depth target", depth.debugName);
-            ARC_ASSERT(depth.size.width == color.size.width && depth.size.height == color.size.height,
+            ARC_ASSERT(depth.size.width == colorSize.width && depth.size.height == colorSize.height,
                        "Depth target '{}' is {}x{}, colour target '{}' is {}x{}", depth.debugName, depth.size.width,
-                       depth.size.height, color.debugName, color.size.width, color.size.height);
+                       depth.size.height, color.debugName, colorSize.width, colorSize.height);
             ARC_ASSERT(desc.depth.clearDepth >= 0.0f && desc.depth.clearDepth <= 1.0f);
             m_passDepthFormat = depth.format;
         }

@@ -8,6 +8,7 @@
 #include "RHI/Sampler.h"
 #include "RHI/Shader.h"
 #include "RHI/Texture.h"
+#include "RHI/TextureUtils.h"
 #include "Renderer/GeometryPool.h"
 #include "Renderer/Model.h"
 #include "Renderer/RenderList.h"
@@ -15,6 +16,7 @@
 #include "Renderer/ShaderLibrary.h"
 #include "Renderer/TextureLoader.h"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -148,11 +150,26 @@ namespace arc
         m_flatNormalTexture = createTexture(device, std::span(&flatNormal, 1), ColorSpace::Linear, "Flat Normal");
         m_missingTexture = createTexture(device, std::span(&missing, 1), ColorSpace::Srgb, "Missing Texture");
 
+        m_blackCube = device.createTexture({
+            .size = {1, 1},
+            .format = rhi::Format::RGBA8_UNORM,
+            .type = rhi::TextureType::Cube,
+            .debugName = "Black Cube",
+        });
+        if (m_blackCube)
+        {
+            const std::array<std::byte, 4> black{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{255}};
+            const std::array<std::span<const std::byte>, 6> faces{black, black, black, black, black, black};
+            if (!rhi::uploadTexture(device, *m_blackCube, faces))
+                m_blackCube.reset();
+        }
+
         rhi::SamplerDesc samplerDesc;
         samplerDesc.maxAnisotropy = 8;
         samplerDesc.debugName = "Mesh Default Sampler";
         m_defaultSampler = device.createSampler(samplerDesc);
-        return m_whiteTexture && m_flatNormalTexture && m_missingTexture && m_defaultSampler && m_lights.init(device);
+        return m_whiteTexture && m_flatNormalTexture && m_missingTexture && m_blackCube && m_defaultSampler &&
+               m_lights.init(device);
     }
 
     void MeshRenderer::shutdown()
@@ -162,11 +179,13 @@ namespace arc
         m_whiteTexture.reset();
         m_flatNormalTexture.reset();
         m_missingTexture.reset();
+        m_blackCube.reset();
         m_defaultSampler.reset();
         m_lights.shutdown();
     }
 
-    void MeshRenderer::setLighting(Renderer& renderer, std::span<const GpuLight> lights, const LightingSettings& settings)
+    void MeshRenderer::setLighting(Renderer& renderer, std::span<const GpuLight> lights, const LightingSettings& settings,
+                                   const EnvironmentLighting* environment)
     {
         if (!renderer.isFrameActive())
             return;
@@ -174,7 +193,8 @@ namespace arc
         // buffer is free to overwrite.
         m_lightSlot = renderer.device().frameSlot();
         const uint32_t count = m_lights.write(m_lightSlot, lights);
-        m_lightingConstants = makeLightingConstants(settings, count);
+        m_lightingConstants = makeLightingConstants(settings, count, environment);
+        m_environment = environment && environment->complete() ? *environment : EnvironmentLighting{};
     }
 
     RenderStats MeshRenderer::draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView)
@@ -187,6 +207,12 @@ namespace arc
         commandList.setConstants(kLightingConstantsSlot, m_lightingConstants);
         if (rhi::Buffer* lights = m_lights.buffer(m_lightSlot))
             commandList.setBuffer(kLightBufferSlot, *lights);
+        // Bound whether or not the environment lights this frame: Mesh.hlsl declares the slots.
+        commandList.setTexture(kIrradianceSlot, m_environment.irradiance ? *m_environment.irradiance : *m_blackCube);
+        commandList.setTexture(kPrefilteredSlot, m_environment.prefiltered ? *m_environment.prefiltered : *m_blackCube);
+        commandList.setTexture(kBrdfLutSlot, m_environment.brdfLut ? *m_environment.brdfLut : *m_whiteTexture);
+        commandList.setSampler(kEnvironmentSamplerSlot,
+                               m_environment.sampler ? *m_environment.sampler : *m_defaultSampler);
 
         // The state bound so far, so a draw only changes what differs from the one before it.
         // Bindings stay across pipeline changes; buffers need a pipeline set first only because the

@@ -58,8 +58,9 @@ namespace arc
         std::function<void(const std::string& path)> onAssetDropped;
 
     private:
-        void browseForSkybox();
-        void setSkyboxFolder(const std::string& folder);
+        void browseForSkyFolder();
+        void browseForSkyHdr();
+        void setSkyPath(const std::string& path);
         void drawSettings();
         void drawLightingSettings();
         /// Finds the lights to draw icons for this frame and where they are on screen.
@@ -81,10 +82,10 @@ namespace arc
         EditorGrid& m_grid;
         SelectionOutline& m_outline;
         TransformGizmo m_gizmo;
-        std::array<char, 512> m_skyboxFolder{};
+        std::array<char, 512> m_skyPath{};
         /// Applied at the start of the next draw(), which runs outside the frame: creating the cube
         /// texture uploads and waits for the GPU.
-        std::string m_pendingSkyboxFolder;
+        std::string m_pendingSkyPath;
         bool m_pendingProceduralSky = false;
 
         struct LightIcon

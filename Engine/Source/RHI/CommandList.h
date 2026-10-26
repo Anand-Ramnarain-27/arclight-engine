@@ -20,6 +20,10 @@ namespace arc::rhi
     struct ColorAttachment
     {
         Texture* texture = nullptr;
+        /// The subresource drawn into: one mip level of one array layer (a cube face). The pass
+        /// covers that level's size.
+        uint32_t mipLevel = 0;
+        uint32_t arrayLayer = 0;
         LoadOp load = LoadOp::Clear;
         StoreOp store = StoreOp::Store;
         ClearColor clearColor{};
@@ -28,7 +32,7 @@ namespace arc::rhi
     struct DepthAttachment
     {
         /// Null for a pass without depth. Must have DepthStencil usage and the same size as the
-        /// colour target.
+        /// colour target's mip level.
         Texture* texture = nullptr;
         LoadOp load = LoadOp::Clear;
         StoreOp store = StoreOp::Store;

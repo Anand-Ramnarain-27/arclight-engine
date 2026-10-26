@@ -133,10 +133,10 @@ namespace arc
     {
         if (m_pendingProceduralSky)
             m_scene.skybox().useProceduralSky(m_app.renderer());
-        else if (!m_pendingSkyboxFolder.empty())
-            m_scene.skybox().load(m_app.renderer(), m_pendingSkyboxFolder);
+        else if (!m_pendingSkyPath.empty())
+            m_scene.skybox().load(m_app.renderer(), m_pendingSkyPath);
         m_pendingProceduralSky = false;
-        m_pendingSkyboxFolder.clear();
+        m_pendingSkyPath.clear();
 
         ImGui::SetNextWindowSize({960.0f, 540.0f}, ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
@@ -255,15 +255,15 @@ namespace arc
         ImGui::End();
     }
 
-    void ScenePanel::setSkyboxFolder(const std::string& folder)
+    void ScenePanel::setSkyPath(const std::string& path)
     {
-        m_pendingSkyboxFolder = folder;
-        const size_t length = std::min(folder.size(), m_skyboxFolder.size() - 1);
-        std::memcpy(m_skyboxFolder.data(), folder.data(), length);
-        m_skyboxFolder[length] = '\0';
+        m_pendingSkyPath = path;
+        const size_t length = std::min(path.size(), m_skyPath.size() - 1);
+        std::memcpy(m_skyPath.data(), path.data(), length);
+        m_skyPath[length] = '\0';
     }
 
-    void ScenePanel::browseForSkybox()
+    void ScenePanel::browseForSkyFolder()
     {
         const VirtualFileSystem& fileSystem = m_app.fileSystem();
         FileDialogDesc desc;
@@ -272,9 +272,25 @@ namespace arc
         desc.defaultLocation = fileSystem.nativePath("assets://");
         m_app.fileDialogs().open(m_app.window().sdlWindow(), std::move(desc), [this](const FileDialogResult& result) {
             if (result.status == FileDialogResult::Status::Chosen)
-                setSkyboxFolder(preferredPath(m_app.fileSystem(), result.paths.front()));
+                setSkyPath(preferredPath(m_app.fileSystem(), result.paths.front()));
             else if (result.status == FileDialogResult::Status::Failed)
                 ARC_LOG_WARN("The folder dialog is not available ({}); type the folder instead", result.error);
+        });
+    }
+
+    void ScenePanel::browseForSkyHdr()
+    {
+        const VirtualFileSystem& fileSystem = m_app.fileSystem();
+        FileDialogDesc desc;
+        desc.type = FileDialogType::OpenFile;
+        desc.title = "Choose an equirectangular HDR sky";
+        desc.filters = {{"Radiance HDR", "hdr"}};
+        desc.defaultLocation = fileSystem.nativePath("assets://");
+        m_app.fileDialogs().open(m_app.window().sdlWindow(), std::move(desc), [this](const FileDialogResult& result) {
+            if (result.status == FileDialogResult::Status::Chosen)
+                setSkyPath(preferredPath(m_app.fileSystem(), result.paths.front()));
+            else if (result.status == FileDialogResult::Status::Failed)
+                ARC_LOG_WARN("The file dialog is not available ({}); type the path instead", result.error);
         });
     }
 
@@ -426,17 +442,25 @@ namespace arc
         ImGui::SeparatorText("Sky");
         Skybox& skybox = m_scene.skybox();
         ImGui::Checkbox("Show sky", &skybox.visible);
-        ImGui::SliderFloat("Intensity", &skybox.intensity, 0.0f, 2.0f, "%.2f");
+        ImGui::SliderFloat("Intensity", &skybox.intensity, 0.0f, 4.0f, "%.2f");
+        ImGui::SetItemTooltip("Scales the sky as drawn and the light it gives the scene.");
+        float rotationDegrees = toDegrees(skybox.rotation);
+        if (ImGui::SliderFloat("Rotation", &rotationDegrees, -180.0f, 180.0f, "%.0f deg"))
+            skybox.rotation = toRadians(rotationDegrees);
+        ImGui::SetItemTooltip("Turns the sky and its lighting about the vertical axis.");
         ImGui::TextDisabled("Showing: %s", skybox.source().c_str());
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
-        ImGui::InputTextWithHint("##SkyFolder", "Folder with px, nx, py, ny, pz, nz", m_skyboxFolder.data(),
-                                 m_skyboxFolder.size());
+        ImGui::InputTextWithHint("##SkyPath", ".hdr file, or folder with px, nx, py, ny, pz, nz", m_skyPath.data(),
+                                 m_skyPath.size());
         ImGui::SameLine();
-        if (ImGui::Button("Browse..."))
-            browseForSkybox();
+        if (ImGui::Button("HDR..."))
+            browseForSkyHdr();
+        ImGui::SameLine();
+        if (ImGui::Button("Faces..."))
+            browseForSkyFolder();
         ImGui::SameLine();
         if (ImGui::Button("Load"))
-            m_pendingSkyboxFolder = m_skyboxFolder.data();
+            m_pendingSkyPath = m_skyPath.data();
         ImGui::SameLine();
         if (ImGui::Button("Procedural"))
             m_pendingProceduralSky = true;
@@ -583,6 +607,15 @@ namespace arc
                               "coloured diffuse), 1 a metal (base-coloured specular, no diffuse).");
 
         ImGui::SeparatorText("Ambient");
+        int source = static_cast<int>(lighting.ambientSource);
+        const char* sources[] = {ambientSourceName(AmbientSource::Hemisphere),
+                                 ambientSourceName(AmbientSource::Environment)};
+        if (ImGui::Combo("Source", &source, sources, static_cast<int>(std::size(sources))))
+            lighting.ambientSource = static_cast<AmbientSource>(source);
+        ImGui::SetItemTooltip("Environment lights every surface with the sky itself: diffuse from its irradiance, "
+                              "reflections from it blurred by each material's roughness (Cook-Torrance only). "
+                              "Set its strength and turn it in View > Sky.");
+        ImGui::BeginDisabled(lighting.ambientSource == AmbientSource::Environment);
         Vec3 sky = linearToSrgb(lighting.ambientSky);
         if (ImGui::ColorEdit3("Sky", &sky.x, ImGuiColorEditFlags_NoInputs))
             lighting.ambientSky = srgbToLinear(sky);
@@ -592,7 +625,8 @@ namespace arc
             lighting.ambientGround = srgbToLinear(ground);
         ImGui::SliderFloat("Intensity", &lighting.ambientIntensity, 0.0f, 4.0f, "%.2f");
         ImGui::SetItemTooltip("Light from every direction, blended from the ground colour below to the sky colour "
-                              "above. A stand-in until image-based lighting.");
+                              "above.");
+        ImGui::EndDisabled();
 
         ImGui::SeparatorText("Exposure");
         ToneMapper& toneMapper = m_app.renderer().toneMapper();

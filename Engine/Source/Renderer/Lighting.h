@@ -7,6 +7,12 @@
 
 namespace arc
 {
+    namespace rhi
+    {
+        class Sampler;
+        class Texture;
+    }
+
     // What the shaders need to light a scene: the light list (a StructuredBuffer) and the per-frame
     // lighting constants (b3), with their C++ mirrors. Engine/Shaders/Lighting.hlsli is the HLSL side.
     //
@@ -94,6 +100,17 @@ namespace arc
 
     [[nodiscard]] const char* lightingModelName(LightingModel model);
 
+    /// Where the light that arrives from everywhere, rather than from the lights, comes from.
+    enum class AmbientSource : uint32_t
+    {
+        /// A flat sky colour above and ground colour below.
+        Hemisphere = 0,
+        /// The sky itself, through image-based lighting (EnvironmentMaps).
+        Environment = 1,
+    };
+
+    [[nodiscard]] const char* ambientSourceName(AmbientSource source);
+
     /// Scene-wide lighting choices. Not saved with the scene yet.
     struct LightingSettings
     {
@@ -108,9 +125,11 @@ namespace arc
         bool normalMaps = true;
         bool occlusion = true;
         bool emissive = true;
-        /// A hemisphere of ambient light until image-based lighting replaces it: the sky colour from
-        /// above, the ground colour from below. Lights the diffuse colour, and the specular
-        /// reflectance through an analytic fit of the split-sum BRDF (see EnvBrdfApprox).
+        /// The hemisphere is used whenever no environment is given, whatever this says.
+        AmbientSource ambientSource = AmbientSource::Environment;
+        /// The hemisphere: the sky colour from above, the ground colour from below. Lights the
+        /// diffuse colour, and the specular reflectance through an analytic fit of the split-sum
+        /// BRDF (see EnvBrdfApprox).
         Vec3 ambientSky{0.30f, 0.34f, 0.42f};
         Vec3 ambientGround{0.12f, 0.10f, 0.09f};
         float ambientIntensity = 1.0f;
@@ -134,6 +153,9 @@ namespace arc
         float roughnessOverride = -1.0f;   // Negative: each material's own.
         float metallicOverride = -1.0f;    // Negative: each material's own.
         uint32_t padding = 0;
+        float environmentIntensity = 0.0f;
+        float prefilteredMaxLod = 0.0f;
+        float environmentRotation[2] = {1.0f, 0.0f};   // cos and sin of the turn about +Y.
     };
     static_assert(offsetof(LightingConstants, lightCount) == 12);
     static_assert(offsetof(LightingConstants, ambientGround) == 16);
@@ -141,7 +163,10 @@ namespace arc
     static_assert(offsetof(LightingConstants, flags) == 32);
     static_assert(offsetof(LightingConstants, roughnessOverride) == 36);
     static_assert(offsetof(LightingConstants, metallicOverride) == 40);
-    static_assert(sizeof(LightingConstants) == 48);
+    static_assert(offsetof(LightingConstants, environmentIntensity) == 48);
+    static_assert(offsetof(LightingConstants, prefilteredMaxLod) == 52);
+    static_assert(offsetof(LightingConstants, environmentRotation) == 56);
+    static_assert(sizeof(LightingConstants) == 64);
 
     /// Match LIGHTING_FLAG_ in Lighting.hlsli.
     inline constexpr uint32_t kLightingFlagEnergyConserving = 1u << 0;
@@ -149,6 +174,31 @@ namespace arc
     inline constexpr uint32_t kLightingFlagNormalMaps = 1u << 2;
     inline constexpr uint32_t kLightingFlagOcclusion = 1u << 3;
     inline constexpr uint32_t kLightingFlagEmissive = 1u << 4;
+    inline constexpr uint32_t kLightingFlagEnvironment = 1u << 5;
 
-    [[nodiscard]] LightingConstants makeLightingConstants(const LightingSettings& settings, uint32_t lightCount);
+    /// Where the image-based lighting textures are bound: t5..t7 and s1 in Lighting.hlsli.
+    inline constexpr uint32_t kIrradianceSlot = 5;
+    inline constexpr uint32_t kPrefilteredSlot = 6;
+    inline constexpr uint32_t kBrdfLutSlot = 7;
+    inline constexpr uint32_t kEnvironmentSamplerSlot = 1;
+
+    /// The environment's image-based lighting, for one frame. Not owned: the textures belong to the
+    /// sky's EnvironmentMaps.
+    struct EnvironmentLighting
+    {
+        rhi::Texture* irradiance = nullptr;
+        rhi::Texture* prefiltered = nullptr;
+        rhi::Texture* brdfLut = nullptr;
+        rhi::Sampler* sampler = nullptr;
+        float prefilteredMaxLod = 0.0f;
+        float intensity = 1.0f;
+        float rotation = 0.0f;   // Radians about +Y, counter-clockwise seen from above.
+
+        [[nodiscard]] bool complete() const { return irradiance && prefiltered && brdfLut && sampler; }
+    };
+
+    /// Uses the environment when the settings ask for it and `environment` is complete; the
+    /// hemisphere otherwise.
+    [[nodiscard]] LightingConstants makeLightingConstants(const LightingSettings& settings, uint32_t lightCount,
+                                                          const EnvironmentLighting* environment = nullptr);
 }

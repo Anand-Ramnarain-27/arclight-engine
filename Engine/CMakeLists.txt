@@ -88,6 +88,10 @@ add_library(ArclightEngine STATIC
     Source/Renderer/ShaderConstants.h
     Source/Renderer/Image.h
     Source/Renderer/Image.cpp
+    Source/Renderer/HdrImage.h
+    Source/Renderer/HdrImage.cpp
+    Source/Renderer/EnvironmentMaps.h
+    Source/Renderer/EnvironmentMaps.cpp
     Source/Renderer/TextureLoader.h
     Source/Renderer/TextureLoader.cpp
     Source/Renderer/ToneMapper.h
@@ -193,6 +197,11 @@ arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/SelectionMask
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Outline.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Skybox.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/ToneMap.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/IblFromEquirect.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/IblFromCube.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/IblIrradiance.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/IblPrefilter.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/IblBrdfLut.hlsl VERTEX VSMain PIXEL PSMain)
 
 get_target_property(engine_sources ArclightEngine SOURCES)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Source FILES ${engine_sources})

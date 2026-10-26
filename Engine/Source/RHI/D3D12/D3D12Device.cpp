@@ -485,16 +485,43 @@ namespace arc::rhi::d3d12
             }
         }
 
-        D3D12Descriptor rtv;
+        // One render target view per mip level of each layer, so any of them can be a pass's target:
+        // a view names exactly one subresource to write.
+        std::vector<D3D12Descriptor> rtvs;
         if (hasFlag(desc.usage, TextureUsage::RenderTarget))
         {
-            rtv = m_rtvHeap.allocate();
-            if (!rtv.valid())
+            const uint32_t layers = arrayLayerCount(desc);
+            rtvs.resize(size_t{desc.mipLevels} * layers);
+            for (uint32_t layer = 0; layer < layers; ++layer)
             {
-                m_cpuSrvHeap.free(srv);
-                return nullptr;
+                for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+                {
+                    D3D12Descriptor& view = rtvs[subresourceIndex(desc, mip, layer)];
+                    view = m_rtvHeap.allocate();
+                    if (!view.valid())
+                    {
+                        for (const D3D12Descriptor& allocated : rtvs)
+                            m_rtvHeap.free(allocated);
+                        m_cpuSrvHeap.free(srv);
+                        return nullptr;
+                    }
+                    D3D12_RENDER_TARGET_VIEW_DESC viewDesc{};
+                    viewDesc.Format = resourceDesc.Format;
+                    if (desc.type == TextureType::Cube)
+                    {
+                        viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+                        viewDesc.Texture2DArray.MipSlice = mip;
+                        viewDesc.Texture2DArray.FirstArraySlice = layer;
+                        viewDesc.Texture2DArray.ArraySize = 1;
+                    }
+                    else
+                    {
+                        viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+                        viewDesc.Texture2D.MipSlice = mip;
+                    }
+                    m_device->CreateRenderTargetView(resource.Get(), &viewDesc, view.cpu);
+                }
             }
-            m_device->CreateRenderTargetView(resource.Get(), nullptr, rtv.cpu);
         }
 
         D3D12Descriptor dsv;
@@ -506,7 +533,7 @@ namespace arc::rhi::d3d12
             m_device->CreateDepthStencilView(resource.Get(), nullptr, dsv.cpu);
         }
 
-        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, rtv, dsv);
+        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, std::move(rtvs), dsv);
     }
 
     std::unique_ptr<Sampler> D3D12Device::createSamplerImpl(const SamplerDesc& desc)
@@ -574,7 +601,7 @@ namespace arc::rhi::d3d12
                                                       .persistentCount = 256,
                                                       .debugName = "CPU Sampler Heap"}) &&
                m_rtvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-                                               .persistentCount = 256,
+                                               .persistentCount = 1024,
                                                .debugName = "RTV Heap"}) &&
                m_dsvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
                                                .persistentCount = 64,

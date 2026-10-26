@@ -60,7 +60,8 @@ namespace arc
     /// decides the value; a flat normal for the normal map; and a magenta checker for base colour
     /// textures whose image is missing or could not be decoded, so the gap is obvious instead of
     /// silently white (missing data textures fall back to their stand-ins, since magenta would read
-    /// as arbitrary values).
+    /// as arbitrary values). A black cube stands in for the environment's cubes while there are none,
+    /// since every slot a shader declares must be bound on Metal.
     class MeshRenderer
     {
     public:
@@ -118,7 +119,10 @@ namespace arc
 
         /// The lights and lighting settings for this frame's draws. Call once a frame, between the
         /// renderer's beginFrame() and the first draw(); the first kMaxLights lights are used.
-        void setLighting(Renderer& renderer, std::span<const GpuLight> lights, const LightingSettings& settings);
+        /// `environment`'s textures must stay alive until the frame's draws are recorded; without
+        /// one, the hemisphere lights the ambient.
+        void setLighting(Renderer& renderer, std::span<const GpuLight> lights, const LightingSettings& settings,
+                         const EnvironmentLighting* environment = nullptr);
 
         /// Records one of the list's queues in a debug group named after it. Must be called inside a
         /// scene pass, with the list already sorted; the opaque queue goes first, and anything that
@@ -145,9 +149,11 @@ namespace arc
         std::unique_ptr<rhi::Texture> m_whiteTexture;
         std::unique_ptr<rhi::Texture> m_flatNormalTexture;
         std::unique_ptr<rhi::Texture> m_missingTexture;
+        std::unique_ptr<rhi::Texture> m_blackCube;
         std::unique_ptr<rhi::Sampler> m_defaultSampler;
         LightBuffer m_lights;
         LightingConstants m_lightingConstants;
+        EnvironmentLighting m_environment;
         uint32_t m_lightSlot = 0;   // The frame slot whose light buffer setLighting() filled.
     };
 }

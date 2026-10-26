@@ -105,18 +105,26 @@ namespace arc::rhi::d3d12
     }
 
     D3D12Texture::D3D12Texture(D3D12Device& device, ComPtr<ID3D12Resource> resource, const TextureDesc& desc,
-                               const D3D12Descriptor& srvDescriptor, const D3D12Descriptor& rtvDescriptor,
+                               const D3D12Descriptor& srvDescriptor, std::vector<D3D12Descriptor> rtvDescriptors,
                                const D3D12Descriptor& dsvDescriptor)
         : srv(srvDescriptor.cpu)
-        , rtv(rtvDescriptor.cpu)
+        , rtv(rtvDescriptors.empty() ? D3D12_CPU_DESCRIPTOR_HANDLE{} : rtvDescriptors.front().cpu)
         , dsv(dsvDescriptor.cpu)
         , m_resource(std::move(resource))
         , m_device(&device)
         , m_srvDescriptor(srvDescriptor)
-        , m_rtvDescriptor(rtvDescriptor)
+        , m_rtvDescriptors(std::move(rtvDescriptors))
         , m_dsvDescriptor(dsvDescriptor)
     {
         m_desc = desc;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE D3D12Texture::rtvFor(uint32_t mipLevel, uint32_t arrayLayer) const
+    {
+        // Backbuffers have their single view set by the swapchain and none in the list.
+        if (m_rtvDescriptors.empty())
+            return rtv;
+        return m_rtvDescriptors[subresourceIndex(m_desc, mipLevel, arrayLayer)].cpu;
     }
 
     D3D12Texture::~D3D12Texture()
@@ -127,7 +135,8 @@ namespace arc::rhi::d3d12
         // OMSetRenderTargets read the RTV and DSV when they were recorded, so the slots can be reused
         // now. The resource itself may still be in use by the GPU.
         m_device->cpuSrvHeap().free(m_srvDescriptor);
-        m_device->rtvHeap().free(m_rtvDescriptor);
+        for (const D3D12Descriptor& descriptor : m_rtvDescriptors)
+            m_device->rtvHeap().free(descriptor);
         m_device->dsvHeap().free(m_dsvDescriptor);
         m_device->retire(std::move(m_resource));
     }

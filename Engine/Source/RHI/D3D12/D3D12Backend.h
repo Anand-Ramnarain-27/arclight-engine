@@ -96,9 +96,10 @@ namespace arc::rhi::d3d12
         /// For swapchain backbuffers, which get their resource and view from the swapchain.
         D3D12Texture() = default;
 
-        /// Takes ownership of the views, which are freed with the texture.
+        /// Takes ownership of the views, which are freed with the texture. `rtvs` holds one view per
+        /// subresource, indexed by subresourceIndex(), or is empty.
         D3D12Texture(D3D12Device& device, ComPtr<ID3D12Resource> resource, const TextureDesc& desc,
-                     const D3D12Descriptor& srv, const D3D12Descriptor& rtv, const D3D12Descriptor& dsv);
+                     const D3D12Descriptor& srv, std::vector<D3D12Descriptor> rtvs, const D3D12Descriptor& dsv);
         ~D3D12Texture() override;
 
         void reset(ComPtr<ID3D12Resource> resource, const TextureDesc& desc, ResourceState state);
@@ -110,8 +111,11 @@ namespace arc::rhi::d3d12
         /// Zero if the texture is not Sampled.
         D3D12_CPU_DESCRIPTOR_HANDLE srv{};
 
-        /// Zero if the texture cannot be a render target.
+        /// The view of mip level 0 of layer 0. Zero if the texture cannot be a render target.
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
+
+        /// The view of one mip level of one array layer, for rendering into a cube face or a mip.
+        [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE rtvFor(uint32_t mipLevel, uint32_t arrayLayer) const;
 
         /// Zero if the texture cannot be a depth target.
         D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
@@ -120,7 +124,7 @@ namespace arc::rhi::d3d12
         ComPtr<ID3D12Resource> m_resource;
         D3D12Device* m_device = nullptr;   // Null for backbuffers, whose views the swapchain owns.
         D3D12Descriptor m_srvDescriptor;
-        D3D12Descriptor m_rtvDescriptor;
+        std::vector<D3D12Descriptor> m_rtvDescriptors;
         D3D12Descriptor m_dsvDescriptor;
     };
 

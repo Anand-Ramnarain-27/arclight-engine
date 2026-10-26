@@ -8,7 +8,7 @@
 #ifndef ARCLIGHT_LIGHTING_HLSLI
 #define ARCLIGHT_LIGHTING_HLSLI
 
-#include "Common.hlsli"
+#include "Brdf.hlsli"
 
 #define LIGHT_DIRECTIONAL 0
 #define LIGHT_POINT 1
@@ -24,6 +24,7 @@
 #define LIGHTING_FLAG_NORMAL_MAPS 4
 #define LIGHTING_FLAG_OCCLUSION 8
 #define LIGHTING_FLAG_EMISSIVE 16
+#define LIGHTING_FLAG_ENVIRONMENT 32
 
 // Mirrored by GpuLight.
 struct Light
@@ -48,11 +49,33 @@ cbuffer LightingConstants : register(b3)
     uint lightingFlags;     // LIGHTING_FLAG_ bits.
     float roughnessOverride;   // Replaces every material's roughness when 0 or more.
     float metallicOverride;    // Replaces every material's metallic when 0 or more.
+    uint lightingPadding;
+    float environmentIntensity;   // Multiplies the environment's light.
+    float prefilteredMaxLod;      // The prefiltered cube's last mip level, which holds roughness 1.
+    float2 environmentRotation;   // cos and sin of the environment's turn about +Y.
 };
 
 // t8 leaves t0..t7 for material and environment textures (structured buffers cannot use t0..t3,
 // whose Metal buffer indices belong to b0..b3).
 StructuredBuffer<Light> g_lights : register(t8);
+
+// Image-based lighting, made from the environment by EnvironmentMaps (Ibl*.hlsl): the light
+// arriving from every direction, convolved for diffuse and for each roughness, and the split-sum
+// BRDF table.
+TextureCube<float4> g_irradiance : register(t5);    // Irradiance / pi, by normal.
+TextureCube<float4> g_prefiltered : register(t6);   // Radiance convolved with GGX, mip = roughness.
+Texture2D<float4> g_brdfLut : register(t7);         // (A, B) by (cos(n, v), roughness).
+SamplerState g_environmentSampler : register(s1);   // Trilinear, clamped.
+
+// A world direction as the environment cubes are sampled: turned by the environment's rotation,
+// then into cube space (see Engine/Source/Renderer/CubeMap.h).
+float3 EnvironmentDirection(float3 world)
+{
+    const float c = environmentRotation.x;
+    const float s = environmentRotation.y;
+    const float3 turned = float3(c * world.x - s * world.z, world.y, s * world.x + c * world.z);
+    return float3(turned.x, turned.y, -turned.z);
+}
 
 // A surface point, ready to be lit.
 struct Surface
@@ -65,61 +88,6 @@ struct Surface
     float roughness;       // Perceptual, 0 to 1, as in glTF.
     float occlusion;       // How much ambient light reaches the surface, 0 to 1.
 };
-
-// Schlick's approximation of Fresnel reflectance: f0 at normal incidence, rising to 1 at grazing.
-float3 FresnelSchlick(float3 f0, float cosTheta)
-{
-    const float m = 1.0 - saturate(cosTheta);
-    const float m2 = m * m;
-    return f0 + (1.0 - f0) * (m2 * m2 * m);
-}
-
-// Below this roughness a point light's GGX highlight shrinks to a sub-pixel spike that flickers as
-// the surface moves (Filament clamps at the same value).
-static const float kMinRoughness = 0.045;
-
-// GGX (Trowbridge-Reitz) normal distribution: the density of microfacets whose normal is the half
-// vector. alpha = roughness^2, so roughness reads perceptually linear. Integrates to 1 over the
-// hemisphere when weighted by cos(normal, half vector).
-float DistributionGgx(float nDotH, float alpha)
-{
-    const float a2 = alpha * alpha;
-    const float d = nDotH * nDotH * (a2 - 1.0) + 1.0;
-    return a2 / (PI * d * d);
-}
-
-// Smith's height-correlated masking-shadowing for GGX, already divided by the 4 cos(n,l) cos(n,v)
-// of the Cook-Torrance denominator (Heitz 2014): the fraction of facets both lit and seen.
-float VisibilitySmithGgxCorrelated(float nDotV, float nDotL, float alpha)
-{
-    const float a2 = alpha * alpha;
-    const float v = nDotL * sqrt(nDotV * nDotV * (1.0 - a2) + a2);
-    const float l = nDotV * sqrt(nDotL * nDotL * (1.0 - a2) + a2);
-    return 0.5 / max(v + l, 1e-7);
-}
-
-// The specular BRDF integrated over every light direction under a uniform environment, as the
-// split-sum's second term (f0 * A + B), fitted analytically instead of read from a lookup table
-// (Karis, "Physically Based Shading on Mobile", 2014). Lights the hemisphere ambient's
-// reflections until 4.4's BRDF table replaces it.
-float3 EnvBrdfApprox(float3 f0, float roughness, float nDotV)
-{
-    const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
-    const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
-    const float4 r = roughness * c0 + c1;
-    const float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;
-    const float2 ab = float2(-1.04, 1.04) * a004 + r.zw;
-    return f0 * ab.x + ab.y;
-}
-
-// The Blinn-Phong exponent equivalent to a roughness, through GGX's alpha = roughness^2:
-// n = 2 / alpha^2 - 2 gives a Blinn-Phong lobe of about the same width as GGX's (Walter et al.
-// 2007). Clamped so roughness 0 stays finite.
-float BlinnPhongExponent(float roughness)
-{
-    const float alpha = max(roughness * roughness, 0.01);
-    return clamp(2.0 / (alpha * alpha) - 2.0, 1.0, 8192.0);
-}
 
 // The fraction of a light's radiance that reaches `position`, and the direction toward it.
 float LightAttenuation(Light light, float3 position, out float3 toLight)
@@ -212,9 +180,10 @@ void ShadeLight(Surface surface, float3 toLight, float3 incoming, out float3 dif
     diffuse = (fresnel ? 1.0 - reflectance : 1.0) * surface.diffuseColor / PI * light;
 }
 
-// Every light in the list, plus the hemisphere ambient, which occlusion darkens. Direct light is not
-// occluded: shadows (Phase 6) are what block it, and the occlusion texture is baked for light that
-// arrives from everywhere.
+// Every light in the list, plus the ambient light: the environment's image-based lighting, or the
+// sky and ground hemisphere when that is off. Occlusion darkens the ambient light only. Direct light
+// is not occluded: shadows (Phase 6) are what block it, and the occlusion texture is baked for light
+// that arrives from everywhere.
 void ShadeSurface(Surface surface, out float3 diffuse, out float3 specular)
 {
     diffuse = 0.0;
@@ -231,6 +200,24 @@ void ShadeSurface(Surface surface, out float3 diffuse, out float3 specular)
         ShadeLight(surface, toLight, light.radiance * attenuation, lightDiffuse, lightSpecular);
         diffuse += lightDiffuse;
         specular += lightSpecular;
+    }
+
+    if ((lightingFlags & LIGHTING_FLAG_ENVIRONMENT) != 0)
+    {
+        // The split-sum approximation (Karis 2013): the environment convolved per roughness, times
+        // the BRDF's integral for this view angle and roughness, read from the table as f0 * A + B.
+        const float nDotV = max(dot(surface.normal, surface.view), 1e-4);
+        const float3 irradiance = g_irradiance.SampleLevel(g_environmentSampler, EnvironmentDirection(surface.normal), 0).rgb;
+        diffuse += irradiance * surface.diffuseColor * surface.occlusion * environmentIntensity;
+        if (lightingModel == LIGHTING_MODEL_COOK_TORRANCE)
+        {
+            const float3 reflected = reflect(-surface.view, surface.normal);
+            const float3 radiance = g_prefiltered.SampleLevel(g_environmentSampler, EnvironmentDirection(reflected),
+                                                              surface.roughness * prefilteredMaxLod).rgb;
+            const float2 brdf = g_brdfLut.SampleLevel(g_environmentSampler, float2(nDotV, surface.roughness), 0).rg;
+            specular += radiance * (surface.f0 * brdf.x + brdf.y) * surface.occlusion * environmentIntensity;
+        }
+        return;
     }
 
     const float3 ambient = lerp(ambientGround, ambientSky, surface.normal.y * 0.5 + 0.5);

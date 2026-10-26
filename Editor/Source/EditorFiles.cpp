@@ -58,6 +58,11 @@ namespace arc
         return extensionOf(path) == kSceneExtension;
     }
 
+    bool isHdrFile(std::string_view path)
+    {
+        return extensionOf(path) == ".hdr";
+    }
+
     std::string preferredPath(const VirtualFileSystem& fileSystem, const std::string& path)
     {
         if (isVirtualPath(path))

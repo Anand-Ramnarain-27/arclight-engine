@@ -181,7 +181,8 @@ namespace arc
         m_usedDefaultLight = m_sceneLightCount == 0 && lighting.defaultLight;
         if (m_usedDefaultLight)
             m_lights.push_back(defaultSunLight());
-        m_meshRenderer.setLighting(renderer, m_lights, lighting);
+        const EnvironmentLighting environment = m_skybox.environmentLighting();
+        m_meshRenderer.setLighting(renderer, m_lights, lighting, &environment);
         renderer.toneMapper().passThrough = MeshRenderer::isDataView(debugView);
 
         m_stats = {};

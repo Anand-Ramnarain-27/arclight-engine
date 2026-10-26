@@ -62,6 +62,8 @@ namespace arc::rhi::metal
 
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture = target.native();
+        pass.colorAttachments[0].level = desc.color.mipLevel;
+        pass.colorAttachments[0].slice = desc.color.arrayLayer;
         pass.colorAttachments[0].loadAction = toMTLLoadAction(desc.color.load);
         pass.colorAttachments[0].storeAction = toMTLStoreAction(desc.color.store);
         pass.colorAttachments[0].clearColor = MTLClearColorMake(c.r, c.g, c.b, c.a);

@@ -43,7 +43,16 @@ Phase 4: lighting and PBR.
 - Unit tests for MikkTSpace tangents (direction, handedness, mirrored UVs, seam splitting), TANGENT import and the new material fields in files and cooked models.
 - MikkTSpace's licence notice ships in `ThirdPartyLicenses/`.
 
+#### Image-based lighting
+- `Renderer/EnvironmentMaps`: bakes the sky on the GPU into a radiance cube (RGBA16F, full mips), a 32 px irradiance cube (cosine-weighted hemisphere sums), a 128 px prefiltered cube with five roughness levels (GGX importance sampling with Hammersley points and filtered importance sampling) and, once at start-up, a 128 × 128 split-sum BRDF table (`Ibl*.hlsl`).
+- `Lighting.hlsli`: the environment lights the diffuse colour through the irradiance cube and Cook-Torrance reflections through the prefiltered cube and the BRDF table (f0 · A + B), darkened by ambient occlusion. Shared BRDF functions moved to `Brdf.hlsli`.
+- Skies load from equirectangular Radiance `.hdr` files (`Renderer/HdrImage`: decoding, float mips, half-float conversion that clamps to 65504) as well as six-face folders; face images now get full mip chains. The sky is drawn from the baked radiance cube, and turns with its lighting (`Skybox::rotation`); its intensity scales both.
+- `LightingSettings::ambientSource`: the environment (default) or the hemisphere. `EnvironmentLighting` carries the cubes to `MeshRenderer::setLighting()`, which binds them at t5 to t7 and s1, with black stand-ins when there are none.
+- Editor: *HDR...* and *Faces...* in the View menu's sky section, a rotation slider and a wider intensity range; an ambient *Source* in the Lighting menu; *Use as Sky* on `.hdr` files in the Files panel.
+- `Brdf.h`: CPU copies of `hammersley()`, `importanceSampleGgx()` and the BRDF table's integral, with tests that the importance-sampled table matches the BRDF integrated over the hemisphere. Tests for half floats, `.hdr` decoding, HDR mips, the environment flag and rendering into cube faces.
+
 #### RHI
+- Render passes can target one mip level of one array layer (`ColorAttachment::mipLevel` and `arrayLayer`): an RTV per subresource on Direct3D 12, `level` and `slice` on Metal. Cube textures may be render targets.
 - `Format::RGBA16_FLOAT`.
 - Structured buffers: `BufferUsage::Structured` with `BufferDesc::stride`, bound with `CommandList::setBuffer()` to a t slot (an SRV in the texture table on Direct3D 12, `[[buffer(n)]]` on Metal).
 - 16 texture slots (t0 to t15) instead of 8, and a fourth constant slot (b3).

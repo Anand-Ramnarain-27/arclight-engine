@@ -58,8 +58,8 @@ namespace arc
         m_panels.push_back(std::make_unique<FilesPanel>(
             app.fileSystem(), assets, FilesPanel::Actions{
                                   .open = [this](const std::string& path) { m_pendingOpen = path; },
-                                  .loadSkybox = [this](const std::string& folder) {
-                                      m_scene.skybox().load(this->app().renderer(), folder);
+                                  .loadSkybox = [this](const std::string& path) {
+                                      m_scene.skybox().load(this->app().renderer(), path);
                                   },
                               }));
         m_panels.push_back(std::make_unique<PerformancePanel>(app));

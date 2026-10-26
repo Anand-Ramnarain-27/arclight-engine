@@ -52,7 +52,7 @@ target_include_directories(stb_image SYSTEM PUBLIC ${stb_image_SOURCE_DIR})
 # Files are read with SDL_LoadFile (UTF-8 paths on every platform), so stb's own file I/O is left out.
 target_compile_definitions(stb_image
     PUBLIC  STBI_NO_STDIO
-    PRIVATE STBI_ONLY_PNG STBI_ONLY_JPEG STBI_ONLY_TGA STBI_ONLY_BMP
+    PRIVATE STBI_ONLY_PNG STBI_ONLY_JPEG STBI_ONLY_TGA STBI_ONLY_BMP STBI_ONLY_HDR
 )
 set_target_properties(stb_image PROPERTIES FOLDER "ThirdParty")
 

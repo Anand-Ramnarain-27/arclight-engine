@@ -28,6 +28,16 @@ namespace arc
         return "";
     }
 
+    const char* ambientSourceName(AmbientSource source)
+    {
+        switch (source)
+        {
+            case AmbientSource::Hemisphere:  return "Hemisphere";
+            case AmbientSource::Environment: return "Environment (IBL)";
+        }
+        return "";
+    }
+
     GpuLight makeGpuLight(const LightDesc& light, const Vec3& position, const Vec3& direction)
     {
         GpuLight result;
@@ -64,7 +74,8 @@ namespace arc
         return makeGpuLight(sun, Vec3::zero(), -Vec3{0.4f, 0.8f, 0.45f});
     }
 
-    LightingConstants makeLightingConstants(const LightingSettings& settings, uint32_t lightCount)
+    LightingConstants makeLightingConstants(const LightingSettings& settings, uint32_t lightCount,
+                                            const EnvironmentLighting* environment)
     {
         LightingConstants constants;
         constants.ambientSky = settings.ambientSky * settings.ambientIntensity;
@@ -77,6 +88,14 @@ namespace arc
                           (settings.occlusion ? kLightingFlagOcclusion : 0u) | (settings.emissive ? kLightingFlagEmissive : 0u);
         constants.roughnessOverride = settings.overrideRoughness ? std::clamp(settings.roughness, 0.0f, 1.0f) : -1.0f;
         constants.metallicOverride = settings.overrideMetallic ? std::clamp(settings.metallic, 0.0f, 1.0f) : -1.0f;
+        if (settings.ambientSource == AmbientSource::Environment && environment && environment->complete())
+        {
+            constants.flags |= kLightingFlagEnvironment;
+            constants.environmentIntensity = std::max(environment->intensity, 0.0f);
+            constants.prefilteredMaxLod = environment->prefilteredMaxLod;
+            constants.environmentRotation[0] = std::cos(environment->rotation);
+            constants.environmentRotation[1] = std::sin(environment->rotation);
+        }
         return constants;
     }
 }

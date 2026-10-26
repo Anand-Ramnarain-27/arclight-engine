@@ -197,6 +197,8 @@ namespace arc
             if (isSceneFile(entry.path) && ImGui::MenuItem("Open Scene"))
                 m_actions.open(entry.path);
         }
+        if (!isDirectory && isHdrFile(entry.path) && m_actions.loadSkybox && ImGui::MenuItem("Use as Sky"))
+            m_actions.loadSkybox(entry.path);
         if (!isDirectory && assetTypeOf(entry.path) != AssetType::Unknown)
             if (ImGui::MenuItem("Reimport"))
                 if (const AssetId asset = m_assets.database().registerPath(entry.path))

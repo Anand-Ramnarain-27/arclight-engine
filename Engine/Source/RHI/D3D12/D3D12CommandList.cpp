@@ -361,7 +361,8 @@ namespace arc::rhi::d3d12
         if (m_passHasDebugGroup)
             beginEvent(m_list.Get(), desc.debugName);
 
-        m_list->OMSetRenderTargets(1, &target.rtv, FALSE, depth ? &depth->dsv : nullptr);
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = target.rtvFor(desc.color.mipLevel, desc.color.arrayLayer);
+        m_list->OMSetRenderTargets(1, &rtv, FALSE, depth ? &depth->dsv : nullptr);
 
         // D3D12 has no load or store actions: Clear is an explicit clear, and Load and DontCare
         // both leave the contents as they are. Store is likewise implicit.
@@ -369,14 +370,14 @@ namespace arc::rhi::d3d12
         {
             const ClearColor& c = desc.color.clearColor;
             const float color[] = {c.r, c.g, c.b, c.a};
-            m_list->ClearRenderTargetView(target.rtv, color, 0, nullptr);
+            m_list->ClearRenderTargetView(rtv, color, 0, nullptr);
         }
         if (depth && desc.depth.load == LoadOp::Clear)
             m_list->ClearDepthStencilView(depth->dsv, D3D12_CLEAR_FLAG_DEPTH, desc.depth.clearDepth, 0, 0, nullptr);
 
         // Metal resets the viewport and scissor to the full target at the start of every pass;
         // doing the same here keeps the two backends consistent.
-        const Extent2D size = target.desc().size;
+        const Extent2D size = mipSize(target.desc().size, desc.color.mipLevel);
         const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(size.width), static_cast<float>(size.height),
                                       0.0f, 1.0f};
         const D3D12_RECT scissor{0, 0, static_cast<LONG>(size.width), static_cast<LONG>(size.height)};
