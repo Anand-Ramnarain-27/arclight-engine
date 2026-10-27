@@ -16,6 +16,7 @@
 #include "Renderer/ShaderLibrary.h"
 #include "Renderer/TextureLoader.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -44,8 +45,8 @@ namespace arc
         static_assert(offsetof(MeshDrawConstants, handedness) == 132);
         static_assert(sizeof(MeshDrawConstants) == 144);
 
-        // Mirrors MaterialConstants in Mesh.hlsl: a float4 row, four scalars, a float3 with a scalar,
-        // and a last scalar padded to a whole row.
+        // Mirrors MaterialConstants in Mesh.hlsl: a float4 row, then scalars and a float3, packed
+        // four to a row; the float3 shares its row with the scalar after it.
         struct MaterialConstants
         {
             Vec4 baseColorFactor;
@@ -56,7 +57,13 @@ namespace arc
             Vec3 emissiveFactor;
             float normalScale = 1.0f;
             float occlusionStrength = 1.0f;
-            float padding[3]{};
+            uint32_t shadingModel = 0;
+            uint32_t toonBands = 1;
+            float toonSoftness = 0.0f;
+            float toonSpecular = 0.0f;
+            float toonRimSize = 0.0f;
+            float toonRim = 0.0f;
+            uint32_t toonFlags = 0;   // TOON_FLAG_ bits in Toon.hlsli.
         };
         static_assert(offsetof(MaterialConstants, alphaCutoff) == 16);
         static_assert(offsetof(MaterialConstants, alphaMode) == 20);
@@ -65,7 +72,50 @@ namespace arc
         static_assert(offsetof(MaterialConstants, emissiveFactor) == 32);
         static_assert(offsetof(MaterialConstants, normalScale) == 44);
         static_assert(offsetof(MaterialConstants, occlusionStrength) == 48);
-        static_assert(sizeof(MaterialConstants) == 64);
+        static_assert(offsetof(MaterialConstants, shadingModel) == 52);
+        static_assert(offsetof(MaterialConstants, toonSpecular) == 64);
+        static_assert(offsetof(MaterialConstants, toonFlags) == 76);
+        static_assert(sizeof(MaterialConstants) == 80);
+
+        constexpr uint32_t kToonFlagRamp = 1;
+
+        // Mirrors OutlineConstants in ToonOutline.hlsl.
+        struct OutlineConstants
+        {
+            Vec3 color;
+            float width = 0.0f;
+            Vec2 viewportSize;
+            float padding[2]{};
+        };
+        static_assert(offsetof(OutlineConstants, width) == 12);
+        static_assert(offsetof(OutlineConstants, viewportSize) == 16);
+        static_assert(sizeof(OutlineConstants) == 32);
+
+        MaterialConstants materialConstants(const MaterialData& material, const MaterialStyle* style)
+        {
+            MaterialConstants constants{
+                .baseColorFactor = material.baseColorFactor,
+                .alphaCutoff = material.alphaCutoff,
+                .alphaMode = static_cast<uint32_t>(material.alphaMode),
+                .roughnessFactor = material.roughnessFactor,
+                .metallicFactor = material.metallicFactor,
+                .emissiveFactor = material.emissiveFactor,
+                .normalScale = material.normalScale,
+                .occlusionStrength = material.occlusionStrength,
+            };
+            if (style && style->shading == ShadingModel::Toon)
+            {
+                const ToonStyle& toon = style->toon;
+                constants.shadingModel = static_cast<uint32_t>(ShadingModel::Toon);
+                constants.toonBands = std::max(toon.bands, 1u);
+                constants.toonSoftness = std::max(toon.softness, 0.0f);
+                constants.toonSpecular = std::max(toon.specular, 0.0f);
+                constants.toonRimSize = std::clamp(toon.rimSize, 0.0f, 1.0f);
+                constants.toonRim = std::max(toon.rim, 0.0f);
+                constants.toonFlags = toon.ramp ? kToonFlagRamp : 0u;
+            }
+            return constants;
+        }
 
         Image solidImage(Extent2D size, uint32_t cellSize, std::array<uint8_t, 4> a, std::array<uint8_t, 4> b)
         {
@@ -142,6 +192,29 @@ namespace arc
                 return false;
         }
 
+        const auto outlineVertexShader = renderer.shaders().load("ToonOutline", rhi::ShaderStage::Vertex, "VSMain");
+        const auto outlinePixelShader = renderer.shaders().load("ToonOutline", rhi::ShaderStage::Pixel, "PSMain");
+        if (!outlineVertexShader || !outlinePixelShader)
+            return false;
+        desc.vertexShader = outlineVertexShader.get();
+        desc.pixelShader = outlinePixelShader.get();
+        desc.blend = rhi::BlendMode::Opaque;
+        for (size_t index = 0; index < m_outlinePipelines.size(); ++index)
+        {
+            const bool reversedZ = (index & 1) != 0;
+            const bool mirrored = (index & 2) != 0;
+            Camera camera;
+            camera.reversedZ = reversedZ;
+            desc.depth = {.test = true, .write = true, .compare = camera.depthCompare()};
+            // The shell's front faces would cover the mesh; its back faces are the outline.
+            desc.cullMode = rhi::CullMode::Front;
+            desc.frontCounterClockwise = !mirrored;
+            desc.debugName = std::string("Toon Outline") + (mirrored ? " Mirrored" : "") + (reversedZ ? " (Reversed-Z)" : "");
+            m_outlinePipelines[index] = device.createPipeline(desc);
+            if (!m_outlinePipelines[index])
+                return false;
+        }
+
         const Image white = solidImage({1, 1}, 1, {255, 255, 255, 255}, {255, 255, 255, 255});
         const Image missing = solidImage({16, 16}, 4, {255, 0, 255, 255}, {20, 20, 20, 255});
         m_whiteTexture = createTexture(device, std::span(&white, 1), ColorSpace::Srgb, "White");
@@ -168,19 +241,26 @@ namespace arc
         samplerDesc.maxAnisotropy = 8;
         samplerDesc.debugName = "Mesh Default Sampler";
         m_defaultSampler = device.createSampler(samplerDesc);
+        m_clampSampler = device.createSampler({.addressU = rhi::AddressMode::ClampToEdge,
+                                               .addressV = rhi::AddressMode::ClampToEdge,
+                                               .addressW = rhi::AddressMode::ClampToEdge,
+                                               .debugName = "Mesh Clamp Sampler"});
         return m_whiteTexture && m_flatNormalTexture && m_missingTexture && m_blackCube && m_defaultSampler &&
-               m_lights.init(device);
+               m_clampSampler && m_lights.init(device);
     }
 
     void MeshRenderer::shutdown()
     {
         for (auto& pipeline : m_pipelines)
             pipeline.reset();
+        for (auto& pipeline : m_outlinePipelines)
+            pipeline.reset();
         m_whiteTexture.reset();
         m_flatNormalTexture.reset();
         m_missingTexture.reset();
         m_blackCube.reset();
         m_defaultSampler.reset();
+        m_clampSampler.reset();
         m_lights.shutdown();
     }
 
@@ -212,7 +292,7 @@ namespace arc
         commandList.setTexture(kPrefilteredSlot, m_environment.prefiltered ? *m_environment.prefiltered : *m_blackCube);
         commandList.setTexture(kBrdfLutSlot, m_environment.brdfLut ? *m_environment.brdfLut : *m_whiteTexture);
         commandList.setSampler(kEnvironmentSamplerSlot,
-                               m_environment.sampler ? *m_environment.sampler : *m_defaultSampler);
+                               m_environment.sampler ? *m_environment.sampler : *m_clampSampler);
 
         // The state bound so far, so a draw only changes what differs from the one before it.
         // Bindings stay across pipeline changes; buffers need a pipeline set first only because the
@@ -224,6 +304,8 @@ namespace arc
         std::array<const rhi::Texture*, kMaterialTextureSlots> textures{};
         const rhi::Sampler* sampler = nullptr;
         const MaterialData* material = nullptr;
+        const MaterialStyle* style = nullptr;
+        const rhi::Texture* ramp = nullptr;
 
         const auto drawQueue = [&](std::span<const RenderItem> items, bool blend) {
             for (const RenderItem& item : items)
@@ -320,19 +402,19 @@ namespace arc
                     commandList.setSampler(0, *itemSampler);
                     sampler = itemSampler;
                 }
-                if (&itemMaterial != material)
+                const bool toon = item.style && item.style->shading == ShadingModel::Toon;
+                rhi::Texture* itemRamp = toon && item.style->toon.ramp ? item.style->toon.ramp : m_whiteTexture.get();
+                if (itemRamp != ramp)
                 {
-                    commandList.setConstants(2, MaterialConstants{
-                                                    .baseColorFactor = itemMaterial.baseColorFactor,
-                                                    .alphaCutoff = itemMaterial.alphaCutoff,
-                                                    .alphaMode = static_cast<uint32_t>(itemMaterial.alphaMode),
-                                                    .roughnessFactor = itemMaterial.roughnessFactor,
-                                                    .metallicFactor = itemMaterial.metallicFactor,
-                                                    .emissiveFactor = itemMaterial.emissiveFactor,
-                                                    .normalScale = itemMaterial.normalScale,
-                                                    .occlusionStrength = itemMaterial.occlusionStrength,
-                                                });
+                    commandList.setTexture(kToonRampSlot, *itemRamp);
+                    ramp = itemRamp;
+                    ++stats.textureBinds;
+                }
+                if (&itemMaterial != material || item.style != style)
+                {
+                    commandList.setConstants(2, materialConstants(itemMaterial, item.style));
                     material = &itemMaterial;
+                    style = item.style;
                     ++stats.constantUploads;
                 }
 
@@ -350,6 +432,85 @@ namespace arc
             const rhi::ScopedDebugGroup group(commandList, blendedQueue ? "Blended" : "Opaque");
             drawQueue(queueItems, blendedQueue);
         }
+        return stats;
+    }
+
+    RenderStats MeshRenderer::drawOutlines(Renderer& renderer, const RenderList& list)
+    {
+        RenderStats stats;
+        rhi::CommandList& commandList = renderer.commandList();
+        const bool reversedZ = renderer.sceneCamera().reversedZ;
+        const Extent2D viewport = renderer.sceneSize();
+        bool begun = false;
+        rhi::Pipeline* pipeline = nullptr;
+        const rhi::Buffer* vertexBuffer = nullptr;
+        const rhi::Buffer* indexBuffer = nullptr;
+        uint32_t transform = std::numeric_limits<uint32_t>::max();
+        const OutlineStyle* outline = nullptr;
+
+        for (const RenderItem& item : list.opaque())
+        {
+            if (!item.style || !item.style->outline.enabled || item.style->outline.width <= 0.0f)
+                continue;
+            if (!begun)
+            {
+                commandList.pushDebugGroup("Toon Outlines");
+                commandList.setConstants(0, renderer.sceneViewConstants());
+                begun = true;
+            }
+            const Model& model = *item.model;
+            const PrimitiveDraw& draw = model.primitiveLods()[item.primitive].levels[item.lod];
+            const RenderTransform& placement = list.transforms()[item.transform];
+
+            rhi::Pipeline* wanted = m_outlinePipelines[size_t{reversedZ} | size_t{placement.mirrored} << 1].get();
+            if (wanted != pipeline)
+            {
+                commandList.setPipeline(*wanted);
+                pipeline = wanted;
+                ++stats.pipelineChanges;
+            }
+            GeometryPool& geometry = model.geometry();
+            rhi::Buffer& vertices = geometry.vertexBuffer(model.geometryBlock());
+            if (&vertices != vertexBuffer)
+            {
+                commandList.setVertexBuffer(vertices);
+                vertexBuffer = &vertices;
+                ++stats.bufferBinds;
+            }
+            rhi::Buffer& indices = geometry.indexBuffer(model.geometryBlock(), draw.indexFormat);
+            if (&indices != indexBuffer)
+            {
+                commandList.setIndexBuffer(indices, draw.indexFormat);
+                indexBuffer = &indices;
+                ++stats.bufferBinds;
+            }
+            if (item.transform != transform)
+            {
+                commandList.setConstants(1, MeshDrawConstants{
+                                                .world = placement.world,
+                                                .normalMatrix = normalMatrixOf(placement.world),
+                                                .handedness = placement.mirrored ? -1.0f : 1.0f,
+                                            });
+                transform = item.transform;
+                ++stats.constantUploads;
+            }
+            if (&item.style->outline != outline)
+            {
+                commandList.setConstants(2, OutlineConstants{
+                                                .color = item.style->outline.color,
+                                                .width = item.style->outline.width,
+                                                .viewportSize = {static_cast<float>(viewport.width),
+                                                                 static_cast<float>(viewport.height)},
+                                            });
+                outline = &item.style->outline;
+                ++stats.constantUploads;
+            }
+            commandList.drawIndexed(draw.indexCount, 1, draw.firstIndex, draw.baseVertex);
+            ++stats.draws;
+            stats.triangles += draw.indexCount / 3;
+        }
+        if (begun)
+            commandList.popDebugGroup();
         return stats;
     }
 }

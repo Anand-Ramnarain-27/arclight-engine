@@ -56,7 +56,8 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Cook-Torrance GGX, metallic-roughness materials | Working | Working |
 | Normal maps (MikkTSpace), occlusion, emissive | Working | Working |
 | Image-based lighting from HDR skies | Working | Working |
-| Block-compressed textures (BC1, BC3, BC4, BC5, BC7) | In progress | In progress |
+| Block-compressed textures (BC1, BC3, BC4, BC5, BC7) | Working | Working |
+| Toon shading and inverted-hull outlines | In progress | In progress |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -170,7 +171,7 @@ The sample *Lantern* model opens at start-up. To import another model, choose **
 | + / - / 0 | Double / halve / reset the time scale |
 | F11 | Capture a GPU frame (when started from RenderDoc, with `--pix`, or from Xcode) |
 
-The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from an equirectangular Radiance `.hdr` file or a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`, and lights the scene through image-based lighting; it can be turned and brightened there too. Free HDR skies are on [Poly Haven](https://polyhaven.com/hdris) (CC0). Its **Lighting** menu holds the reflectance model (Cook-Torrance GGX by default; Lambert, Phong and Blinn-Phong to compare, with energy conservation and Fresnel switchable), roughness and metallic overrides, the ambient light (the sky's image-based lighting, or a sky and ground hemisphere), exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it.
+The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from an equirectangular Radiance `.hdr` file or a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`, and lights the scene through image-based lighting; it can be turned and brightened there too. Free HDR skies are on [Poly Haven](https://polyhaven.com/hdris) (CC0). Its **Lighting** menu holds the reflectance model (Cook-Torrance GGX by default; Lambert, Phong and Blinn-Phong to compare, with energy conservation and Fresnel switchable), roughness and metallic overrides, the ambient light (the sky's image-based lighting, or a sky and ground hemisphere), exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it. To give an object a toon look, select it and open **Style** under its Mesh component in the Inspector: each material can switch to **Toon** shading (bands, highlight, rim light, or a ramp texture) and get an outline, for that object only. For an imported room or any other hierarchy, right-click it in the Hierarchy and use **Shading** to switch everything below it (or the whole scene) to toon or back at once.
 
 Scenes are saved with **File > Save Scene** (Ctrl+S, Cmd+S on macOS) and opened with **File > Open Scene** or by double-clicking a `.scene` file in the Files panel; the last one opens again at start-up. Right-click an object in the Hierarchy and choose **Save as Prefab** to reuse it, then double-click the `.prefab` or drag it into the Scene view to place copies. Changes made while playing (F5) are undone on Stop.
 
@@ -218,7 +219,7 @@ GitHub Actions runs two workflows:
 | Planned | **Advanced rendering**: shadows, deferred and Forward+ shading, post-processing |
 | Planned | **Compute, VFX, animation and gameplay**: job system, Tracy profiling, particles, skinning, Jolt physics, navigation, audio |
 
-Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned alongside PBR, as a second material model in the same scene. The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md), and changes per version are in [CHANGELOG.md](CHANGELOG.md).
+Stylized rendering sits alongside PBR in the same scene: toon shading and outlines per material now, with ink, hatching and pixel art planned. The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md), and changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits and licence
 

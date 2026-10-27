@@ -82,10 +82,11 @@ float3 PbrNeutral(float3 color)
 
 float4 PSMain(float4 position : SV_Position) : SV_Target0
 {
-    // Negative values and NaNs (from a shader dividing by zero) would spread through the curves;
-    // the 16-bit float target already caps values at 65504.
+    // Negative values, NaNs and infinities would spread through the curves (infinity / infinity is
+    // NaN, which the target stores as black), so they become 0 or the largest half float. Scene
+    // shaders already write SceneRadiance(); this catches anything else drawn into the target.
     float3 color = g_scene.Load(int3(position.xy, 0)).rgb;
-    color = select(color > 0.0, color, 0.0);
+    color = min(select(color > 0.0, color, 0.0), 65504.0);
 
     if (passThrough == 0)
     {

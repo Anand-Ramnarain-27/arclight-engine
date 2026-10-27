@@ -1,6 +1,7 @@
 // Meshes imported from glTF, lit by the scene's lights (Lighting.hlsli) into the HDR scene target.
 // The material is glTF's metallic-roughness model: base colour, metallic, roughness, a tangent-space
-// normal map, ambient occlusion and emission, each a factor times a texture.
+// normal map, ambient occlusion and emission, each a factor times a texture. An object can shade a
+// material as toon instead (Toon.hlsli), with the same textures.
 //
 // Material textures have fixed slots (MaterialTextureSlot in MeshRenderer.h), filled with a stand-in
 // when a material has no such texture: white, so the factor alone decides, or a flat normal. They
@@ -10,6 +11,7 @@
 #include "Common.hlsli"
 #include "Constants.hlsli"
 #include "Lighting.hlsli"
+#include "Toon.hlsli"
 
 // Mirrored by MeshDrawConstants in Engine/Source/Renderer/MeshRenderer.cpp.
 cbuffer DrawConstants : register(b1)
@@ -31,12 +33,22 @@ cbuffer MaterialConstants : register(b2)
     float3 emissiveFactor;     // Linear RGB, any brightness.
     float normalScale;         // Multiplies the normal map's x and y.
     float occlusionStrength;   // 0 ignores the occlusion texture, 1 applies it fully.
+    uint shadingModel;         // One of the SHADING_ values below.
+    uint toonBands;
+    float toonSoftness;
+    float toonSpecular;
+    float toonRimSize;
+    float toonRim;
+    uint toonFlags;            // TOON_FLAG_ bits.
 };
 
-// Match arc::AlphaMode and MeshRenderer::DebugView.
+// Match arc::AlphaMode, arc::ShadingModel and MeshRenderer::DebugView.
 #define ALPHA_MODE_OPAQUE 0
 #define ALPHA_MODE_MASK 1
 #define ALPHA_MODE_BLEND 2
+
+#define SHADING_PHYSICAL 0
+#define SHADING_TOON 1
 
 #define DEBUG_VIEW_LIT 0
 #define DEBUG_VIEW_BASE_COLOR 1
@@ -165,7 +177,7 @@ float4 PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
                                 ? emissiveFactor * g_emissive.Sample(g_sampler, input.uv).rgb
                                 : float3(0.0, 0.0, 0.0);
     if (debugView == DEBUG_VIEW_EMISSIVE)
-        return float4(emissive, alpha);
+        return float4(SceneRadiance(emissive), alpha);
 
     // A metal reflects its base colour and absorbs what it refracts, so it has no diffuse part; a
     // dielectric reflects about 4% whatever its colour, and its base colour is the diffuse albedo.
@@ -181,13 +193,30 @@ float4 PSMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 
     float3 diffuse;
     float3 specular;
-    ShadeSurface(surface, diffuse, specular);
+    if (shadingModel == SHADING_TOON)
+    {
+        // A metal's colour goes into its highlight, but a toon surface keeps its base colour in the
+        // bands too: a black metal reads as a hole in a flat-shaded image.
+        ToonParams params;
+        params.bands = max(toonBands, 1u);
+        params.softness = toonSoftness;
+        params.specular = toonSpecular;
+        params.rimSize = toonRimSize;
+        params.rim = toonRim;
+        params.ramp = (toonFlags & TOON_FLAG_RAMP) != 0;
+        surface.diffuseColor = albedo;
+        ShadeToon(surface, params, lerp(1.0.xxx, albedo, metallic), diffuse, specular);
+    }
+    else
+    {
+        ShadeSurface(surface, diffuse, specular);
+    }
 
     if (debugView == DEBUG_VIEW_DIFFUSE)
-        return float4(diffuse, alpha);
+        return float4(SceneRadiance(diffuse), alpha);
     if (debugView == DEBUG_VIEW_SPECULAR)
-        return float4(specular, alpha);
+        return float4(SceneRadiance(specular), alpha);
     if (debugView == DEBUG_VIEW_LIGHTING)
-        return float4(diffuse + specular, alpha);
-    return float4(diffuse + specular + emissive, alpha);
+        return float4(SceneRadiance(diffuse + specular), alpha);
+    return float4(SceneRadiance(diffuse + specular + emissive), alpha);
 }

@@ -11,6 +11,7 @@
 namespace arc
 {
     class Component;
+    class MeshComponent;
     class EditorSelection;
     class SceneModule;
     struct ComponentType;
@@ -45,6 +46,8 @@ namespace arc
         void drawComponents(GameObject& object);
         void drawAddComponent(GameObject& object);
         void drawMeshComponent(Component& component);
+        void drawMaterialStyles(MeshComponent& mesh);
+        void drawHierarchyShading();
         void drawLightComponent(Component& component);
         [[nodiscard]] const ComponentEditor* editorFor(const ComponentType& type) const;
 

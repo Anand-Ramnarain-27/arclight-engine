@@ -92,6 +92,8 @@ add_library(ArclightEngine STATIC
     Source/Renderer/HdrImage.cpp
     Source/Renderer/TextureEncoding.h
     Source/Renderer/TextureEncoding.cpp
+    Source/Renderer/MaterialStyle.h
+    Source/Renderer/MaterialStyle.cpp
     Source/Renderer/EnvironmentMaps.h
     Source/Renderer/EnvironmentMaps.cpp
     Source/Renderer/TextureLoader.h
@@ -195,6 +197,7 @@ arclight_set_warnings(ArclightEngine)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Textured.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Grid.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Mesh.hlsl VERTEX VSMain PIXEL PSMain)
+arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/ToonOutline.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/SelectionMask.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Outline.hlsl VERTEX VSMain PIXEL PSMain)
 arclight_compile_shader(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Skybox.hlsl VERTEX VSMain PIXEL PSMain)

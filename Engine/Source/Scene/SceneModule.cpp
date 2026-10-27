@@ -3,6 +3,7 @@
 #include "Application/Application.h"
 #include "Core/Log.h"
 #include "Assets/AssetModule.h"
+#include "Assets/ResourceManager.h"
 #include "Platform/FileSystem.h"
 #include "Scene/SceneSerializer.h"
 #include "Renderer/Model.h"
@@ -105,7 +106,7 @@ namespace arc
                     continue;
                 }
             }
-            m_renderList.addMesh(*mesh.model(), mesh.meshIndex(), world, lods);
+            m_renderList.addMesh(*mesh.model(), mesh.meshIndex(), world, lods, mesh.materialStyles());
         }
     }
 
@@ -189,7 +190,8 @@ namespace arc
         const bool drawSky = m_skybox.visible;
         if ((m_renderList.empty() && !drawSky) || !renderer.isFrameActive() || !renderer.beginScenePass("Scene"))
             return;
-        const RenderStats opaque = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Opaque, debugView);
+        const RenderStats opaque = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Opaque, debugView) +
+                                   m_meshRenderer.drawOutlines(renderer, m_renderList);
         m_skybox.draw(renderer);
         const RenderStats blended = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Blended, debugView);
         renderer.endScenePass();
@@ -199,6 +201,11 @@ namespace arc
     std::shared_ptr<const Model> SceneModule::loadModel(const std::string& path)
     {
         return m_assets.resources().loadModel(path);
+    }
+
+    std::shared_ptr<const TextureAsset> SceneModule::loadTexture(const std::string& path)
+    {
+        return m_assets.resources().loadTexture(path);
     }
 
     GameObject* SceneModule::importModel(const std::string& path, GameObject* parent)

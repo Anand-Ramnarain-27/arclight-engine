@@ -17,6 +17,7 @@
 namespace arc
 {
     class Model;
+    struct TextureAsset;
     class AssetModule;
 
     /// What frustum culling did in the last frame.
@@ -65,6 +66,8 @@ namespace arc
         /// The model at `path` (virtual or native), shared if it is already loaded. Null, after
         /// logging, if it cannot be imported. Must be called outside render().
         [[nodiscard]] std::shared_ptr<const Model> loadModel(const std::string& path);
+        /// The same for a texture asset.
+        [[nodiscard]] std::shared_ptr<const TextureAsset> loadTexture(const std::string& path);
 
         /// Loads the model and instantiates it at the end of `parent`'s children (or the top level).
         /// Returns the new object, or null if the model cannot be loaded.

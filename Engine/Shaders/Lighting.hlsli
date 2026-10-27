@@ -180,6 +180,15 @@ void ShadeLight(Surface surface, float3 toLight, float3 incoming, out float3 dif
     diffuse = (fresnel ? 1.0 - reflectance : 1.0) * surface.diffuseColor / PI * light;
 }
 
+// Light arriving from everywhere around a normal, as irradiance / pi: what a white Lambertian surface
+// facing that way reflects. The environment's irradiance cube, or the sky and ground hemisphere.
+float3 AmbientIrradiance(float3 normal)
+{
+    if ((lightingFlags & LIGHTING_FLAG_ENVIRONMENT) != 0)
+        return g_irradiance.SampleLevel(g_environmentSampler, EnvironmentDirection(normal), 0).rgb * environmentIntensity;
+    return lerp(ambientGround, ambientSky, normal.y * 0.5 + 0.5);
+}
+
 // Every light in the list, plus the ambient light: the environment's image-based lighting, or the
 // sky and ground hemisphere when that is off. Occlusion darkens the ambient light only. Direct light
 // is not occluded: shadows (Phase 6) are what block it, and the occlusion texture is baked for light
@@ -207,8 +216,7 @@ void ShadeSurface(Surface surface, out float3 diffuse, out float3 specular)
         // The split-sum approximation (Karis 2013): the environment convolved per roughness, times
         // the BRDF's integral for this view angle and roughness, read from the table as f0 * A + B.
         const float nDotV = max(dot(surface.normal, surface.view), 1e-4);
-        const float3 irradiance = g_irradiance.SampleLevel(g_environmentSampler, EnvironmentDirection(surface.normal), 0).rgb;
-        diffuse += irradiance * surface.diffuseColor * surface.occlusion * environmentIntensity;
+        diffuse += AmbientIrradiance(surface.normal) * surface.diffuseColor * surface.occlusion;
         if (lightingModel == LIGHTING_MODEL_COOK_TORRANCE)
         {
             const float3 reflected = reflect(-surface.view, surface.normal);
@@ -220,8 +228,7 @@ void ShadeSurface(Surface surface, out float3 diffuse, out float3 specular)
         return;
     }
 
-    const float3 ambient = lerp(ambientGround, ambientSky, surface.normal.y * 0.5 + 0.5);
-    diffuse += ambient * surface.diffuseColor * surface.occlusion;
+    diffuse += AmbientIrradiance(surface.normal) * surface.diffuseColor * surface.occlusion;
 
     // Reflections of the same hemisphere, seen along the mirror direction. Without them a metal,
     // which has no diffuse colour, is black wherever no light's highlight falls.

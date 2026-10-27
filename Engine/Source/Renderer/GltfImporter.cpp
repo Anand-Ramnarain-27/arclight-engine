@@ -704,6 +704,14 @@ namespace arc
                 material.metallicRoughnessTexture =
                     useTexture(importer, source, pbr.metallicRoughnessTexture.index, pbr.metallicRoughnessTexture.texCoord,
                                ColorSpace::Linear, "metallic-roughness texture");
+                // glTF multiplies the texture by the factor, so a factor of 0 makes the whole material
+                // mirror-smooth whatever the texture says. Some exporters write that when the
+                // roughness is already baked into the texture (glTFast from Unity's smoothness).
+                if (material.metallicRoughnessTexture >= 0 && material.roughnessFactor == 0.0f)
+                    ARC_LOG_WARN("{}: material '{}' has a roughness texture but a roughness factor of 0, so it is "
+                                 "mirror-smooth everywhere; set roughnessFactor to 1 in the file if the texture "
+                                 "should decide",
+                                 importer.name, material.name);
 
                 material.normalTexture = useTexture(importer, source, source.normalTexture.index,
                                                     source.normalTexture.texCoord, ColorSpace::Linear, "normal map");

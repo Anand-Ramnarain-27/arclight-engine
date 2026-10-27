@@ -2,6 +2,7 @@
 // view direction. Depth-tested but not written, so it only covers pixels nothing has drawn to, and
 // is drawn after the opaque meshes so those pixels are never shaded twice.
 
+#include "Common.hlsli"
 #include "Constants.hlsli"
 
 // Mirrored by SkyboxConstants in Engine/Source/Renderer/Skybox.cpp.
@@ -40,5 +41,5 @@ float4 PSMain(VSOutput input) : SV_Target0
     const float3 turned = float3(rotation.x * direction.x - rotation.y * direction.z, direction.y,
                                  rotation.y * direction.x + rotation.x * direction.z);
     const float3 color = g_sky.SampleLevel(g_sampler, float3(turned.x, turned.y, -turned.z), 0).rgb;
-    return float4(color * intensity, 1.0);
+    return float4(SceneRadiance(color * intensity), 1.0);
 }

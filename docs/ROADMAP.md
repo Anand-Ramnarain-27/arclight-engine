@@ -72,8 +72,8 @@ Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned as
 - Cook-Torrance GGX with the glTF metallic-roughness model. *(Done.)*
 - Normal maps with MikkTSpace tangents, ambient occlusion and emissive. *(Done.)*
 - Image-based lighting: irradiance, prefiltered specular and a BRDF lookup table. *(Done.)*
-- Block-compressed textures (BC1 to BC7) cooked offline. *(In progress.)*
-- **Stylized rendering, part 1:** toon/cel lighting (ramp textures, banded diffuse, hard specular, rim light) and inverted-hull outlines.
+- Block-compressed textures (BC1 to BC7) cooked offline. *(Done.)*
+- **Stylized rendering, part 1:** toon/cel lighting (ramp textures, banded diffuse, hard specular, rim light) and inverted-hull outlines. *(In progress.)*
 
 ## Compute, threading and profiling
 

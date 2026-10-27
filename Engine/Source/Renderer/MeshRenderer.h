@@ -101,6 +101,9 @@ namespace arc
             kMaterialTextureSlots = 5,
         };
 
+        /// Where a toon style's ramp texture is bound (t9 in Toon.hlsli); white when it has none.
+        static constexpr uint32_t kToonRampSlot = 9;
+
         MeshRenderer();
         ~MeshRenderer();
 
@@ -129,6 +132,11 @@ namespace arc
         /// should cover only empty pixels (the sky) between the two.
         RenderStats draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView);
 
+        /// Draws the inverted-hull outline of every opaque item whose style asks for one
+        /// (Engine/Shaders/ToonOutline.hlsl). Must be called inside a scene pass, after the opaque
+        /// queue, so the meshes are in the depth buffer to hide the shells' insides.
+        RenderStats drawOutlines(Renderer& renderer, const RenderList& list);
+
     private:
         struct PipelineKey
         {
@@ -146,11 +154,15 @@ namespace arc
         };
 
         std::array<std::unique_ptr<rhi::Pipeline>, 16> m_pipelines;   // By PipelineKey::index().
+        /// By reversedZ | mirrored << 1.
+        std::array<std::unique_ptr<rhi::Pipeline>, 4> m_outlinePipelines;
         std::unique_ptr<rhi::Texture> m_whiteTexture;
         std::unique_ptr<rhi::Texture> m_flatNormalTexture;
         std::unique_ptr<rhi::Texture> m_missingTexture;
         std::unique_ptr<rhi::Texture> m_blackCube;
         std::unique_ptr<rhi::Sampler> m_defaultSampler;
+        /// s1 while there is no environment: Toon.hlsli reads ramps with it too, which must not wrap.
+        std::unique_ptr<rhi::Sampler> m_clampSampler;
         LightBuffer m_lights;
         LightingConstants m_lightingConstants;
         EnvironmentLighting m_environment;

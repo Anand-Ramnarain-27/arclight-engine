@@ -1,6 +1,7 @@
 #include "Panels/HierarchyPanel.h"
 
 #include "EditorSelection.h"
+#include "ShadingMenu.h"
 #include "Scene/EditorCamera.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/SceneModule.h"
@@ -159,6 +160,12 @@ namespace arc
                 request(Action::Frame);
             if (ImGui::MenuItem("Save as Prefab...") && onSavePrefab)
                 onSavePrefab(object);
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Shading"))
+            {
+                drawShadingMenuItems(m_selection, m_scene.scene());
+                ImGui::EndMenu();
+            }
             ImGui::EndPopup();
         }
 

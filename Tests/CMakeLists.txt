@@ -24,6 +24,7 @@ add_executable(ArclightTests
     Source/TangentTests.cpp
     Source/IblTests.cpp
     Source/TextureEncodingTests.cpp
+    Source/ToonTests.cpp
 )
 
 target_link_libraries(ArclightTests PRIVATE ArclightEngine doctest::doctest)

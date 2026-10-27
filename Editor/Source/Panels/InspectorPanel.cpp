@@ -1,6 +1,8 @@
 #include "Panels/InspectorPanel.h"
 
 #include "EditorSelection.h"
+#include "ShadingMenu.h"
+#include "Core/Log.h"
 #include "Math/Color.h"
 #include "RHI/Texture.h"
 #include "Renderer/Model.h"
@@ -11,6 +13,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 
@@ -90,6 +93,7 @@ namespace arc
         drawTransform(*object);
         drawComponents(*object);
         drawAddComponent(*object);
+        drawHierarchyShading();
         ImGui::PopID();
         ImGui::End();
     }
@@ -283,6 +287,143 @@ namespace arc
             }
             ImGui::TreePop();
         }
+
+        drawMaterialStyles(mesh);
+    }
+
+    void InspectorPanel::drawHierarchyShading()
+    {
+        ImGui::Spacing();
+        if (!ImGui::CollapsingHeader("Shading (with children)"))
+            return;
+        drawShadingMenuItems(m_selection, m_scene.scene());
+    }
+
+    void InspectorPanel::drawMaterialStyles(MeshComponent& mesh)
+    {
+        const Model& model = *mesh.model();
+        const MeshData& data = model.meshes()[mesh.meshIndex()];
+        // Each material once, in the order the mesh's primitives first use it.
+        std::vector<uint32_t> materials;
+        for (uint32_t i = 0; i < data.primitiveCount; ++i)
+        {
+            const int32_t material = model.primitives()[data.firstPrimitive + i].material;
+            if (material >= 0 && std::find(materials.begin(), materials.end(), static_cast<uint32_t>(material)) == materials.end())
+                materials.push_back(static_cast<uint32_t>(material));
+        }
+        if (materials.empty() || !ImGui::TreeNode("Style"))
+            return;
+        ImGui::TextDisabled("For this object only; the model is shared.");
+
+        for (const ShadingModel shading : {ShadingModel::Physical, ShadingModel::Toon})
+        {
+            const std::string label = std::string("All ") + shadingModelName(shading);
+            if (ImGui::SmallButton(label.c_str()))
+                for (const uint32_t material : materials)
+                {
+                    MaterialStyle style = mesh.materialStyle(material);
+                    style.shading = shading;
+                    style.outline.enabled = shading == ShadingModel::Toon;
+                    mesh.setMaterialStyle(material, style);
+                }
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
+
+        for (const uint32_t material : materials)
+        {
+            ImGui::PushID(static_cast<int>(material));
+            const std::string& name = model.materials()[material].name;
+            ImGui::SeparatorText(name.empty() ? "(unnamed material)" : name.c_str());
+            MaterialStyle style = mesh.materialStyle(material);
+            bool changed = false;
+
+            int shading = static_cast<int>(style.shading);
+            const char* shadingNames[] = {shadingModelName(ShadingModel::Physical), shadingModelName(ShadingModel::Toon)};
+            beginRow("Shading");
+            changed |= ImGui::Combo("##Shading", &shading, shadingNames, static_cast<int>(std::size(shadingNames)));
+            style.shading = static_cast<ShadingModel>(shading);
+
+            if (style.shading == ShadingModel::Toon)
+            {
+                ToonStyle& toon = style.toon;
+                const bool hasRamp = !mesh.toonRampPath(material).empty();
+                ImGui::BeginDisabled(hasRamp);
+                int bands = static_cast<int>(toon.bands);
+                beginRow("Bands");
+                if (ImGui::SliderInt("##Bands", &bands, 1, 8))
+                {
+                    toon.bands = static_cast<uint32_t>(bands);
+                    changed = true;
+                }
+                ImGui::SetItemTooltip("Steps of light above the shadow: 1 is two-tone.");
+                ImGui::EndDisabled();
+                beginRow("Softness");
+                changed |= ImGui::SliderFloat("##Softness", &toon.softness, 0.0f, 0.25f, "%.3f");
+                ImGui::SetItemTooltip("Width of each band's edge, and of the highlight's and rim's.");
+                beginRow("Highlight");
+                changed |= ImGui::SliderFloat("##Highlight", &toon.specular, 0.0f, 4.0f, "%.2f");
+                ImGui::SetItemTooltip("A hard-edged highlight sized by the material's roughness.");
+                beginRow("Rim size");
+                changed |= ImGui::SliderFloat("##RimSize", &toon.rimSize, 0.0f, 1.0f, "%.2f");
+                beginRow("Rim");
+                changed |= ImGui::SliderFloat("##Rim", &toon.rim, 0.0f, 4.0f, "%.2f");
+                ImGui::SetItemTooltip("Light along the silhouette on the side facing each light.");
+
+                // ImGui keeps its own copy of the text while the field is being edited, so a buffer
+                // filled from the current path each frame is enough; Enter applies it.
+                std::array<char, 512> ramp{};
+                const std::string& rampPath = mesh.toonRampPath(material);
+                std::memcpy(ramp.data(), rampPath.data(), std::min(rampPath.size(), ramp.size() - 1));
+                beginRow("Ramp");
+                if (ImGui::InputTextWithHint("##Ramp", "texture path, Enter to load", ramp.data(), ramp.size(),
+                                             ImGuiInputTextFlags_EnterReturnsTrue))
+                {
+                    const std::string path = ramp.data();
+                    mesh.setToonRamp(material, path, path.empty() ? nullptr : m_scene.loadTexture(path));
+                }
+                ImGui::SetItemTooltip("A texture read across its width by how directly light falls on the surface "
+                                      "(left: facing away, right: facing it), in place of bands.");
+                if (hasRamp)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear"))
+                        mesh.setToonRamp(material, {}, nullptr);
+                }
+            }
+
+            OutlineStyle& outline = style.outline;
+            beginRow("Outline");
+            changed |= ImGui::Checkbox("##Outline", &outline.enabled);
+            ImGui::BeginDisabled(!outline.enabled);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+            changed |= ImGui::SliderFloat("##OutlineWidth", &outline.width, 0.5f, 8.0f, "%.1f px");
+            ImGui::SameLine();
+            Vec3 color = linearToSrgb(outline.color);
+            if (ImGui::ColorEdit3("##OutlineColor", &color.x, ImGuiColorEditFlags_NoInputs))
+            {
+                outline.color = srgbToLinear(color);
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SetItemTooltip("Inverted hull: the mesh drawn again behind itself, grown along its normals. "
+                                  "Hard edges, with a normal per face, open gaps in it.");
+
+            if (changed)
+                mesh.setMaterialStyle(material, style);
+
+            if (GameObject* object = m_selection.object(); object && ImGui::SmallButton("Use for Everything Below"))
+            {
+                const uint32_t count = copyStyleToHierarchy(*object, mesh.materialStyle(material));
+                ARC_LOG_INFO("Style of '{}' copied to {} material{} in '{}'", name, count, count == 1 ? "" : "s",
+                             object->name());
+            }
+            ImGui::SetItemTooltip("Gives every material of this object and its children this style, ramp texture "
+                                  "aside.");
+            ImGui::PopID();
+        }
+        ImGui::TreePop();
     }
 
     void InspectorPanel::drawLightComponent(Component& component)

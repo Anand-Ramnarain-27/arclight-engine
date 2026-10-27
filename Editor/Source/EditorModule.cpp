@@ -16,6 +16,7 @@
 #include "Scene/MeshComponent.h"
 #include "Scene/SceneModule.h"
 #include "Scene/TransformGizmo.h"
+#include "ShadingMenu.h"
 
 #include <SDL3/SDL_events.h>
 #include <imgui.h>
@@ -405,6 +406,12 @@ namespace arc
         ImGui::Separator();
         if (ImGui::MenuItem("Frame Selected", "F", false, selected != nullptr))
             frameSelection();
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Shading"))
+        {
+            drawShadingMenuItems(m_selection, m_scene.scene());
+            ImGui::EndMenu();
+        }
         ImGui::EndMenu();
     }
 
