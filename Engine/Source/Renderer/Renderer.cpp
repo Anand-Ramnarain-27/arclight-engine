@@ -11,6 +11,7 @@
 #include "RHI/TextureUtils.h"
 #include "Renderer/GeometryPool.h"
 #include "Renderer/ShaderLibrary.h"
+#include "Renderer/ToneMapper.h"
 
 namespace arc
 {
@@ -48,6 +49,9 @@ namespace arc
         m_shaders = std::make_unique<ShaderLibrary>(*m_device);
         m_geometry = std::make_unique<GeometryPool>(*m_device);
         ARC_LOG_INFO("Shaders are loaded from {}", m_shaders->directory());
+        m_toneMapper = std::make_unique<ToneMapper>();
+        if (!m_toneMapper->init(*m_device, *m_shaders, displayFormat()))
+            return false;
 
         rhi::SwapchainDesc swapchainDesc;
         swapchainDesc.size = window.pixelSize();
@@ -56,9 +60,9 @@ namespace arc
         if (!m_swapchain)
             return false;
 
-        // The Scene panel resizes it to fit as soon as it is drawn.
+        // The Scene panel resizes them to fit as soon as it is drawn.
         setSceneSize(swapchainDesc.size);
-        return m_sceneTarget != nullptr && m_sceneDepth != nullptr;
+        return m_sceneTarget != nullptr && m_sceneDepth != nullptr && m_displayTarget != nullptr;
     }
 
     void Renderer::shutdown()
@@ -66,10 +70,12 @@ namespace arc
         ARC_ASSERT(!isFrameActive(), "Renderer shut down in the middle of a frame");
         if (m_device)
             m_device->waitIdle();
+        m_toneMapper.reset();
         m_shaders.reset();
         m_geometry.reset();
         m_sceneTarget.reset();
         m_sceneDepth.reset();
+        m_displayTarget.reset();
         m_swapchain.reset();
         m_device.reset();
     }
@@ -111,6 +117,7 @@ namespace arc
         m_geometry->collect(m_device->frameNumber());
         m_backbufferCleared = false;
         m_sceneCleared = false;
+        m_sceneResolved = false;
         return true;
     }
 
@@ -155,13 +162,14 @@ namespace arc
 
     bool Renderer::beginScenePass(std::string_view debugName)
     {
+        ARC_ASSERT(!m_sceneResolved, "Scene pass '{}' begun after the scene was tone mapped", debugName);
         if (!m_sceneTarget || !m_sceneDepth)
             return false;
 
         rhi::RenderPassDesc pass;
         pass.color.texture = m_sceneTarget.get();
         pass.color.load = m_sceneCleared ? rhi::LoadOp::Load : rhi::LoadOp::Clear;
-        pass.color.clearColor = m_clearColor;
+        pass.color.clearColor = m_sceneClearColor;
         pass.depth.texture = m_sceneDepth.get();
         pass.depth.load = m_sceneCleared ? rhi::LoadOp::Load : rhi::LoadOp::Clear;
         pass.depth.clearDepth = m_sceneCamera.clearDepth();
@@ -177,13 +185,53 @@ namespace arc
         commandList().endRenderPass();
     }
 
-    void Renderer::finishScene()
+    void Renderer::resolveScene()
     {
-        if (!m_sceneTarget)
+        if (m_sceneResolved || !m_sceneTarget || !m_displayTarget)
             return;
         if (!m_sceneCleared && beginScenePass("Clear Scene"))
             endScenePass();
-        commandList().barrier(*m_sceneTarget, rhi::ResourceState::ShaderRead);
+
+        rhi::CommandList& list = commandList();
+        list.barrier(*m_sceneTarget, rhi::ResourceState::ShaderRead);
+        rhi::RenderPassDesc pass;
+        pass.color.texture = m_displayTarget.get();
+        // Every pixel is written.
+        pass.color.load = rhi::LoadOp::DontCare;
+        pass.debugName = "Tone Map";
+        list.beginRenderPass(pass);
+        m_toneMapper->draw(list, *m_sceneTarget);
+        list.endRenderPass();
+        m_sceneResolved = true;
+    }
+
+    bool Renderer::beginOverlayPass(std::string_view debugName)
+    {
+        if (!m_displayTarget || !m_sceneDepth)
+            return false;
+        resolveScene();
+
+        rhi::RenderPassDesc pass;
+        pass.color.texture = m_displayTarget.get();
+        pass.color.load = rhi::LoadOp::Load;
+        pass.depth.texture = m_sceneDepth.get();
+        pass.depth.load = rhi::LoadOp::Load;
+        pass.debugName = debugName;
+        commandList().beginRenderPass(pass);
+        return true;
+    }
+
+    void Renderer::endOverlayPass()
+    {
+        commandList().endRenderPass();
+    }
+
+    void Renderer::finishScene()
+    {
+        if (!m_displayTarget)
+            return;
+        resolveScene();
+        commandList().barrier(*m_displayTarget, rhi::ResourceState::ShaderRead);
     }
 
     void Renderer::setSceneSize(Extent2D pixelSize)
@@ -191,8 +239,8 @@ namespace arc
         ARC_ASSERT(!isFrameActive(), "The scene target cannot be resized while a frame is being recorded");
         if (pixelSize.width == 0 || pixelSize.height == 0)
             return;
-        if (m_sceneTarget && m_sceneTarget->desc().size.width == pixelSize.width &&
-            m_sceneTarget->desc().size.height == pixelSize.height)
+        if (m_displayTarget && m_displayTarget->desc().size.width == pixelSize.width &&
+            m_displayTarget->desc().size.height == pixelSize.height)
             return;
 
         // Frames in flight may still read the old targets; the device keeps them until they finish.
@@ -200,13 +248,19 @@ namespace arc
             .size = pixelSize,
             .format = sceneFormat(),
             .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::Sampled,
-            .debugName = "Scene Target",
+            .debugName = "Scene HDR",
         });
         m_sceneDepth = m_device->createTexture({
             .size = pixelSize,
             .format = sceneDepthFormat(),
             .usage = rhi::TextureUsage::DepthStencil,
             .debugName = "Scene Depth",
+        });
+        m_displayTarget = m_device->createTexture({
+            .size = pixelSize,
+            .format = displayFormat(),
+            .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::Sampled,
+            .debugName = "Scene Display",
         });
     }
 

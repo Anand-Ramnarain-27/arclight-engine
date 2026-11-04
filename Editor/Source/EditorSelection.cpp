@@ -1,5 +1,6 @@
 #include "EditorSelection.h"
 
+#include "Scene/LightComponent.h"
 #include "Scene/SceneModule.h"
 
 namespace arc
@@ -18,6 +19,13 @@ namespace arc
     GameObject& EditorSelection::createEmpty(GameObject* parent, std::string name)
     {
         GameObject& object = m_scene.scene().create(std::move(name), parent);
+        select(&object);
+        return object;
+    }
+
+    GameObject& EditorSelection::createLight(LightType type, const Vec3& position)
+    {
+        GameObject& object = arc::createLight(m_scene.scene(), type, position);
         select(&object);
         return object;
     }

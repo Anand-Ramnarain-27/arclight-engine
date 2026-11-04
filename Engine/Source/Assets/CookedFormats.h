@@ -49,23 +49,23 @@ namespace arc
     /// Bytes at the start of every cooked file that readCookedHeader() needs.
     inline constexpr size_t kCookedHeaderSize = 52;
 
-    /// A texture as uploaded: every mip level, level 0 first.
+    /// A texture as uploaded: every mip level in its cooked format, level 0 first.
     struct CookedTexture
     {
         std::string name;
-        ColorSpace colorSpace = ColorSpace::Srgb;
-        std::vector<Image> levels;
+        EncodedTexture texture;
     };
 
     inline constexpr const char* kCookedModelExtension = ".arcmodel";
     inline constexpr const char* kCookedTextureExtension = ".arctex";
 
-    /// Writes the model's images from `data.imageMips`; `data.images` is not stored.
+    /// Writes the model's images from `data.encodedImages`; `data.images` is not stored.
     [[nodiscard]] std::vector<std::byte> writeCookedModel(const ModelData& data, const CookedHeader& header);
 
     /// Fails on a wrong magic or format version, a truncated file, or contents a valid model cannot
-    /// have: an index or range that points past its array, or mip levels of the wrong size. The
-    /// result has `imageMips` filled and `images` empty.
+    /// have: an index or range that points past its array, an image format no importer writes, or
+    /// mip levels of the wrong size. The result has `encodedImages` (and `imageColorSpaces`, from
+    /// their formats) filled and `images` empty.
     [[nodiscard]] std::optional<ModelData> readCookedModel(std::span<const std::byte> file, CookedHeader* header = nullptr);
 
     [[nodiscard]] std::vector<std::byte> writeCookedTexture(const CookedTexture& texture, const CookedHeader& header);

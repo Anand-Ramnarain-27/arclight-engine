@@ -55,7 +55,8 @@ namespace arc
         return chosen;
     }
 
-    void RenderList::addMesh(const Model& model, uint32_t mesh, const Mat4& world, const LodPolicy& lods)
+    void RenderList::addMesh(const Model& model, uint32_t mesh, const Mat4& world, const LodPolicy& lods,
+                             std::span<const MaterialStyle> styles)
     {
         if (mesh >= model.meshes().size())
             return;
@@ -70,7 +71,12 @@ namespace arc
             const bool blended = material >= 0 && model.materials()[static_cast<size_t>(material)].alphaMode == AlphaMode::Blend;
             const PrimitiveLods& levels = model.primitiveLods()[primitive];
             const uint32_t lod = lods.select(std::span(levels.errors.data(), levels.count), model.primitives()[primitive].bounds, world);
-            (blended ? m_blended : m_opaque).push_back({.model = &model, .primitive = primitive, .transform = transform, .lod = lod});
+            const MaterialStyle* style = material >= 0 && static_cast<size_t>(material) < styles.size() &&
+                                                 !styles[static_cast<size_t>(material)].isDefault()
+                                             ? &styles[static_cast<size_t>(material)]
+                                             : nullptr;
+            (blended ? m_blended : m_opaque)
+                .push_back({.model = &model, .primitive = primitive, .transform = transform, .lod = lod, .style = style});
         }
     }
 

@@ -167,34 +167,34 @@ TEST_CASE("Damaged objects are repaired instead of failing the whole scene")
 TEST_CASE("Components of unknown types are kept as they were")
 {
     const std::string json = R"({"format":"arclight-scene","version":1,"objects":[
-        {"id":"0000000000000001","name":"Lamp","components":[
-            {"type":"Light","enabled":false,"intensity":2.5,"colour":[1,0.5,0]},
+        {"id":"0000000000000001","name":"Speaker","components":[
+            {"type":"AudioSource","enabled":false,"volume":2.5,"pitch":[1,0.5,0]},
             {"enabled":true}
         ]}
     ]})";
     Scene scene;
     REQUIRE(readScene(scene, json, {}));
-    const GameObject& lamp = *scene.roots()[0];
-    REQUIRE(lamp.components().size() == 1);
-    const Component& component = *lamp.components()[0];
+    const GameObject& speaker = *scene.roots()[0];
+    REQUIRE(speaker.components().size() == 1);
+    const Component& component = *speaker.components()[0];
     REQUIRE(&component.type() == &MissingComponent::staticType());
     const auto& missing = static_cast<const MissingComponent&>(component);
-    CHECK(missing.typeName() == "Light");
+    CHECK(missing.typeName() == "AudioSource");
     CHECK_FALSE(missing.enabled);
-    CHECK(missing.data().getFloat("intensity") == 2.5f);
+    CHECK(missing.data().getFloat("volume") == 2.5f);
 
     const std::string saved = writeScene(scene);
-    CHECK(saved.find("\"type\": \"Light\"") != std::string::npos);
-    CHECK(saved.find("\"intensity\": 2.5") != std::string::npos);
+    CHECK(saved.find("\"type\": \"AudioSource\"") != std::string::npos);
+    CHECK(saved.find("\"volume\": 2.5") != std::string::npos);
     CHECK(saved.find("\"enabled\": false") != std::string::npos);
 
     // A registry that knows the type loads it as that type.
     ComponentRegistry registry;
     registry.add<MeshComponent>();
     CHECK(registry.contains("Mesh"));
-    CHECK_FALSE(registry.contains("Light"));
+    CHECK_FALSE(registry.contains("AudioSource"));
     CHECK(registry.create("Mesh"));
-    CHECK_FALSE(registry.create("Light"));
+    CHECK_FALSE(registry.create("AudioSource"));
 }
 
 TEST_CASE("Mesh components are saved by model asset and keep it when it cannot load")

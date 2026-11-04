@@ -2,6 +2,7 @@
 
 #include "Math/Aabb.h"
 #include "Math/Math.h"
+#include "Renderer/MaterialStyle.h"
 
 #include <cstdint>
 #include <span>
@@ -45,6 +46,9 @@ namespace arc
         uint32_t primitive = 0;   // Into model->primitives().
         uint32_t transform = 0;   // Into RenderList::transforms().
         uint32_t lod = 0;         // Into model->primitiveLods()[primitive].levels.
+        /// The object's style for the primitive's material; null for the material as it is. Owned by
+        /// whoever added the mesh, and must outlive the list's use.
+        const MaterialStyle* style = nullptr;
         /// Opaque items are drawn in ascending key order; see RenderList::sort().
         uint64_t sortKey = 0;
         /// World units along the camera's forward axis to the primitive's bounds centre.
@@ -66,7 +70,10 @@ namespace arc
         void clear();
 
         /// Adds every primitive of the model's mesh, each at the level of detail `lods` chooses.
-        void addMesh(const Model& model, uint32_t mesh, const Mat4& world, const LodPolicy& lods = {});
+        /// `styles` is indexed by material; materials past its end, and default styles, draw as they
+        /// are.
+        void addMesh(const Model& model, uint32_t mesh, const Mat4& world, const LodPolicy& lods = {},
+                     std::span<const MaterialStyle> styles = {});
 
         /// Computes view depths and sort keys, then sorts both queues. With `sortOpaque` false the
         /// opaque queue keeps the order items were added in, to compare the state changes.

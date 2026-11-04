@@ -7,6 +7,7 @@
 #include "EditorSelection.h"
 #include "Platform/FileSystem.h"
 #include "Platform/VirtualFileSystem.h"
+#include "Scene/LightComponent.h"
 #include "Scene/SceneModule.h"
 #include "Scene/SceneSerializer.h"
 
@@ -183,6 +184,7 @@ namespace arc
         {
             case Action::New:
                 m_scene.newScene();
+                createLight(m_scene.scene(), LightType::Directional);
                 m_selection.clear();
                 markSaved();
                 break;

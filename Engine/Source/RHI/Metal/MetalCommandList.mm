@@ -62,6 +62,8 @@ namespace arc::rhi::metal
 
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture = target.native();
+        pass.colorAttachments[0].level = desc.color.mipLevel;
+        pass.colorAttachments[0].slice = desc.color.arrayLayer;
         pass.colorAttachments[0].loadAction = toMTLLoadAction(desc.color.load);
         pass.colorAttachments[0].storeAction = toMTLStoreAction(desc.color.store);
         pass.colorAttachments[0].clearColor = MTLClearColorMake(c.r, c.g, c.b, c.a);
@@ -156,6 +158,17 @@ namespace arc::rhi::metal
         [m_renderEncoder setFragmentTexture:native atIndex:slot];
     }
 
+    void MetalCommandList::setBuffer(uint32_t slot, Buffer& buffer)
+    {
+        ARC_ASSERT(m_renderEncoder != nil, "setBuffer outside a render pass");
+        validateBufferBinding(slot, buffer);
+        // SPIRV-Cross turns a StructuredBuffer in register(t<slot>) into a device buffer argument at
+        // [[buffer(<slot>)]], kept equal to the register by --msl-decoration-binding.
+        id<MTLBuffer> native = static_cast<MetalBuffer&>(buffer).native();
+        [m_renderEncoder setVertexBuffer:native offset:0 atIndex:slot];
+        [m_renderEncoder setFragmentBuffer:native offset:0 atIndex:slot];
+    }
+
     void MetalCommandList::setSampler(uint32_t slot, Sampler& sampler)
     {
         ARC_ASSERT(m_renderEncoder != nil, "setSampler outside a render pass");
@@ -229,11 +242,13 @@ namespace arc::rhi::metal
         validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                             ResourceState::CopySource);
 
+        // Metal takes the level's own size in pixels, even when a block-compressed level is smaller
+        // than a block; the bytes per image count rows of blocks.
         const Extent2D size = mipSize(dst.desc().size, mipLevel);
         [blitEncoder() copyFromBuffer:static_cast<MetalBuffer&>(src).native()
                          sourceOffset:srcOffset
                     sourceBytesPerRow:srcRowPitch
-                  sourceBytesPerImage:NSUInteger{srcRowPitch} * size.height
+                  sourceBytesPerImage:NSUInteger{srcRowPitch} * rowCount(dst.desc().format, size.height)
                            sourceSize:MTLSizeMake(size.width, size.height, 1)
                             toTexture:static_cast<MetalTexture&>(dst).native()
                      destinationSlice:arrayLayer
@@ -257,7 +272,7 @@ namespace arc::rhi::metal
                               toBuffer:static_cast<MetalBuffer&>(dst).native()
                      destinationOffset:dstOffset
                 destinationBytesPerRow:dstRowPitch
-              destinationBytesPerImage:NSUInteger{dstRowPitch} * size.height];
+              destinationBytesPerImage:NSUInteger{dstRowPitch} * rowCount(src.desc().format, size.height)];
     }
 
     void MetalCommandList::barrier(Buffer& buffer, ResourceState state)

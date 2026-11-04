@@ -17,6 +17,8 @@ namespace arc
     [[nodiscard]] bool isModelFile(std::string_view path);
     [[nodiscard]] bool isPrefabFile(std::string_view path);
     [[nodiscard]] bool isSceneFile(std::string_view path);
+    /// A Radiance .hdr image, which the sky can load.
+    [[nodiscard]] bool isHdrFile(std::string_view path);
 
     /// The virtual path of a native path inside a mounted folder, otherwise the native path
     /// unchanged. Paths are stored this way, so they keep working when the project is opened from

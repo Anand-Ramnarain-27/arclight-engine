@@ -52,6 +52,12 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Virtual file system and system file dialogs | Working | Working |
 | Asset pipeline: .meta files, cooked formats, resource manager | Working | Working |
 | Scene and prefab files, Play mode that restores the scene | Working | Working |
+| Lights, HDR and tone mapping, Blinn-Phong | Working | Working |
+| Cook-Torrance GGX, metallic-roughness materials | Working | Working |
+| Normal maps (MikkTSpace), occlusion, emissive | Working | Working |
+| Image-based lighting from HDR skies | Working | Working |
+| Block-compressed textures (BC1, BC3, BC4, BC5, BC7) | Working | Working |
+| Toon shading and inverted-hull outlines | In progress | In progress |
 | Physically based lighting and shadows | Planned | Planned |
 | Stylized rendering (toon, ink, pixel art) | Planned | Planned |
 
@@ -82,7 +88,7 @@ The editor and engine systems are modules that the application initialises in or
 - **A sorted render list over pooled geometry.** Every model's vertices and indices live in a few large shared buffers (16-bit indices wherever they fit), and each frame the scene becomes a flat list of draws. Opaque draws are sorted by pipeline, geometry, material and then front to back, so state changes happen once per group; blended draws are sorted back to front. The Scene panel's View menu shows the draw and state-change counts, with sorting on or off.
 - **Culling down the hierarchy.** Each frame the hierarchy is flattened into a depth-first list with the bounds of every subtree, so a group of objects outside the view is rejected with one test, and a group fully inside it skips the tests below it. Meshes are tested as oriented boxes, which stay tight when an object is rotated. Imported meshes get simplified levels of detail (meshoptimizer), chosen by how many pixels their error would cover on screen.
 - **A virtual file system.** Code opens `assets://Models/Lantern.glb`, not a path that depends on where the program was started. Folders are mounted in layers, so the working directory's `Assets/` overrides the copy next to the executable, and per-user settings go to `user://` ([Platform/VirtualFileSystem.h](Engine/Source/Platform/VirtualFileSystem.h)).
-- **Assets with lasting ids, cooked once.** Each asset's `.meta` file holds its id and import settings, so references survive renames and moves. Sources are cooked into Arclight's own binary formats in `library://`, ready to upload, and cooked again only when the source, its settings or the importer change; the source is not even read while its size and modification time are unchanged ([Assets/AssetDatabase.h](Engine/Source/Assets/AssetDatabase.h)).
+- **Assets with lasting ids, cooked once.** Each asset's `.meta` file holds its id and import settings, so references survive renames and moves. Sources are cooked into Arclight's own binary formats in `library://`, ready to upload (textures block-compressed to BC1 to BC7, a quarter of their size or less), and cooked again only when the source, its settings or the importer change; the source is not even read while its size and modification time are unchanged ([Assets/AssetDatabase.h](Engine/Source/Assets/AssetDatabase.h)).
 - **Scenes as reviewable text.** Scenes and prefabs are JSON with objects in hierarchy order and short float spellings, so a change to one object is a small diff. Each component saves its own fields; one of an unknown type is kept as it is, so opening and saving a scene never loses data ([Scene/SceneSerializer.h](Engine/Source/Scene/SceneSerializer.h)).
 - **Reversed-Z by default.** Depth is stored as 1 at the near plane and 0 at infinity, which spreads floating-point precision almost evenly with distance and greatly reduces z-fighting on distant geometry. It can be switched off in the Scene panel's camera settings to compare, using the z-fighting test in the Texture Demo panel.
 
@@ -136,7 +142,7 @@ Prebuilt zips are attached to [Releases](https://github.com/Anand-Ramnarain-27/a
 
 ## Using the editor
 
-The sample *Lantern* model opens at start-up. To import another model, choose **File > Import Model** and pick a `.gltf` or `.glb` file, drag the file onto the window, or double-click it in the **Files** panel (or drag it from there into the Scene view). **File > Recent Models** lists the last ten. Select an asset in the Files panel to see whether its cooked copy is current and to change its import settings (scale and levels of detail for models; colour space, mip maps and maximum size for textures).
+The sample *Lantern* model opens at start-up. To import another model, choose **File > Import Model** and pick a `.gltf` or `.glb` file, drag the file onto the window, or double-click it in the **Files** panel (or drag it from there into the Scene view). **File > Recent Models** lists the last ten. Select an asset in the Files panel to see whether its cooked copy is current and to change its import settings (scale, levels of detail and texture compression for models; colour space, mip maps, maximum size and compression for textures).
 
 ### Scene view (pointer over the Scene panel)
 
@@ -165,7 +171,7 @@ The sample *Lantern* model opens at start-up. To import another model, choose **
 | + / - / 0 | Double / halve / reset the time scale |
 | F11 | Capture a GPU frame (when started from RenderDoc, with `--pix`, or from Xcode) |
 
-The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`.
+The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from an equirectangular Radiance `.hdr` file or a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`, and lights the scene through image-based lighting; it can be turned and brightened there too. Free HDR skies are on [Poly Haven](https://polyhaven.com/hdris) (CC0). Its **Lighting** menu holds the reflectance model (Cook-Torrance GGX by default; Lambert, Phong and Blinn-Phong to compare, with energy conservation and Fresnel switchable), roughness and metallic overrides, the ambient light (the sky's image-based lighting, or a sky and ground hemisphere), exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it. To give an object a toon look, select it and open **Style** under its Mesh component in the Inspector: each material can switch to **Toon** shading (bands, highlight, rim light, or a ramp texture) and get an outline, for that object only. For an imported room or any other hierarchy, right-click it in the Hierarchy and use **Shading** to switch everything below it (or the whole scene) to toon or back at once.
 
 Scenes are saved with **File > Save Scene** (Ctrl+S, Cmd+S on macOS) and opened with **File > Open Scene** or by double-clicking a `.scene` file in the Files panel; the last one opens again at start-up. Right-click an object in the Hierarchy and choose **Save as Prefab** to reuse it, then double-click the `.prefab` or drag it into the Scene view to place copies. Changes made while playing (F5) are undone on Stop.
 
@@ -198,7 +204,7 @@ The tests use the Null backend, so they need no GPU. Configure with `-DARCLIGHT_
 
 GitHub Actions runs two workflows:
 
-- **[CI](.github/workflows/ci.yml)**, on every push to `main` and `phase-3` and on every pull request: configures, builds, tests and packages Windows and macOS, and keeps the zips as workflow artifacts.
+- **[CI](.github/workflows/ci.yml)**, on every push to `main` and `phase-4` and on every pull request: configures, builds, tests and packages Windows and macOS, and keeps the zips as workflow artifacts.
 - **[Release](.github/workflows/release.yml)**, on every `v*` tag: the same build, with both zips attached to a draft GitHub release. The steps are in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Roadmap
@@ -209,11 +215,11 @@ GitHub Actions runs two workflows:
 | ✔︎ | **Rendering hardware interface** (0.2.0): Direct3D 12 and Metal backends, shaders, pipelines, GPU capture |
 | ✔︎ | **Meshes, textures, camera and viewport** (0.3.0): textures, resource lifetimes, scene viewport, editor camera, glTF |
 | ✔︎ | **Engine architecture** (0.4.0): scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail, virtual file system, asset pipeline, scene serialization |
-| Planned | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
+| In progress | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
 | Planned | **Advanced rendering**: shadows, deferred and Forward+ shading, post-processing |
 | Planned | **Compute, VFX, animation and gameplay**: job system, Tracy profiling, particles, skinning, Jolt physics, navigation, audio |
 
-Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned alongside PBR, as a second material model in the same scene. The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md), and changes per version are in [CHANGELOG.md](CHANGELOG.md).
+Stylized rendering sits alongside PBR in the same scene: toon shading and outlines per material now, with ink, hatching and pixel art planned. The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md), and changes per version are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits and licence
 
@@ -226,8 +232,10 @@ Third-party code, all downloaded by CMake at pinned versions:
 | [SDL3](https://github.com/libsdl-org/SDL) | Window, events, input, file I/O | [zlib](https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt) |
 | [Dear ImGui](https://github.com/ocornut/imgui) (docking branch) | Editor UI | [MIT](https://github.com/ocornut/imgui/blob/master/LICENSE.txt) |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | Transform gizmos in the Scene view | [MIT](https://github.com/CedricGuillemet/ImGuizmo/blob/master/LICENSE) |
-| [stb_image](https://github.com/nothings/stb) | PNG, JPEG, TGA and BMP decoding | [Public domain or MIT](https://github.com/nothings/stb/blob/master/LICENSE) |
-| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Mesh simplification for levels of detail | [MIT](https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md) |
+| [stb_image](https://github.com/nothings/stb) | PNG, JPEG, TGA, BMP and Radiance HDR decoding | [Public domain or MIT](https://github.com/nothings/stb/blob/master/LICENSE) |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Mesh simplification for levels of detail, vertex welding | [MIT](https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md) |
+| [MikkTSpace](https://github.com/mmikk/MikkTSpace) | Tangents for normal maps | [zlib](https://github.com/mmikk/MikkTSpace/blob/master/mikktspace.h) |
+| [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) | BC1 to BC7 texture encoding | [MIT or public domain](https://github.com/richgel999/bc7enc_rdo/blob/master/LICENSE) |
 | [tinygltf](https://github.com/syoyo/tinygltf) | glTF 2.0 parsing | [MIT](https://github.com/syoyo/tinygltf/blob/release/LICENSE) |
 | [nlohmann/json](https://github.com/nlohmann/json) (included with tinygltf) | JSON parsing | [MIT](https://github.com/nlohmann/json/blob/develop/LICENSE.MIT) |
 | [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | GPU capture trigger (Windows, header only) | [MIT](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md) |

@@ -56,9 +56,9 @@ namespace arc::rhi
                    rowPitch, kTextureCopyRowAlignment);
 
         const Extent2D size = mipSize(desc.size, mipLevel);
-        ARC_ASSERT(rowPitch >= size.width * bytesPerPixel(desc.format), "Row pitch {} is smaller than a row of '{}'",
+        ARC_ASSERT(rowPitch >= rowBytes(desc.format, size.width), "Row pitch {} is smaller than a row of '{}'",
                    rowPitch, desc.debugName);
-        ARC_ASSERT(bufferOffset + uint64_t{rowPitch} * size.height <= buffer.desc().size,
+        ARC_ASSERT(bufferOffset + uint64_t{rowPitch} * rowCount(desc.format, size.height) <= buffer.desc().size,
                    "Texture copy runs past the end of '{}'", buffer.desc().debugName);
     }
 
@@ -71,6 +71,18 @@ namespace arc::rhi
                    texture.desc().debugName, resourceStateName(texture.state()));
     }
 
+    void CommandList::validateBufferBinding(uint32_t slot, const Buffer& buffer)
+    {
+        ARC_ASSERT(slot >= kFirstStructuredBufferSlot && slot < kMaxTextureSlots,
+                   "Structured buffer slot {} is outside [{}, {})", slot, kFirstStructuredBufferSlot, kMaxTextureSlots);
+        const BufferDesc& desc = buffer.desc();
+        ARC_ASSERT(hasFlag(desc.usage, BufferUsage::Structured), "'{}' was not created with Structured usage",
+                   desc.debugName);
+        ARC_ASSERT(desc.memory == MemoryType::Upload || buffer.state() == ResourceState::Common ||
+                       buffer.state() == ResourceState::ShaderRead,
+                   "Structured buffer '{}' is in state {}", desc.debugName, resourceStateName(buffer.state()));
+    }
+
     void CommandList::validateSamplerBinding(uint32_t slot)
     {
         ARC_ASSERT(slot < kMaxSamplerSlots, "Sampler slot {} is out of range", slot);
@@ -81,6 +93,9 @@ namespace arc::rhi
         ARC_ASSERT(desc.color.texture != nullptr, "A render pass needs a colour target");
         const TextureDesc& color = desc.color.texture->desc();
         ARC_ASSERT(hasFlag(color.usage, TextureUsage::RenderTarget), "'{}' is not a render target", color.debugName);
+        ARC_ASSERT(desc.color.mipLevel < color.mipLevels && desc.color.arrayLayer < arrayLayerCount(color),
+                   "'{}' has no mip level {} of layer {}", color.debugName, desc.color.mipLevel, desc.color.arrayLayer);
+        const Extent2D colorSize = mipSize(color.size, desc.color.mipLevel);
         m_passColorFormat = color.format;
         m_passDepthFormat = Format::Unknown;
 
@@ -88,9 +103,9 @@ namespace arc::rhi
         {
             const TextureDesc& depth = depthTexture->desc();
             ARC_ASSERT(hasFlag(depth.usage, TextureUsage::DepthStencil), "'{}' is not a depth target", depth.debugName);
-            ARC_ASSERT(depth.size.width == color.size.width && depth.size.height == color.size.height,
+            ARC_ASSERT(depth.size.width == colorSize.width && depth.size.height == colorSize.height,
                        "Depth target '{}' is {}x{}, colour target '{}' is {}x{}", depth.debugName, depth.size.width,
-                       depth.size.height, color.debugName, color.size.width, color.size.height);
+                       depth.size.height, color.debugName, colorSize.width, colorSize.height);
             ARC_ASSERT(desc.depth.clearDepth >= 0.0f && desc.depth.clearDepth <= 1.0f);
             m_passDepthFormat = depth.format;
         }

@@ -129,29 +129,33 @@ namespace arc
                 model->m_triangleCount += data.primitives[mesh.firstPrimitive + i].indexCount / 3;
         }
 
-        // Only base colour textures are drawn so far, and they hold colour, so they are created as
-        // sRGB: the GPU decodes them to linear before filtering.
-        std::vector<bool> isBaseColor(data.textures.size(), false);
+        // Only textures a material slot draws are created. sRGB images get an sRGB format, so the GPU
+        // decodes them to linear before filtering; data stays as stored.
+        std::vector<bool> isUsed(data.textures.size(), false);
         for (const MaterialData& material : data.materials)
-            if (material.baseColorTexture >= 0)
-                isBaseColor[static_cast<size_t>(material.baseColorTexture)] = true;
+            for (const int32_t texture : {material.baseColorTexture, material.metallicRoughnessTexture, material.normalTexture,
+                                          material.occlusionTexture, material.emissiveTexture})
+                if (texture >= 0)
+                    isUsed[static_cast<size_t>(texture)] = true;
 
         model->m_textures.resize(data.textures.size());
         model->m_textureSamplers.resize(data.textures.size(), nullptr);
         for (size_t i = 0; i < data.textures.size(); ++i)
         {
             const TextureData& texture = data.textures[i];
-            if (!isBaseColor[i] || texture.image < 0)
+            if (!isUsed[i] || texture.image < 0)
                 continue;
             const auto image = static_cast<size_t>(texture.image);
-            const bool hasMips = image < data.imageMips.size() && !data.imageMips[image].empty();
+            const ColorSpace colorSpace = image < data.imageColorSpaces.size() ? data.imageColorSpaces[image] : ColorSpace::Srgb;
+            const bool encoded = image < data.encodedImages.size() && !data.encodedImages[image].empty();
             const bool hasImage = image < data.images.size() && !data.images[image].empty();
-            if (!hasMips && !hasImage)
+            if (!encoded && !hasImage)
                 continue;
 
-            const std::vector<Image> generated = hasMips ? std::vector<Image>() : generateMipChain(data.images[image], ColorSpace::Srgb);
-            const std::vector<Image>& levels = hasMips ? data.imageMips[image] : generated;
-            model->m_textures[i] = createTexture(device, levels, ColorSpace::Srgb, data.name + " Texture " + std::to_string(i));
+            std::string name = data.name + " Texture " + std::to_string(i);
+            model->m_textures[i] = encoded ? createTexture(device, data.encodedImages[image], std::move(name))
+                                           : createTexture(device, generateMipChain(data.images[image], colorSpace),
+                                                           colorSpace, std::move(name));
 
             const auto shared = std::find_if(model->m_samplers.begin(), model->m_samplers.end(),
                                              [&](const auto& sampler) { return sameSampling(sampler->desc(), texture.sampler); });
@@ -202,5 +206,18 @@ namespace arc
     uint32_t Model::textureCount() const
     {
         return static_cast<uint32_t>(std::count_if(m_textures.begin(), m_textures.end(), [](const auto& t) { return t != nullptr; }));
+    }
+
+    uint64_t Model::textureBytes() const
+    {
+        uint64_t bytes = 0;
+        for (const auto& texture : m_textures)
+            if (texture)
+            {
+                const rhi::TextureDesc& desc = texture->desc();
+                for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+                    bytes += rhi::imageBytes(desc.format, rhi::mipSize(desc.size, mip)) * rhi::arrayLayerCount(desc);
+            }
+        return bytes;
     }
 }

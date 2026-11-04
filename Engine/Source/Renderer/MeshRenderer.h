@@ -1,12 +1,15 @@
 #pragma once
 
 #include "Math/Math.h"
+#include "Renderer/LightBuffer.h"
+#include "Renderer/Lighting.h"
 #include "Renderer/ModelData.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace arc
 {
@@ -30,7 +33,7 @@ namespace arc
         uint32_t triangles = 0;
         uint32_t pipelineChanges = 0;
         uint32_t bufferBinds = 0;          // Vertex and index buffers.
-        uint32_t textureBinds = 0;         // Texture and sampler pairs.
+        uint32_t textureBinds = 0;         // Material texture slots changed.
         uint32_t constantUploads = 0;      // Per-object and per-material cbuffers.
         std::array<uint32_t, 1 + kMaxLodLevels> drawsPerLod{};
 
@@ -49,12 +52,16 @@ namespace arc
         }
     };
 
-    /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene.
+    /// Draws Models with Engine/Shaders/Mesh.hlsl into the scene, lit by the lights given to
+    /// setLighting() each frame.
     ///
     /// Owns the pipelines (one per combination of depth convention, culling, blending and winding)
-    /// and the stand-in textures: white for materials without a base colour texture, so the factor
-    /// alone decides the colour, and a magenta checker for textures whose image is missing or could
-    /// not be decoded, so the gap is obvious instead of silently white.
+    /// and the stand-in textures: white for a material slot without a texture, so the factor alone
+    /// decides the value; a flat normal for the normal map; and a magenta checker for base colour
+    /// textures whose image is missing or could not be decoded, so the gap is obvious instead of
+    /// silently white (missing data textures fall back to their stand-ins, since magenta would read
+    /// as arbitrary values). A black cube stands in for the environment's cubes while there are none,
+    /// since every slot a shader declares must be bound on Metal.
     class MeshRenderer
     {
     public:
@@ -65,7 +72,37 @@ namespace arc
             BaseColor = 1,
             Normals = 2,      // World-space normal, mapped from [-1, 1] to [0, 1].
             TexCoords = 3,    // TEXCOORD_0's fractional part in red and green.
+            Diffuse = 4,      // The diffuse part of the lighting alone.
+            Specular = 5,     // The specular part alone.
+            Lighting = 6,     // Every surface white, so only the light shows.
+            Metallic = 7,     // Factor times texture, as grey.
+            Roughness = 8,    // Factor times texture, as grey.
+            Occlusion = 9,    // Ambient occlusion, as grey.
+            Emissive = 10,    // The light the surface gives off itself.
+            Tangents = 11,    // World-space tangent, mapped from [-1, 1] to [0, 1].
         };
+
+        /// Views whose output is data rather than light, to be shown without exposure or a tone curve.
+        [[nodiscard]] static bool isDataView(DebugView view)
+        {
+            return view == DebugView::BaseColor || view == DebugView::Normals || view == DebugView::TexCoords ||
+                   view == DebugView::Metallic || view == DebugView::Roughness || view == DebugView::Occlusion ||
+                   view == DebugView::Tangents;
+        }
+
+        /// Where each material texture is bound (t0..t4 in Mesh.hlsl).
+        enum MaterialTextureSlot : uint32_t
+        {
+            kBaseColorSlot = 0,
+            kMetallicRoughnessSlot = 1,
+            kNormalSlot = 2,
+            kOcclusionSlot = 3,
+            kEmissiveSlot = 4,
+            kMaterialTextureSlots = 5,
+        };
+
+        /// Where a toon style's ramp texture is bound (t9 in Toon.hlsli); white when it has none.
+        static constexpr uint32_t kToonRampSlot = 9;
 
         MeshRenderer();
         ~MeshRenderer();
@@ -83,10 +120,22 @@ namespace arc
             Blended,
         };
 
+        /// The lights and lighting settings for this frame's draws. Call once a frame, between the
+        /// renderer's beginFrame() and the first draw(); the first kMaxLights lights are used.
+        /// `environment`'s textures must stay alive until the frame's draws are recorded; without
+        /// one, the hemisphere lights the ambient.
+        void setLighting(Renderer& renderer, std::span<const GpuLight> lights, const LightingSettings& settings,
+                         const EnvironmentLighting* environment = nullptr);
+
         /// Records one of the list's queues in a debug group named after it. Must be called inside a
         /// scene pass, with the list already sorted; the opaque queue goes first, and anything that
         /// should cover only empty pixels (the sky) between the two.
         RenderStats draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView);
+
+        /// Draws the inverted-hull outline of every opaque item whose style asks for one
+        /// (Engine/Shaders/ToonOutline.hlsl). Must be called inside a scene pass, after the opaque
+        /// queue, so the meshes are in the depth buffer to hide the shells' insides.
+        RenderStats drawOutlines(Renderer& renderer, const RenderList& list);
 
     private:
         struct PipelineKey
@@ -105,8 +154,18 @@ namespace arc
         };
 
         std::array<std::unique_ptr<rhi::Pipeline>, 16> m_pipelines;   // By PipelineKey::index().
+        /// By reversedZ | mirrored << 1.
+        std::array<std::unique_ptr<rhi::Pipeline>, 4> m_outlinePipelines;
         std::unique_ptr<rhi::Texture> m_whiteTexture;
+        std::unique_ptr<rhi::Texture> m_flatNormalTexture;
         std::unique_ptr<rhi::Texture> m_missingTexture;
+        std::unique_ptr<rhi::Texture> m_blackCube;
         std::unique_ptr<rhi::Sampler> m_defaultSampler;
+        /// s1 while there is no environment: Toon.hlsli reads ramps with it too, which must not wrap.
+        std::unique_ptr<rhi::Sampler> m_clampSampler;
+        LightBuffer m_lights;
+        LightingConstants m_lightingConstants;
+        EnvironmentLighting m_environment;
+        uint32_t m_lightSlot = 0;   // The frame slot whose light buffer setLighting() filled.
     };
 }

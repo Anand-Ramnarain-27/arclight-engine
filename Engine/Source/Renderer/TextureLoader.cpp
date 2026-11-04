@@ -43,6 +43,32 @@ namespace arc
         return texture;
     }
 
+    std::unique_ptr<rhi::Texture> createTexture(rhi::Device& device, const EncodedTexture& encoded, std::string debugName)
+    {
+        ARC_ASSERT(!encoded.empty(), "Texture '{}' has no levels", debugName);
+        if (rhi::isBlockCompressed(encoded.format) && !device.adapterInfo().blockCompression)
+        {
+            ARC_LOG_WARN("'{}' is {}, which this GPU cannot sample; decoding it to RGBA8", debugName,
+                         rhi::formatName(encoded.format));
+            const ColorSpace colorSpace = rhi::isSrgbFormat(encoded.format) ? ColorSpace::Srgb : ColorSpace::Linear;
+            return createTexture(device, decodeTexture(encoded), colorSpace, std::move(debugName));
+        }
+
+        auto texture = device.createTexture({
+            .size = encoded.size,
+            .format = encoded.format,
+            .mipLevels = static_cast<uint32_t>(encoded.levels.size()),
+            .usage = rhi::TextureUsage::Sampled,
+            .debugName = std::move(debugName),
+        });
+        if (!texture)
+            return nullptr;
+        std::vector<std::span<const std::byte>> data(encoded.levels.begin(), encoded.levels.end());
+        if (!rhi::uploadTexture(device, *texture, data))
+            return nullptr;
+        return texture;
+    }
+
     std::unique_ptr<rhi::Texture> loadTexture(rhi::Device& device, const std::string& path, ColorSpace colorSpace)
     {
         Image image = loadImage(path);

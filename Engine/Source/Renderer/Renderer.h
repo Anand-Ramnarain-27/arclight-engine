@@ -12,6 +12,7 @@ namespace arc
 {
     class GeometryPool;
     class ShaderLibrary;
+    class ToneMapper;
     class Window;
 
     namespace rhi
@@ -32,11 +33,17 @@ namespace arc
     /// later (such as the UI) load what is already there. If nothing draws to it, endFrame()
     /// clears it so a stale image is never presented.
     ///
-    /// The scene is not drawn to the backbuffer but to the scene target, a texture the editor shows
-    /// in its Scene panel, with a depth target of the same size. It follows the same rule: the first
-    /// scene pass of a frame clears both. finishScene(), called by the Application after every
-    /// module's render(), clears them if no pass did and moves the colour target to the ShaderRead
-    /// state for the UI.
+    /// The scene is not drawn to the backbuffer but in two stages into textures of the same size:
+    ///   scene passes    Lit content (meshes, the sky) into the HDR scene target, sceneFormat(), in
+    ///                   linear light with no upper limit, with the scene depth target. The first
+    ///                   scene pass of a frame clears both.
+    ///   overlay passes  Editor visuals (the grid, the selection outline) into the display target,
+    ///                   displayFormat(), after the scene has been tone mapped into it, so their
+    ///                   colours are shown as written. The scene depth target is loaded for testing.
+    /// The tone mapping happens once a frame, when the first overlay pass begins or in finishScene(),
+    /// whichever comes first; no scene pass may follow it. finishScene(), called by the Application
+    /// after every module's render(), also moves the display target to the ShaderRead state for the
+    /// UI, which shows it in the editor's Scene panel.
     ///
     /// The scene is seen through the scene camera, which the editor sets every frame. Pipelines that
     /// test depth must use its depthCompare(); since that changes with Camera::reversedZ, modules
@@ -79,9 +86,16 @@ namespace arc
         [[nodiscard]] bool beginBackbufferPass(std::string_view debugName);
         void endBackbufferPass();
 
-        /// Opens a render pass on the scene target. Returns false if there is none.
+        /// Opens a render pass on the HDR scene target and the scene depth. Returns false if there is
+        /// none. Not allowed once the scene has been tone mapped this frame.
         [[nodiscard]] bool beginScenePass(std::string_view debugName);
         void endScenePass();
+
+        /// Tone maps the scene if that has not happened yet this frame, then opens a render pass on the
+        /// display target with the scene depth loaded. Returns false if there is no display target.
+        [[nodiscard]] bool beginOverlayPass(std::string_view debugName);
+        void endOverlayPass();
+
         void finishScene();
 
         /// Recreates the scene target if the size differs. Must be called outside a frame, before
@@ -91,8 +105,9 @@ namespace arc
         void setSceneSize(Extent2D pixelSize);
         [[nodiscard]] Extent2D sceneSize() const;
 
-        /// The texture the scene renders into: RenderTarget + Sampled, in sceneFormat().
-        [[nodiscard]] rhi::Texture* sceneTexture() { return m_sceneTarget.get(); }
+        /// The tone-mapped scene with its overlays, for the UI to show: RenderTarget + Sampled, in
+        /// displayFormat(). In the ShaderRead state after finishScene().
+        [[nodiscard]] rhi::Texture* displayTexture() { return m_displayTarget.get(); }
 
         /// The format of the scene's depth target, for pipelines that draw into scene passes.
         [[nodiscard]] static constexpr rhi::Format sceneDepthFormat() { return rhi::Format::D32_FLOAT; }
@@ -104,10 +119,17 @@ namespace arc
         /// The scene camera's constants for b0, with the aspect ratio of the scene target.
         [[nodiscard]] ViewConstants sceneViewConstants() const;
 
-        /// The colour format of the scene target, for pipelines that draw into it. Not sRGB: shaders
-        /// write display-ready values (see LinearToSrgb in Common.hlsli) until an HDR target and
-        /// tone mapping are added.
-        [[nodiscard]] static constexpr rhi::Format sceneFormat() { return rhi::Format::RGBA8_UNORM; }
+        /// The colour format of the HDR scene target, for pipelines drawn in scene passes. Shaders write
+        /// linear radiance to it, unclamped.
+        [[nodiscard]] static constexpr rhi::Format sceneFormat() { return rhi::Format::RGBA16_FLOAT; }
+
+        /// The colour format of the display target, for pipelines drawn in overlay passes. Not sRGB:
+        /// the tone-mapping pass encodes (LinearToSrgb in Common.hlsli), and overlays write
+        /// display-ready values.
+        [[nodiscard]] static constexpr rhi::Format displayFormat() { return rhi::Format::RGBA8_UNORM; }
+
+        /// Exposure and the tone curve, applied when the scene is copied into the display target.
+        [[nodiscard]] ToneMapper& toneMapper() { return *m_toneMapper; }
 
         [[nodiscard]] rhi::Device& device() { return *m_device; }
         [[nodiscard]] const rhi::Device& device() const { return *m_device; }
@@ -119,13 +141,18 @@ namespace arc
         void setVSync(bool enabled);
         [[nodiscard]] bool vsync() const;
 
+        /// The backbuffer's clear colour, display-referred.
         void setClearColor(const rhi::ClearColor& color) { m_clearColor = color; }
 
     private:
+        /// Tone maps the HDR scene into the display target, once a frame.
+        void resolveScene();
+
         std::unique_ptr<rhi::Device> m_device;
         std::unique_ptr<rhi::Swapchain> m_swapchain;
         std::unique_ptr<ShaderLibrary> m_shaders;
         std::unique_ptr<GeometryPool> m_geometry;
+        std::unique_ptr<ToneMapper> m_toneMapper;
         rhi::CommandList* m_commandList = nullptr;
         std::optional<Extent2D> m_pendingSize;
         rhi::ClearColor m_clearColor{0.08f, 0.09f, 0.11f, 1.0f};
@@ -133,7 +160,12 @@ namespace arc
 
         std::unique_ptr<rhi::Texture> m_sceneTarget;
         std::unique_ptr<rhi::Texture> m_sceneDepth;
+        std::unique_ptr<rhi::Texture> m_displayTarget;
+        // Linear: the backbuffer colour above, decoded from sRGB. Tone curves with a toe (Khronos PBR
+        // Neutral) darken it further.
+        rhi::ClearColor m_sceneClearColor{0.0072f, 0.0085f, 0.0116f, 1.0f};
         Camera m_sceneCamera;
         bool m_sceneCleared = false;
+        bool m_sceneResolved = false;
     };
 }

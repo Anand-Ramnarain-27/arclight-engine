@@ -27,7 +27,7 @@ namespace arc
         {
             /// A model or prefab to put in the scene, or a scene to open.
             std::function<void(const std::string& path)> open;
-            std::function<void(const std::string& folder)> loadSkybox;
+            std::function<void(const std::string& path)> loadSkybox;   // A face folder or an .hdr file.
         };
 
         FilesPanel(VirtualFileSystem& fileSystem, AssetModule& assets, Actions actions)

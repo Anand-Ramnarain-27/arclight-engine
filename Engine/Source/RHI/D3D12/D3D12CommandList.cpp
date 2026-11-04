@@ -17,6 +17,15 @@ namespace arc::rhi::d3d12
             const std::string text(name);
             list->BeginEvent(kEventMetadataAnsi, text.c_str(), static_cast<UINT>(text.size() + 1));
         }
+
+        // A footprint of a block-compressed texture covers whole blocks, so a mip level smaller than
+        // a block (2x2, 1x1) is copied as one padded 4x4 block, which D3D12 clips to the level.
+        Extent2D copyExtent(const TextureDesc& desc, uint32_t mipLevel)
+        {
+            const Extent2D size = mipSize(desc.size, mipLevel);
+            const uint32_t block = blockDimension(desc.format);
+            return {(size.width + block - 1) / block * block, (size.height + block - 1) / block * block};
+        }
     }
 
     D3D12_RESOURCE_STATES toD3D12State(ResourceState state)
@@ -155,6 +164,19 @@ namespace arc::rhi::d3d12
         }
     }
 
+    void D3D12CommandList::setBuffer(uint32_t slot, Buffer& buffer)
+    {
+        ARC_ASSERT(m_inRenderPass, "setBuffer outside a render pass");
+        validateBufferBinding(slot, buffer);
+        // Shares the texture table: a StructuredBuffer is an SRV like a texture, in a t register.
+        const D3D12_CPU_DESCRIPTOR_HANDLE srv = static_cast<D3D12Buffer&>(buffer).srv();
+        if (m_textures[slot].ptr != srv.ptr)
+        {
+            m_textures[slot] = srv;
+            m_texturesDirty = true;
+        }
+    }
+
     void D3D12CommandList::setSampler(uint32_t slot, Sampler& sampler)
     {
         ARC_ASSERT(m_inRenderPass, "setSampler outside a render pass");
@@ -256,7 +278,7 @@ namespace arc::rhi::d3d12
         validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                             ResourceState::CopySource);
 
-        const Extent2D size = mipSize(dst.desc().size, mipLevel);
+        const Extent2D size = copyExtent(dst.desc(), mipLevel);
         D3D12_TEXTURE_COPY_LOCATION destination{};
         destination.pResource = static_cast<D3D12Texture&>(dst).resource();
         destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -278,7 +300,7 @@ namespace arc::rhi::d3d12
         validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
                             ResourceState::CopyDest);
 
-        const Extent2D size = mipSize(src.desc().size, mipLevel);
+        const Extent2D size = copyExtent(src.desc(), mipLevel);
         D3D12_TEXTURE_COPY_LOCATION destination{};
         destination.pResource = static_cast<D3D12Buffer&>(dst).resource();
         destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -348,7 +370,8 @@ namespace arc::rhi::d3d12
         if (m_passHasDebugGroup)
             beginEvent(m_list.Get(), desc.debugName);
 
-        m_list->OMSetRenderTargets(1, &target.rtv, FALSE, depth ? &depth->dsv : nullptr);
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = target.rtvFor(desc.color.mipLevel, desc.color.arrayLayer);
+        m_list->OMSetRenderTargets(1, &rtv, FALSE, depth ? &depth->dsv : nullptr);
 
         // D3D12 has no load or store actions: Clear is an explicit clear, and Load and DontCare
         // both leave the contents as they are. Store is likewise implicit.
@@ -356,14 +379,14 @@ namespace arc::rhi::d3d12
         {
             const ClearColor& c = desc.color.clearColor;
             const float color[] = {c.r, c.g, c.b, c.a};
-            m_list->ClearRenderTargetView(target.rtv, color, 0, nullptr);
+            m_list->ClearRenderTargetView(rtv, color, 0, nullptr);
         }
         if (depth && desc.depth.load == LoadOp::Clear)
             m_list->ClearDepthStencilView(depth->dsv, D3D12_CLEAR_FLAG_DEPTH, desc.depth.clearDepth, 0, 0, nullptr);
 
         // Metal resets the viewport and scissor to the full target at the start of every pass;
         // doing the same here keeps the two backends consistent.
-        const Extent2D size = target.desc().size;
+        const Extent2D size = mipSize(target.desc().size, desc.color.mipLevel);
         const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(size.width), static_cast<float>(size.height),
                                       0.0f, 1.0f};
         const D3D12_RECT scissor{0, 0, static_cast<LONG>(size.width), static_cast<LONG>(size.height)};

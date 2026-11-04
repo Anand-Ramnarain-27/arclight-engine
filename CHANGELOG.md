@@ -5,6 +5,86 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+Phase 4: lighting and PBR.
+
+### Added
+
+#### HDR and tone mapping
+- The scene renders into an `RGBA16_FLOAT` target in linear light, then a tone-mapping pass (`Renderer/ToneMapper`, `ToneMap.hlsl`) applies exposure, a tone curve (none, Reinhard, Stephen Hill's ACES fit or Khronos PBR Neutral, the default) and sRGB encoding into the `RGBA8` target the Scene panel shows.
+- `Renderer::beginOverlayPass()`: editor visuals (the grid and the selection outline) are drawn after tone mapping, into the display target with the scene depth, so their colours are exact.
+- `Math/Color.h`: `srgbToLinear()` and `linearToSrgb()`, now shared by image decoding, the procedural sky and the editor's colour pickers.
+
+#### Lights
+- `Scene/LightComponent`: directional, point and spot lights in `KHR_lights_punctual` units (lux, candela, metres), shining along the object's -Z, saved in scene files. `createLight()` and `collectLights()`.
+- `Renderer/Lighting`: `GpuLight` (64 bytes, mirrored by `Lighting.hlsli`), `LightingSettings` and the per-frame `LightingConstants` (b3). Range windowing and spot cones as in `KHR_lights_punctual`.
+- `Renderer/LightBuffer`: up to 256 lights a frame in a structured buffer per frame in flight, read by `Mesh.hlsl` at t8.
+- `Mesh.hlsl` lights every surface: Lambert diffuse plus Phong or Blinn-Phong specular, with optional energy-conserving normalisation and Schlick Fresnel, using the glTF roughness factor (Blinn-Phong exponent 2/α² − 2 with α = roughness²) and a hemisphere ambient. New debug views: diffuse light, specular light and lighting only.
+- When a scene has no lights, a default sun lights it (switchable), so older scenes are not left dark. New scenes and the start-up sample get a directional light.
+- `Quat::fromForward()`: the rotation that turns -Z to a direction, without roll.
+- Editor: *GameObject > Light* and the Hierarchy's *+ Create* menu add lights at the camera's focus point; the Inspector edits them (type, colour, intensity, range, cone angles); light icons in the Scene view select a light when clicked, and the selected light shows its direction, range or cone.
+- Editor: the Scene panel's *Lighting* menu: reflectance model, energy conservation, Fresnel, a roughness override, ambient colours and intensity, exposure and the tone curve.
+- Unit tests for light conversion, spot cones, light collection, light component files, `Quat::fromForward()`, sRGB conversion, HDR render targets and structured buffers.
+
+#### Physically based shading
+- Cook-Torrance specular, the new default lighting model: the GGX distribution, Smith's height-correlated masking-shadowing and Schlick's Fresnel, as glTF's metallic-roughness model defines; roughness clamped at 0.045 so point-light highlights don't alias.
+- Metallic: F0 = mix(0.04, base colour, metallic) and diffuse = base colour × (1 − metallic), from the factor times the metallic-roughness texture (blue = metallic, green = roughness).
+- The hemisphere ambient now also lights specular reflections, through Karis' analytic fit of the split-sum environment BRDF, so metals aren't black away from the lights.
+- Material texture slots (`MeshRenderer::MaterialTextureSlot`): t0 base colour, t1 metallic-roughness, white when absent; the material's textures share the base colour texture's sampler.
+- Importer: metallic-roughness textures, with each image marked sRGB or linear by the slot that uses it (`ModelData::imageColorSpaces`); mips are averaged in that space and linear images get a UNORM format. Cooked model format 2 and model importer version 2, so existing cooked models are rebuilt once.
+- `Renderer/Brdf.h`: CPU copies of the shader's BRDF functions, and unit tests that integrate them: Lambert and normalised Phong conserve energy, GGX's distribution integrates to 1, Cook-Torrance never reflects more than it receives (and keeps 1 − ln 2 at roughness 1), and the analytic environment BRDF stays close to the integrated one.
+- Editor: *Cook-Torrance (GGX)* in the Lighting menu, a metallic override, *Metallic* and *Roughness* debug views, and each material's metallic and roughness in the Inspector.
+
+#### Normal maps, occlusion and emissive
+- `MeshVertex::tangent` (xyz and a ±1 handedness, 48-byte vertices): read from glTF's TANGENT, re-orthogonalised against the normal, or generated with [MikkTSpace](https://github.com/mmikk/MikkTSpace) for normal-mapped primitives without tangents (`Renderer/TangentGenerator`). Corners are unwelded for MikkTSpace and welded again with meshoptimizer, so vertices split only where a UV seam or mirror needs two tangents.
+- `Mesh.hlsl`: tangent-space normal maps with the glTF normal scale, Gram-Schmidt after interpolation, the bitangent's sign flipped for mirrored instances (`DrawConstants::handedness`) and the whole frame flipped on back faces; ambient occlusion (with its strength) on the ambient light only; emission (with `KHR_materials_emissive_strength`) added to the lit colour.
+- Material slots t2 normal (flat stand-in), t3 occlusion and t4 emissive (white stand-ins); normal and occlusion images linear, emissive sRGB.
+- Cooked model format 3 and model importer version 3: cooked models are rebuilt once.
+- Editor: *Normal maps*, *Occlusion* and *Emissive* switches in the Lighting menu; *Occlusion*, *Emissive* and *Tangents* debug views; normal, occlusion and emissive textures listed in the Inspector.
+- Unit tests for MikkTSpace tangents (direction, handedness, mirrored UVs, seam splitting), TANGENT import and the new material fields in files and cooked models.
+- MikkTSpace's licence notice ships in `ThirdPartyLicenses/`.
+
+#### Image-based lighting
+- `Renderer/EnvironmentMaps`: bakes the sky on the GPU into a radiance cube (RGBA16F, full mips), a 32 px irradiance cube (cosine-weighted hemisphere sums), a 128 px prefiltered cube with five roughness levels (GGX importance sampling with Hammersley points and filtered importance sampling) and, once at start-up, a 128 × 128 split-sum BRDF table (`Ibl*.hlsl`).
+- `Lighting.hlsli`: the environment lights the diffuse colour through the irradiance cube and Cook-Torrance reflections through the prefiltered cube and the BRDF table (f0 · A + B), darkened by ambient occlusion. Shared BRDF functions moved to `Brdf.hlsli`.
+- Skies load from equirectangular Radiance `.hdr` files (`Renderer/HdrImage`: decoding, float mips, half-float conversion that clamps to 65504) as well as six-face folders; face images now get full mip chains. The sky is drawn from the baked radiance cube, and turns with its lighting (`Skybox::rotation`); its intensity scales both.
+- `LightingSettings::ambientSource`: the environment (default) or the hemisphere. `EnvironmentLighting` carries the cubes to `MeshRenderer::setLighting()`, which binds them at t5 to t7 and s1, with black stand-ins when there are none.
+- Editor: *HDR...* and *Faces...* in the View menu's sky section, a rotation slider and a wider intensity range; an ambient *Source* in the Lighting menu; *Use as Sky* on `.hdr` files in the Files panel.
+- `Brdf.h`: CPU copies of `hammersley()`, `importanceSampleGgx()` and the BRDF table's integral, with tests that the importance-sampled table matches the BRDF integrated over the hemisphere. Tests for half floats, `.hdr` decoding, HDR mips, the environment flag and rendering into cube faces.
+
+#### Toon shading and outlines
+- `Renderer/MaterialStyle`: a second shading model next to the physical one, chosen per material for each object (`ShadingModel::Toon`, `ToonStyle`, `OutlineStyle`). `MeshComponent` keeps one style per material of its model, so objects sharing a model can look different, and saves the styles that differ from the default in scene and prefab files.
+- `Toon.hlsli`: diffuse light in bands (one band is two-tone) with soft edges, or looked up in a ramp texture by cos(normal, light); a hard-edged highlight sized by the material's roughness and tinted for metals; a rim of light on the lit side of the silhouette; the scene's ambient light on the shadow side. Lights keep their physical units, so toon and physical materials share a scene, exposure and tone curve.
+- Inverted-hull outlines (`ToonOutline.hlsl`, `MeshRenderer::drawOutlines()`): the mesh drawn again with its front faces culled, pushed out along its normals in clip space so the outline is the same number of pixels wide at any distance; drawn after the opaque queue.
+- `RenderItem::style` and `RenderList::addMesh(..., styles)`; material constants grow to 80 bytes; the ramp is bound at t9; a clamped sampler stands in at s1 when there is no environment. `Lighting.hlsli` gains `AmbientIrradiance()`, shared by both models.
+- Editor: a **Style** section under the Mesh component in the Inspector, per material: shading model, bands, softness, highlight, rim size and strength, ramp texture path, and outline on/off, width and colour; *All Physical* and *All Toon* buttons, and *Use for Everything Below* to copy one material's style to the whole subtree. `SceneModule::loadTexture()`.
+- Whole hierarchies at once: **Shading** in the Hierarchy's context menu, in **GameObject**, and under *Shading (with children)* in the Inspector switches every material below the selected object (or in the whole scene) to Toon, Toon with Outlines or Physical, or turns outlines on or off, keeping each material's tuning (`changeStyles()`, `copyStyleToHierarchy()`).
+- The toon highlight fades with roughness, as (1 − roughness)², so plaster and wood no longer get a broad white patch.
+- Scene shaders write `SceneRadiance()`: finite, at most 60000 (half floats end at 65504), with NaN as 0, and the tone-mapping pass clamps what it reads. A value above the half-float range was stored as infinity, which the tone curves turned into NaN and the display showed as black: mirror-smooth surfaces reflecting the sun, or roughness-0 highlights.
+- The glTF importer warns about a material whose roughness texture is multiplied by a roughness factor of 0, which makes it mirror-smooth everywhere (glTFast writes this from Unity's smoothness).
+- Unit tests for the bands (`toonBandLight()`, a CPU copy of the shader's), styles on render items, styles in scene files, ramps kept across style changes, and hierarchy-wide changes.
+
+#### Block-compressed textures
+- Model and texture assets are cooked to block-compressed formats with [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) (`Renderer/TextureEncoding`): base colour and emission BC7 sRGB, metallic-roughness BC7, normal maps BC5 and occlusion BC4, so the Lantern's textures take 21.3 MB of GPU memory instead of 85.3 MB. Images that are not a whole number of 4×4 blocks stay RGBA8, and an image shared by several kinds of slot keeps every channel.
+- Import settings: *Texture compression* for models and *Compression* for textures, *Quality* (BC7) by default, *Small* (BC1, or BC3 with alpha; half a byte a pixel) or *None* (RGBA8), saved in `.meta` files.
+- Blocks are encoded on every hardware thread; the encoder is built optimised even in Debug builds.
+- `Mesh.hlsl` reads only x and y of a normal map and rebuilds z, as two-channel BC5 needs.
+- Devices without block compression get the texture decoded to RGBA8 at load.
+- Cooked format 4, model importer version 4 and texture importer version 2: cooked assets are rebuilt once. Images are stored in their GPU format with each level's bytes checked against its size.
+- Editor: the Inspector shows each material texture's format and the model's texture memory.
+- Unit tests for block sizes and copy layouts, format choice, round-trip quality of every format, partial blocks, BC uploads, compression settings in `.meta` files and slot sharing.
+- bc7enc_rdo's licence ships in `ThirdPartyLicenses/`.
+
+#### RHI
+- `Format::BC1_UNORM` to `BC7_UNORM_SRGB` (BC1, BC3, BC4, BC5, BC7, with sRGB variants of BC1, BC3 and BC7), `formatName()`, `isBlockCompressed()`, `isSrgbFormat()`, `blockDimension()`, `bytesPerBlock()`, `rowBytes()`, `rowCount()`, `imageBytes()`. Copies count rows of blocks; D3D12 footprints round up to whole blocks. `AdapterInfo::blockCompression`.
+- Render passes can target one mip level of one array layer (`ColorAttachment::mipLevel` and `arrayLayer`): an RTV per subresource on Direct3D 12, `level` and `slice` on Metal. Cube textures may be render targets.
+- `Format::RGBA16_FLOAT`.
+- Structured buffers: `BufferUsage::Structured` with `BufferDesc::stride`, bound with `CommandList::setBuffer()` to a t slot (an SRV in the texture table on Direct3D 12, `[[buffer(n)]]` on Metal).
+- 16 texture slots (t0 to t15) instead of 8, and a fourth constant slot (b3).
+
+### Changed
+- Scene shaders (meshes, sky, texture demo) write linear colour; only the tone-mapping pass encodes sRGB. `Renderer::sceneTexture()` is now `displayTexture()`.
+- CI runs on pushes to `phase-4` instead of `phase-3`.
+
 ## [0.4.0] - 2026-10-23
 
 Phase 3: engine architecture.

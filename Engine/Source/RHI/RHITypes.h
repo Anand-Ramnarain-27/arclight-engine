@@ -24,17 +24,24 @@ namespace arc::rhi
     /// allocators, upload memory) are created this many times and reused round-robin.
     inline constexpr uint32_t kMaxFramesInFlight = 2;
 
-    /// Texture slots t0..t7 and sampler slots s0..s3 that every pipeline can read, in both the
-    /// vertex and the pixel stage. The HLSL register number is the slot: register(t2) reads
-    /// whatever setTexture(2, ...) bound. On Metal the slot is the [[texture(n)]] / [[sampler(n)]]
-    /// index, which the shader build keeps equal to the register number.
-    inline constexpr uint32_t kMaxTextureSlots = 8;
+    /// Shader resource slots t0..t15 and sampler slots s0..s3 that every pipeline can read, in both
+    /// the vertex and the pixel stage. A t slot holds a texture (setTexture) or a structured buffer
+    /// (setBuffer). The HLSL register number is the slot: register(t2) reads whatever was bound to
+    /// slot 2. On Metal the slot is the [[texture(n)]] / [[sampler(n)]] index, which the shader build
+    /// keeps equal to the register number.
+    inline constexpr uint32_t kMaxTextureSlots = 16;
     inline constexpr uint32_t kMaxSamplerSlots = 4;
 
-    /// Constant buffer slots b0..b2, bound with CommandList::setConstants(). By convention b0 holds
-    /// per-view data (camera), b1 per-draw data (transform) and b2 per-material data. On Metal the
-    /// slot is the [[buffer(n)]] index, again kept equal to the HLSL register by the shader build.
-    inline constexpr uint32_t kMaxConstantSlots = 3;
+    /// Constant buffer slots b0..b3, bound with CommandList::setConstants(). By convention b0 holds
+    /// per-view data (camera), b1 per-draw data (transform), b2 per-material data and b3 per-frame
+    /// lighting. On Metal the slot is the [[buffer(n)]] index, again kept equal to the HLSL register
+    /// by the shader build.
+    inline constexpr uint32_t kMaxConstantSlots = 4;
+
+    /// The lowest t slot a structured buffer may use. On Metal a structured buffer in t<n> becomes
+    /// [[buffer(n)]], which shares its numbering with the constant buffers, so t0..t3 would collide
+    /// with b0..b3.
+    inline constexpr uint32_t kFirstStructuredBufferSlot = kMaxConstantSlots;
 
     /// Constant data is placed at multiples of this many bytes (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT),
     /// which also satisfies Metal's buffer offset rules.
@@ -59,6 +66,7 @@ namespace arc::rhi
 
     [[nodiscard]] const char* backendName(Backend backend);
 
+    /// Cooked asset files store these values, so new formats are added at the end.
     enum class Format
     {
         Unknown,
@@ -67,13 +75,53 @@ namespace arc::rhi
         /// encodes when rendering. For colour textures such as albedo, never for data such as normals.
         RGBA8_UNORM_SRGB,
         BGRA8_UNORM,
+        /// Four 16-bit floats: linear colour above 1, for HDR render targets. 8 bytes a pixel.
+        RGBA16_FLOAT,
         /// 32-bit float depth, no stencil. For DepthStencil textures only: sampling depth needs a
         /// typeless resource with a separate shader view on D3D12, which nothing uses yet.
         D32_FLOAT,
+
+        // Block-compressed formats: each 4x4 block of pixels is stored in 8 or 16 bytes and decoded
+        // by the texture unit when sampled, so they stay compressed in GPU memory. Sampled only (no
+        // render targets), and mip level 0 must be a whole number of blocks; smaller mips are padded
+        // to one. Needs AdapterInfo::blockCompression.
+
+        /// RGB at 5:6:5 endpoints with 4 shades between them, 1-bit alpha: 8 bytes a block (4 bits a pixel).
+        BC1_UNORM,
+        BC1_UNORM_SRGB,
+        /// BC1's colour plus an 8-bit alpha block: 16 bytes a block.
+        BC3_UNORM,
+        BC3_UNORM_SRGB,
+        /// One channel, two 8-bit endpoints and 8 shades: 8 bytes a block. Samples as (r, 0, 0, 1).
+        BC4_UNORM,
+        /// Two BC4 channels: 16 bytes a block. Samples as (r, g, 0, 1); made for normal maps.
+        BC5_UNORM,
+        /// RGBA with 8 modes and up to 3 partitions a block: 16 bytes a block, close to the source
+        /// at 8 bits a pixel.
+        BC7_UNORM,
+        BC7_UNORM_SRGB,
     };
 
-    [[nodiscard]] uint32_t bytesPerPixel(Format format);
+    [[nodiscard]] const char* formatName(Format format);
     [[nodiscard]] bool isDepthFormat(Format format);
+    [[nodiscard]] bool isBlockCompressed(Format format);
+    /// sRGB-encoded formats, which the GPU decodes to linear when sampling.
+    [[nodiscard]] bool isSrgbFormat(Format format);
+
+    /// For uncompressed formats only.
+    [[nodiscard]] uint32_t bytesPerPixel(Format format);
+
+    /// Pixels across (and down) the smallest unit a format stores: 4 for block-compressed formats, 1
+    /// otherwise.
+    [[nodiscard]] uint32_t blockDimension(Format format);
+    /// Bytes of one block, or of one pixel for uncompressed formats.
+    [[nodiscard]] uint32_t bytesPerBlock(Format format);
+    /// Bytes of one row of blocks `width` pixels wide, rounded up to whole blocks.
+    [[nodiscard]] uint32_t rowBytes(Format format, uint32_t width);
+    /// Rows of blocks in `height` pixels, rounded up to whole blocks.
+    [[nodiscard]] uint32_t rowCount(Format format, uint32_t height);
+    /// Bytes of a tightly packed image of `size` pixels.
+    [[nodiscard]] uint64_t imageBytes(Format format, Extent2D size);
 
     enum class LoadOp
     {
@@ -108,6 +156,9 @@ namespace arc::rhi
         Vertex   = 1 << 0,
         Index    = 1 << 1,
         Constant = 1 << 2,
+        /// Read by shaders as a StructuredBuffer<T> in a t slot, bound with CommandList::setBuffer().
+        /// BufferDesc::stride is sizeof(T).
+        Structured = 1 << 3,
     };
 
     [[nodiscard]] constexpr BufferUsage operator|(BufferUsage a, BufferUsage b)
@@ -164,6 +215,8 @@ namespace arc::rhi
     {
         uint64_t size = 0;           // Bytes.
         BufferUsage usage = BufferUsage::None;
+        /// Bytes per element of a Structured buffer, a multiple of 4 that divides `size`. Unused otherwise.
+        uint32_t stride = 0;
         MemoryType memory = MemoryType::GpuOnly;
         std::string debugName{};
     };
@@ -258,6 +311,9 @@ namespace arc::rhi
         std::string driver;
         uint64_t videoMemoryMB = 0;
         bool unifiedMemory = false;
+        /// Sampling BC1 to BC7 textures. Every D3D12 GPU can; on Metal, Apple silicon and the Intel
+        /// and AMD GPUs of macOS 11 or later can, but not iOS devices.
+        bool blockCompression = true;
     };
 
     struct SwapchainDesc

@@ -3,9 +3,12 @@
 #include "Application/Application.h"
 #include "Core/Log.h"
 #include "Assets/AssetModule.h"
+#include "Assets/ResourceManager.h"
 #include "Platform/FileSystem.h"
 #include "Scene/SceneSerializer.h"
 #include "Renderer/Model.h"
+#include "Renderer/ToneMapper.h"
+#include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/ModelInstantiation.h"
 
@@ -103,7 +106,7 @@ namespace arc
                     continue;
                 }
             }
-            m_renderList.addMesh(*mesh.model(), mesh.meshIndex(), world, lods);
+            m_renderList.addMesh(*mesh.model(), mesh.meshIndex(), world, lods, mesh.materialStyles());
         }
     }
 
@@ -174,11 +177,21 @@ namespace arc
         cullAndCollect(m_cullCamera.frustum(m_cullAspect), lods);
         m_renderList.sort(camera.position, camera.forward(), sortDraws);
 
+        m_lights.clear();
+        m_sceneLightCount = collectLights(*m_scene, m_lights);
+        m_usedDefaultLight = m_sceneLightCount == 0 && lighting.defaultLight;
+        if (m_usedDefaultLight)
+            m_lights.push_back(defaultSunLight());
+        const EnvironmentLighting environment = m_skybox.environmentLighting();
+        m_meshRenderer.setLighting(renderer, m_lights, lighting, &environment);
+        renderer.toneMapper().passThrough = MeshRenderer::isDataView(debugView);
+
         m_stats = {};
         const bool drawSky = m_skybox.visible;
         if ((m_renderList.empty() && !drawSky) || !renderer.isFrameActive() || !renderer.beginScenePass("Scene"))
             return;
-        const RenderStats opaque = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Opaque, debugView);
+        const RenderStats opaque = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Opaque, debugView) +
+                                   m_meshRenderer.drawOutlines(renderer, m_renderList);
         m_skybox.draw(renderer);
         const RenderStats blended = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Blended, debugView);
         renderer.endScenePass();
@@ -188,6 +201,11 @@ namespace arc
     std::shared_ptr<const Model> SceneModule::loadModel(const std::string& path)
     {
         return m_assets.resources().loadModel(path);
+    }
+
+    std::shared_ptr<const TextureAsset> SceneModule::loadTexture(const std::string& path)
+    {
+        return m_assets.resources().loadTexture(path);
     }
 
     GameObject* SceneModule::importModel(const std::string& path, GameObject* parent)

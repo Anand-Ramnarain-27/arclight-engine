@@ -20,6 +20,27 @@ namespace arc
             return colorSpace == ColorSpace::Linear ? "linear" : "srgb";
         }
 
+        const char* compressionKey(TextureCompression compression)
+        {
+            switch (compression)
+            {
+                case TextureCompression::None:    return "none";
+                case TextureCompression::Quality: return "quality";
+                case TextureCompression::Small:   return "small";
+            }
+            return "quality";
+        }
+
+        // An unknown name keeps the default rather than failing the whole file.
+        TextureCompression compressionFromKey(const std::string& key, TextureCompression fallback)
+        {
+            for (const TextureCompression compression :
+                 {TextureCompression::None, TextureCompression::Quality, TextureCompression::Small})
+                if (key == compressionKey(compression))
+                    return compression;
+            return fallback;
+        }
+
         template <typename T>
         uint64_t hashValue(uint64_t hash, const T& value)
         {
@@ -74,12 +95,14 @@ namespace arc
             settings["generateLods"] = meta.model.generateLods;
             settings["lodLevels"] = meta.model.lodLevels;
             settings["lodReduction"] = meta.model.lodReduction;
+            settings["textureCompression"] = compressionKey(meta.model.textureCompression);
         }
         else if (meta.type == AssetType::Texture)
         {
             settings["colorSpace"] = colorSpaceName(meta.texture.colorSpace);
             settings["generateMips"] = meta.texture.generateMips;
             settings["maxSize"] = meta.texture.maxSize;
+            settings["compression"] = compressionKey(meta.texture.compression);
         }
         return json.dump(2) + "\n";
     }
@@ -120,6 +143,8 @@ namespace arc
                 model.generateLods = settings.value("generateLods", model.generateLods);
                 model.lodLevels = std::min(settings.value("lodLevels", model.lodLevels), kMaxLodLevels);
                 model.lodReduction = std::clamp(settings.value("lodReduction", model.lodReduction), 0.05f, 0.95f);
+                model.textureCompression =
+                    compressionFromKey(settings.value("textureCompression", std::string()), model.textureCompression);
             }
             else
             {
@@ -128,6 +153,7 @@ namespace arc
                                                                                                     : ColorSpace::Srgb;
                 texture.generateMips = settings.value("generateMips", texture.generateMips);
                 texture.maxSize = std::clamp(settings.value("maxSize", texture.maxSize), 1u, 16384u);
+                texture.compression = compressionFromKey(settings.value("compression", std::string()), texture.compression);
             }
             return meta;
         }
@@ -146,12 +172,14 @@ namespace arc
             hash = hashValue(hash, meta.model.generateLods);
             hash = hashValue(hash, meta.model.lodLevels);
             hash = hashValue(hash, std::bit_cast<uint32_t>(meta.model.lodReduction));
+            hash = hashValue(hash, meta.model.textureCompression);
         }
         else if (meta.type == AssetType::Texture)
         {
             hash = hashValue(hash, meta.texture.colorSpace);
             hash = hashValue(hash, meta.texture.generateMips);
             hash = hashValue(hash, meta.texture.maxSize);
+            hash = hashValue(hash, meta.texture.compression);
         }
         return hash;
     }

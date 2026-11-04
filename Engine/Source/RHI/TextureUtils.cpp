@@ -31,10 +31,11 @@ namespace arc::rhi
             {
                 TextureCopyLayout::Level level;
                 level.size = mipSize(desc.size, mip);
-                level.rowBytes = level.size.width * bytesPerPixel(desc.format);
+                level.rowBytes = rowBytes(desc.format, level.size.width);
+                level.rowCount = rowCount(desc.format, level.size.height);
                 level.rowPitch = static_cast<uint32_t>(alignUp(level.rowBytes, kTextureCopyRowAlignment));
                 level.offset = alignUp(offset, kTextureCopyOffsetAlignment);
-                offset = level.offset + uint64_t{level.rowPitch} * level.size.height;
+                offset = level.offset + uint64_t{level.rowPitch} * level.rowCount;
                 layout.levels.push_back(level);
             }
         layout.totalSize = offset;
@@ -61,10 +62,10 @@ namespace arc::rhi
         for (uint32_t index = 0; index < subresources; ++index)
         {
             const TextureCopyLayout::Level& level = layout.levels[index];
-            ARC_ASSERT(levels[index].size() == uint64_t{level.rowBytes} * level.size.height,
+            ARC_ASSERT(levels[index].size() == uint64_t{level.rowBytes} * level.rowCount,
                        "Subresource {} of '{}' should be {} bytes, got {}", index, desc.debugName,
-                       uint64_t{level.rowBytes} * level.size.height, levels[index].size());
-            for (uint32_t row = 0; row < level.size.height; ++row)
+                       uint64_t{level.rowBytes} * level.rowCount, levels[index].size());
+            for (uint32_t row = 0; row < level.rowCount; ++row)
                 std::memcpy(bytes + level.offset + uint64_t{row} * level.rowPitch,
                             levels[index].data() + uint64_t{row} * level.rowBytes, level.rowBytes);
         }
@@ -93,7 +94,7 @@ namespace arc::rhi
 
         const TextureCopyLayout::Level level = computeTextureCopyLayout(desc).levels[subresourceIndex(desc, mipLevel, arrayLayer)];
         auto readback = device.createBuffer({
-            .size = uint64_t{level.rowPitch} * level.size.height,
+            .size = uint64_t{level.rowPitch} * level.rowCount,
             .memory = MemoryType::Readback,
             .debugName = "Readback (" + desc.debugName + ")",
         });
@@ -107,9 +108,9 @@ namespace arc::rhi
             commandList.barrier(texture, previousState);
         });
 
-        std::vector<std::byte> bytes(uint64_t{level.rowBytes} * level.size.height);
+        std::vector<std::byte> bytes(uint64_t{level.rowBytes} * level.rowCount);
         const auto* source = static_cast<const std::byte*>(readback->mappedData());
-        for (uint32_t row = 0; row < level.size.height; ++row)
+        for (uint32_t row = 0; row < level.rowCount; ++row)
             std::memcpy(bytes.data() + uint64_t{row} * level.rowBytes, source + uint64_t{row} * level.rowPitch,
                         level.rowBytes);
         return bytes;

@@ -1,13 +1,19 @@
 #include "Panels/InspectorPanel.h"
 
 #include "EditorSelection.h"
+#include "ShadingMenu.h"
+#include "Core/Log.h"
+#include "Math/Color.h"
+#include "RHI/Texture.h"
 #include "Renderer/Model.h"
+#include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/SceneModule.h"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 
@@ -52,6 +58,11 @@ namespace arc
             .create = [] { return std::make_unique<MeshComponent>(); },
             .draw = [this](Component& component) { drawMeshComponent(component); },
         });
+        m_editors.push_back({
+            .type = &LightComponent::staticType(),
+            .create = [] { return std::make_unique<LightComponent>(defaultLightDesc(LightType::Point)); },
+            .draw = [this](Component& component) { drawLightComponent(component); },
+        });
     }
 
     const InspectorPanel::ComponentEditor* InspectorPanel::editorFor(const ComponentType& type) const
@@ -82,6 +93,7 @@ namespace arc
         drawTransform(*object);
         drawComponents(*object);
         drawAddComponent(*object);
+        drawHierarchyShading();
         ImGui::PopID();
         ImGui::End();
     }
@@ -237,6 +249,8 @@ namespace arc
         const Vec3 size = mesh.localBounds().size();
         ImGui::TextDisabled("%u primitives, %u triangles", data.primitiveCount, model->meshTriangleCount(mesh.meshIndex()));
         ImGui::TextDisabled("Size %.2f x %.2f x %.2f (object space)", size.x, size.y, size.z);
+        ImGui::TextDisabled("Model textures: %u, %.1f MB on the GPU", model->textureCount(),
+                            static_cast<double>(model->textureBytes()) / (1024.0 * 1024.0));
 
         if (ImGui::TreeNode("Materials"))
         {
@@ -255,14 +269,226 @@ namespace arc
                 ImGui::ColorButton("##Color", {c.x, c.y, c.z, c.w},
                                    ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_AlphaPreviewHalf, {14.0f, 14.0f});
                 ImGui::SameLine();
-                const char* texture = material.baseColorTexture < 0                       ? "no texture"
-                                      : model->texture(material.baseColorTexture) != nullptr ? "texture"
-                                                                                             : "texture missing";
-                ImGui::Text("%s: %s, %s%s", material.name.empty() ? "(unnamed)" : material.name.c_str(), texture,
-                            alphaModeName(material.alphaMode), material.doubleSided ? ", double-sided" : "");
+                // A texture slot as its format, so what the importer chose shows.
+                const auto has = [&](int32_t index) -> const char* {
+                    if (index < 0)
+                        return "none";
+                    const rhi::Texture* slot = model->texture(index);
+                    return slot ? rhi::formatName(slot->desc().format) : "missing";
+                };
+                ImGui::Text("%s: base colour %s, %s%s", material.name.empty() ? "(unnamed)" : material.name.c_str(),
+                            has(material.baseColorTexture), alphaModeName(material.alphaMode),
+                            material.doubleSided ? ", double-sided" : "");
+                ImGui::TextDisabled("    metallic %.2f, roughness %.2f, texture %s", material.metallicFactor,
+                                    material.roughnessFactor, has(material.metallicRoughnessTexture));
+                ImGui::TextDisabled("    normal map %s, occlusion %s, emissive %s", has(material.normalTexture),
+                                    has(material.occlusionTexture), has(material.emissiveTexture));
                 ImGui::PopID();
             }
             ImGui::TreePop();
         }
+
+        drawMaterialStyles(mesh);
+    }
+
+    void InspectorPanel::drawHierarchyShading()
+    {
+        ImGui::Spacing();
+        if (!ImGui::CollapsingHeader("Shading (with children)"))
+            return;
+        drawShadingMenuItems(m_selection, m_scene.scene());
+    }
+
+    void InspectorPanel::drawMaterialStyles(MeshComponent& mesh)
+    {
+        const Model& model = *mesh.model();
+        const MeshData& data = model.meshes()[mesh.meshIndex()];
+        // Each material once, in the order the mesh's primitives first use it.
+        std::vector<uint32_t> materials;
+        for (uint32_t i = 0; i < data.primitiveCount; ++i)
+        {
+            const int32_t material = model.primitives()[data.firstPrimitive + i].material;
+            if (material >= 0 && std::find(materials.begin(), materials.end(), static_cast<uint32_t>(material)) == materials.end())
+                materials.push_back(static_cast<uint32_t>(material));
+        }
+        if (materials.empty() || !ImGui::TreeNode("Style"))
+            return;
+        ImGui::TextDisabled("For this object only; the model is shared.");
+
+        for (const ShadingModel shading : {ShadingModel::Physical, ShadingModel::Toon})
+        {
+            const std::string label = std::string("All ") + shadingModelName(shading);
+            if (ImGui::SmallButton(label.c_str()))
+                for (const uint32_t material : materials)
+                {
+                    MaterialStyle style = mesh.materialStyle(material);
+                    style.shading = shading;
+                    style.outline.enabled = shading == ShadingModel::Toon;
+                    mesh.setMaterialStyle(material, style);
+                }
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
+
+        for (const uint32_t material : materials)
+        {
+            ImGui::PushID(static_cast<int>(material));
+            const std::string& name = model.materials()[material].name;
+            ImGui::SeparatorText(name.empty() ? "(unnamed material)" : name.c_str());
+            MaterialStyle style = mesh.materialStyle(material);
+            bool changed = false;
+
+            int shading = static_cast<int>(style.shading);
+            const char* shadingNames[] = {shadingModelName(ShadingModel::Physical), shadingModelName(ShadingModel::Toon)};
+            beginRow("Shading");
+            changed |= ImGui::Combo("##Shading", &shading, shadingNames, static_cast<int>(std::size(shadingNames)));
+            style.shading = static_cast<ShadingModel>(shading);
+
+            if (style.shading == ShadingModel::Toon)
+            {
+                ToonStyle& toon = style.toon;
+                const bool hasRamp = !mesh.toonRampPath(material).empty();
+                ImGui::BeginDisabled(hasRamp);
+                int bands = static_cast<int>(toon.bands);
+                beginRow("Bands");
+                if (ImGui::SliderInt("##Bands", &bands, 1, 8))
+                {
+                    toon.bands = static_cast<uint32_t>(bands);
+                    changed = true;
+                }
+                ImGui::SetItemTooltip("Steps of light above the shadow: 1 is two-tone.");
+                ImGui::EndDisabled();
+                beginRow("Softness");
+                changed |= ImGui::SliderFloat("##Softness", &toon.softness, 0.0f, 0.25f, "%.3f");
+                ImGui::SetItemTooltip("Width of each band's edge, and of the highlight's and rim's.");
+                beginRow("Highlight");
+                changed |= ImGui::SliderFloat("##Highlight", &toon.specular, 0.0f, 4.0f, "%.2f");
+                ImGui::SetItemTooltip("A hard-edged highlight sized by the material's roughness.");
+                beginRow("Rim size");
+                changed |= ImGui::SliderFloat("##RimSize", &toon.rimSize, 0.0f, 1.0f, "%.2f");
+                beginRow("Rim");
+                changed |= ImGui::SliderFloat("##Rim", &toon.rim, 0.0f, 4.0f, "%.2f");
+                ImGui::SetItemTooltip("Light along the silhouette on the side facing each light.");
+
+                // ImGui keeps its own copy of the text while the field is being edited, so a buffer
+                // filled from the current path each frame is enough; Enter applies it.
+                std::array<char, 512> ramp{};
+                const std::string& rampPath = mesh.toonRampPath(material);
+                std::memcpy(ramp.data(), rampPath.data(), std::min(rampPath.size(), ramp.size() - 1));
+                beginRow("Ramp");
+                if (ImGui::InputTextWithHint("##Ramp", "texture path, Enter to load", ramp.data(), ramp.size(),
+                                             ImGuiInputTextFlags_EnterReturnsTrue))
+                {
+                    const std::string path = ramp.data();
+                    mesh.setToonRamp(material, path, path.empty() ? nullptr : m_scene.loadTexture(path));
+                }
+                ImGui::SetItemTooltip("A texture read across its width by how directly light falls on the surface "
+                                      "(left: facing away, right: facing it), in place of bands.");
+                if (hasRamp)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear"))
+                        mesh.setToonRamp(material, {}, nullptr);
+                }
+            }
+
+            OutlineStyle& outline = style.outline;
+            beginRow("Outline");
+            changed |= ImGui::Checkbox("##Outline", &outline.enabled);
+            ImGui::BeginDisabled(!outline.enabled);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+            changed |= ImGui::SliderFloat("##OutlineWidth", &outline.width, 0.5f, 8.0f, "%.1f px");
+            ImGui::SameLine();
+            Vec3 color = linearToSrgb(outline.color);
+            if (ImGui::ColorEdit3("##OutlineColor", &color.x, ImGuiColorEditFlags_NoInputs))
+            {
+                outline.color = srgbToLinear(color);
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SetItemTooltip("Inverted hull: the mesh drawn again behind itself, grown along its normals. "
+                                  "Hard edges, with a normal per face, open gaps in it.");
+
+            if (changed)
+                mesh.setMaterialStyle(material, style);
+
+            if (GameObject* object = m_selection.object(); object && ImGui::SmallButton("Use for Everything Below"))
+            {
+                const uint32_t count = copyStyleToHierarchy(*object, mesh.materialStyle(material));
+                ARC_LOG_INFO("Style of '{}' copied to {} material{} in '{}'", name, count, count == 1 ? "" : "s",
+                             object->name());
+            }
+            ImGui::SetItemTooltip("Gives every material of this object and its children this style, ramp texture "
+                                  "aside.");
+            ImGui::PopID();
+        }
+        ImGui::TreePop();
+    }
+
+    void InspectorPanel::drawLightComponent(Component& component)
+    {
+        LightDesc& light = static_cast<LightComponent&>(component).light;
+
+        beginRow("Type");
+        if (ImGui::BeginCombo("##Type", lightTypeName(light.type)))
+        {
+            for (const LightType type : {LightType::Directional, LightType::Point, LightType::Spot})
+            {
+                if (ImGui::Selectable(lightTypeName(type), type == light.type) && type != light.type)
+                {
+                    // Directional intensities are in lux and the others in candela, so a value
+                    // carried over would mean something else entirely.
+                    const LightDesc defaults = defaultLightDesc(type);
+                    light.type = type;
+                    light.intensity = defaults.intensity;
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        // The picker shows sRGB-encoded values, as image editors do; the light stores linear colour.
+        Vec3 color = linearToSrgb(light.color);
+        beginRow("Colour");
+        if (ImGui::ColorEdit3("##Colour", &color.x, ImGuiColorEditFlags_NoInputs))
+            light.color = srgbToLinear(color);
+
+        const bool directional = light.type == LightType::Directional;
+        beginRow("Intensity");
+        ImGui::DragFloat("##Intensity", &light.intensity, 0.05f, 0.0f, 1.0e6f, directional ? "%.2f lux" : "%.2f cd",
+                         ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        ImGui::SetItemTooltip(directional ? "Illuminance on a surface facing the light, in lux (lm/m^2)."
+                                          : "Luminous intensity in candela (lm/sr): the light reaching a surface "
+                                            "1 m away, facing it, is this many lux, and falls off with the square "
+                                            "of the distance.");
+
+        if (!directional)
+        {
+            beginRow("Range");
+            ImGui::DragFloat("##Range", &light.range, 0.05f, 0.0f, 1.0e5f, light.range > 0.0f ? "%.2f m" : "No limit",
+                             ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SetItemTooltip("Distance at which the light has faded to zero. 0 for no limit: the light then "
+                                  "reaches every surface, only ever dimmer.");
+        }
+
+        if (light.type == LightType::Spot)
+        {
+            float outer = toDegrees(light.outerConeAngle);
+            float inner = toDegrees(light.innerConeAngle);
+            beginRow("Outer cone");
+            if (ImGui::DragFloat("##Outer", &outer, 0.25f, 0.1f, 90.0f, "%.1f deg", ImGuiSliderFlags_AlwaysClamp))
+            {
+                light.outerConeAngle = toRadians(outer);
+                light.innerConeAngle = std::min(light.innerConeAngle, light.outerConeAngle);
+            }
+            ImGui::SetItemTooltip("Angle from the axis at which the light reaches zero.");
+            beginRow("Inner cone");
+            if (ImGui::DragFloat("##Inner", &inner, 0.25f, 0.0f, outer, "%.1f deg", ImGuiSliderFlags_AlwaysClamp))
+                light.innerConeAngle = std::min(toRadians(inner), light.outerConeAngle);
+            ImGui::SetItemTooltip("Angle from the axis at which the light starts to fade.");
+        }
+
+        if (light.type != LightType::Point)
+            ImGui::TextDisabled("Shines along the object's -Z axis.");
     }
 }

@@ -2,6 +2,7 @@
 
 #include "Renderer/Image.h"
 #include "Renderer/ModelData.h"
+#include "Renderer/TextureEncoding.h"
 #include "Scene/Uuid.h"
 
 #include <cstdint>
@@ -40,6 +41,8 @@ namespace arc
         uint32_t lodLevels = kMaxLodLevels;
         /// Each level aims for this fraction of the previous level's triangles.
         float lodReduction = 0.5f;
+        /// How the model's images are cooked; each image's material slot decides which format.
+        TextureCompression textureCompression = TextureCompression::Quality;
 
         bool operator==(const ModelImportSettings&) const = default;
     };
@@ -50,6 +53,7 @@ namespace arc
         bool generateMips = true;
         /// Larger images are halved until both sides fit. Pixels.
         uint32_t maxSize = 4096;
+        TextureCompression compression = TextureCompression::Quality;
 
         bool operator==(const TextureImportSettings&) const = default;
     };

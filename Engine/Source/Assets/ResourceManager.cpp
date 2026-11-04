@@ -46,8 +46,9 @@ namespace arc
         if (!model)
             return nullptr;
 
-        ARC_LOG_INFO("Loaded '{}' in {:.1f} ms: {} triangles, {} materials, {} textures", record->path, timer.elapsedMs(),
-                     model->triangleCount(), model->materials().size(), model->textureCount());
+        ARC_LOG_INFO("Loaded '{}' in {:.1f} ms: {} triangles, {} materials, {} textures ({:.1f} MB)", record->path,
+                     timer.elapsedMs(), model->triangleCount(), model->materials().size(), model->textureCount(),
+                     static_cast<double>(model->textureBytes()) / (1024.0 * 1024.0));
         m_models[asset] = model;
         return model;
     }
@@ -82,8 +83,8 @@ namespace arc
         auto texture = std::make_shared<TextureAsset>();
         texture->asset = asset;
         texture->name = cooked->name;
-        texture->colorSpace = cooked->colorSpace;
-        texture->texture = createTexture(m_device, cooked->levels, cooked->colorSpace, cooked->name);
+        texture->colorSpace = rhi::isSrgbFormat(cooked->texture.format) ? ColorSpace::Srgb : ColorSpace::Linear;
+        texture->texture = createTexture(m_device, cooked->texture, cooked->name);
         if (!texture->texture)
             return nullptr;
         m_textures[asset] = texture;

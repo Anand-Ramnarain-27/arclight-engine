@@ -413,7 +413,23 @@ namespace arc::rhi::d3d12
                 return nullptr;
         }
 
-        return std::make_unique<D3D12Buffer>(*this, std::move(resource), desc, mapped, trackedState);
+        D3D12Descriptor srv;
+        if (hasFlag(desc.usage, BufferUsage::Structured))
+        {
+            srv = m_cpuSrvHeap.allocate();
+            if (!srv.valid())
+                return nullptr;
+            D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+            view.Format = DXGI_FORMAT_UNKNOWN;
+            view.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+            view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            view.Buffer.FirstElement = 0;
+            view.Buffer.NumElements = static_cast<UINT>(desc.size / desc.stride);
+            view.Buffer.StructureByteStride = desc.stride;
+            m_device->CreateShaderResourceView(resource.Get(), &view, srv.cpu);
+        }
+
+        return std::make_unique<D3D12Buffer>(*this, std::move(resource), desc, mapped, trackedState, srv);
     }
 
     std::unique_ptr<Texture> D3D12Device::createTextureImpl(const TextureDesc& desc)
@@ -469,16 +485,43 @@ namespace arc::rhi::d3d12
             }
         }
 
-        D3D12Descriptor rtv;
+        // One render target view per mip level of each layer, so any of them can be a pass's target:
+        // a view names exactly one subresource to write.
+        std::vector<D3D12Descriptor> rtvs;
         if (hasFlag(desc.usage, TextureUsage::RenderTarget))
         {
-            rtv = m_rtvHeap.allocate();
-            if (!rtv.valid())
+            const uint32_t layers = arrayLayerCount(desc);
+            rtvs.resize(size_t{desc.mipLevels} * layers);
+            for (uint32_t layer = 0; layer < layers; ++layer)
             {
-                m_cpuSrvHeap.free(srv);
-                return nullptr;
+                for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+                {
+                    D3D12Descriptor& view = rtvs[subresourceIndex(desc, mip, layer)];
+                    view = m_rtvHeap.allocate();
+                    if (!view.valid())
+                    {
+                        for (const D3D12Descriptor& allocated : rtvs)
+                            m_rtvHeap.free(allocated);
+                        m_cpuSrvHeap.free(srv);
+                        return nullptr;
+                    }
+                    D3D12_RENDER_TARGET_VIEW_DESC viewDesc{};
+                    viewDesc.Format = resourceDesc.Format;
+                    if (desc.type == TextureType::Cube)
+                    {
+                        viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+                        viewDesc.Texture2DArray.MipSlice = mip;
+                        viewDesc.Texture2DArray.FirstArraySlice = layer;
+                        viewDesc.Texture2DArray.ArraySize = 1;
+                    }
+                    else
+                    {
+                        viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+                        viewDesc.Texture2D.MipSlice = mip;
+                    }
+                    m_device->CreateRenderTargetView(resource.Get(), &viewDesc, view.cpu);
+                }
             }
-            m_device->CreateRenderTargetView(resource.Get(), nullptr, rtv.cpu);
         }
 
         D3D12Descriptor dsv;
@@ -490,7 +533,7 @@ namespace arc::rhi::d3d12
             m_device->CreateDepthStencilView(resource.Get(), nullptr, dsv.cpu);
         }
 
-        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, rtv, dsv);
+        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, std::move(rtvs), dsv);
     }
 
     std::unique_ptr<Sampler> D3D12Device::createSamplerImpl(const SamplerDesc& desc)
@@ -548,7 +591,7 @@ namespace arc::rhi::d3d12
         // Transient regions: one per frame slot, plus one for submitImmediate().
         constexpr uint32_t kTransientRegions = kMaxFramesInFlight + 1;
 
-        // 8192 descriptors a frame is 1024 texture-binding changes. A shader-visible sampler heap
+        // 16384 descriptors a frame is 1024 changes of the 16-slot texture table. A shader-visible sampler heap
         // holds at most 2048 samplers (D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE), shared by every region.
         // TODO: Reuse sampler tables with identical contents once a frame changes samplers more than 128 times.
         return m_cpuSrvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
@@ -558,14 +601,14 @@ namespace arc::rhi::d3d12
                                                       .persistentCount = 256,
                                                       .debugName = "CPU Sampler Heap"}) &&
                m_rtvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-                                               .persistentCount = 256,
+                                               .persistentCount = 1024,
                                                .debugName = "RTV Heap"}) &&
                m_dsvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
                                                .persistentCount = 64,
                                                .debugName = "DSV Heap"}) &&
                m_shaderVisibleSrvHeap.init(m_device.Get(), {.type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
                                                             .persistentCount = 1024,
-                                                            .transientCountPerRegion = 8192,
+                                                            .transientCountPerRegion = 16384,
                                                             .transientRegions = kTransientRegions,
                                                             .shaderVisible = true,
                                                             .debugName = "Shader-Visible SRV Heap"}) &&

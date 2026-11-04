@@ -1,6 +1,5 @@
 // A textured surface in world space, transformed by the camera in b0 and the object in b1.
 
-#include "Common.hlsli"
 #include "Constants.hlsli"
 
 // Mirrored by TexturedDrawConstants in Editor/Source/Scene/TextureDemoModule.cpp.
@@ -37,7 +36,7 @@ VSOutput VSMain(VSInput input)
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
-    // Sampling an sRGB texture returns linear colour; the hardware decodes before filtering.
-    const float4 color = g_texture.SampleBias(g_sampler, input.uv, mipBias);
-    return float4(LinearToSrgb(color.rgb), color.a);
+    // Sampling an sRGB texture returns linear colour, which is what the HDR scene target holds;
+    // the hardware decodes before filtering.
+    return g_texture.SampleBias(g_sampler, input.uv, mipBias);
 }

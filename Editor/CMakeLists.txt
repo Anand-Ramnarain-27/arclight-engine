@@ -25,6 +25,8 @@ add_executable(Arclight
     Source/Panels/ScenePanel.cpp
     Source/Panels/SystemInfoPanel.h
     Source/Panels/SystemInfoPanel.cpp
+    Source/ShadingMenu.h
+    Source/ShadingMenu.cpp
     Source/Scene/EditorCamera.h
     Source/Scene/EditorCamera.cpp
     Source/Scene/EditorGrid.h
