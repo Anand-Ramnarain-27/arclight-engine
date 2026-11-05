@@ -142,7 +142,7 @@ namespace arc::rhi::metal
         MTLCounterSampleBufferDescriptor* descriptor = [[MTLCounterSampleBufferDescriptor alloc] init];
         descriptor.counterSet = timestamps;
         descriptor.storageMode = MTLStorageModeShared;
-        descriptor.sampleCount = kMaxFramesInFlight * GpuTimingRecorder::kMaxPassesPerFrame * kSamplesPerPass;
+        descriptor.sampleCount = kMaxFramesInFlight * GpuTimingRecorder::kMaxPassesPerFrame * kTimestampSamplesPerPass;
         descriptor.label = @"GPU Timestamps";
         NSError* error = nil;
         m_timestampSamples = [m_device newCounterSampleBufferWithDescriptor:descriptor error:&error];
@@ -199,8 +199,8 @@ namespace arc::rhi::metal
         if (passes == 0)
             return;
 
-        const NSRange range = NSMakeRange(slot * GpuTimingRecorder::kMaxPassesPerFrame * kSamplesPerPass,
-                                          passes * kSamplesPerPass);
+        const NSRange range = NSMakeRange(slot * GpuTimingRecorder::kMaxPassesPerFrame * kTimestampSamplesPerPass,
+                                          passes * kTimestampSamplesPerPass);
         NSData* data = [m_timestampSamples resolveCounterRange:range];
         const auto* samples = data && data.length >= range.length * sizeof(MTLCounterResultTimestamp)
                                   ? static_cast<const MTLCounterResultTimestamp*>(data.bytes)
@@ -214,7 +214,7 @@ namespace arc::rhi::metal
         m_timestampsNs.assign(passes * 2, 0);
         for (uint32_t pass = 0; samples && pass < passes; ++pass)
         {
-            const MTLCounterResultTimestamp* sample = samples + pass * kSamplesPerPass;
+            const MTLCounterResultTimestamp* sample = samples + pass * kTimestampSamplesPerPass;
             // The earliest stage start and the latest stage end; a stage that did not run has no sample.
             const int64_t vertexStart = toNs(sample[0].timestamp);
             const int64_t vertexEnd = toNs(sample[1].timestamp);
@@ -543,7 +543,7 @@ namespace arc::rhi::metal
             timing.beginFrame(frameSlot(), frameNumber());
         m_commandList.begin(commandBuffer, *m_uploadRing, frameSlot(), timed ? &timing : nullptr,
                             timed ? m_timestampSamples : nil,
-                            frameSlot() * GpuTimingRecorder::kMaxPassesPerFrame * kSamplesPerPass);
+                            frameSlot() * GpuTimingRecorder::kMaxPassesPerFrame * kTimestampSamplesPerPass);
         return m_commandList;
     }
 

@@ -41,6 +41,10 @@ namespace arc::rhi::metal
     // vertex buffer goes in the last of Metal's 31 buffer slots to stay clear of both.
     inline constexpr NSUInteger kVertexBufferIndex = 30;
 
+    /// Timestamps sampled per render pass for GPU timing: the start and end of its vertex and
+    /// fragment stages.
+    inline constexpr uint32_t kTimestampSamplesPerPass = 4;
+
     class MetalTexture final : public Texture
     {
     public:
@@ -253,9 +257,6 @@ namespace arc::rhi::metal
         [[nodiscard]] std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Sampler> createSamplerImpl(const SamplerDesc& desc) override;
 
-        /// Timestamps sampled per render pass: the start and end of its vertex and fragment stages.
-        static constexpr uint32_t kSamplesPerPass = 4;
-
     private:
         void startCapture();
         /// Leaves GPU timing unsupported, rather than failing, on GPUs that cannot sample timestamps
@@ -283,7 +284,7 @@ namespace arc::rhi::metal
         AdapterInfo m_adapterInfo;
         std::unique_ptr<UploadRing> m_uploadRing;
 
-        // kSamplesPerPass * GpuTimingRecorder::kMaxPassesPerFrame samples per frame slot.
+        // kTimestampSamplesPerPass * GpuTimingRecorder::kMaxPassesPerFrame samples per frame slot.
         id<MTLCounterSampleBuffer> m_timestampSamples = nil;
         std::array<uint32_t, kMaxFramesInFlight> m_timedPasses{};
         std::vector<int64_t> m_timestampsNs;

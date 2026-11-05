@@ -4,6 +4,8 @@
 #include <doctest/doctest.h>
 
 #include <array>
+// doctest prints a failed std::string_view comparison with operator<<, which MSVC only declares in <ostream>.
+#include <ostream>
 #include <string>
 #include <thread>
 #include <vector>

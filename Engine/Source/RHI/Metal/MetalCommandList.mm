@@ -87,7 +87,7 @@ namespace arc::rhi::metal
         m_timedPass = m_timing ? m_timing->beginPass(desc.debugName) : GpuTimingRecorder::kNoPass;
         if (m_timedPass != GpuTimingRecorder::kNoPass)
         {
-            const NSUInteger first = m_firstSample + MetalDevice::kSamplesPerPass * m_timedPass;
+            const NSUInteger first = m_firstSample + kTimestampSamplesPerPass * m_timedPass;
             MTLRenderPassSampleBufferAttachmentDescriptor* sampling = pass.sampleBufferAttachments[0];
             sampling.sampleBuffer = m_timestampSamples;
             sampling.startOfVertexSampleIndex = first;
