@@ -10,14 +10,14 @@ Status: **Done** (released or merged and working on both platforms), **In progre
 | [Rendering hardware interface](#rendering-hardware-interface) | 0.2.0 | Done |
 | [Meshes, textures, camera and viewport](#meshes-textures-camera-and-viewport) | 0.3.0 | Done |
 | [Engine architecture](#engine-architecture) | 0.4.0 | Done |
-| [Lighting and PBR](#lighting-and-pbr) | | In progress |
+| [Lighting and PBR](#lighting-and-pbr) | 0.5.0 | Done |
 | [Compute, threading and profiling](#compute-threading-and-profiling) | | Planned |
 | [Advanced rendering](#advanced-rendering) | | Planned |
 | [Visual effects](#visual-effects) | | Planned |
 | [Animation](#animation) | | Planned |
 | [Gameplay systems](#gameplay-systems) | | Planned |
 
-Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned as a second material model alongside PBR, chosen per material, so both styles can share a scene.
+Stylized rendering is a second material model alongside PBR, chosen per material, so both styles can share a scene: toon shading and outlines since 0.5.0, with ink, hatching and pixel art planned.
 
 ## Foundations
 
@@ -66,14 +66,14 @@ Stylized rendering (toon/cel shading, ink and hatching, pixel art) is planned as
 
 ## Lighting and PBR
 
-**In progress.**
+**Done (0.5.0).**
 
-- Directional, point and spot lights from a structured buffer; HDR rendering with tone mapping; Lambert, Phong and Blinn-Phong with energy-conserving normalisation and Schlick Fresnel. *(Done.)*
-- Cook-Torrance GGX with the glTF metallic-roughness model. *(Done.)*
-- Normal maps with MikkTSpace tangents, ambient occlusion and emissive. *(Done.)*
-- Image-based lighting: irradiance, prefiltered specular and a BRDF lookup table. *(Done.)*
-- Block-compressed textures (BC1 to BC7) cooked offline. *(Done.)*
-- **Stylized rendering, part 1:** toon/cel lighting (ramp textures, banded diffuse, hard specular, rim light) and inverted-hull outlines. *(In progress.)*
+- Directional, point and spot lights from a structured buffer; HDR rendering with tone mapping; Lambert, Phong and Blinn-Phong with energy-conserving normalisation and Schlick Fresnel.
+- Cook-Torrance GGX with the glTF metallic-roughness model.
+- Normal maps with MikkTSpace tangents, ambient occlusion and emissive.
+- Image-based lighting from HDR skies: irradiance, prefiltered specular and a BRDF lookup table.
+- Block-compressed textures (BC1, BC3, BC4, BC5, BC7) cooked offline.
+- **Stylized rendering, part 1:** toon/cel lighting (banded diffuse or a ramp texture, hard specular, rim light) and inverted-hull outlines, chosen per material and per object.
 
 ## Compute, threading and profiling
 

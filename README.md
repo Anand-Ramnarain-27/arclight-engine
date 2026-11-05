@@ -57,9 +57,9 @@ A personal project, started in 2026 alongside my MSc in Advanced Programming for
 | Normal maps (MikkTSpace), occlusion, emissive | Working | Working |
 | Image-based lighting from HDR skies | Working | Working |
 | Block-compressed textures (BC1, BC3, BC4, BC5, BC7) | Working | Working |
-| Toon shading and inverted-hull outlines | In progress | In progress |
-| Physically based lighting and shadows | Planned | Planned |
-| Stylized rendering (toon, ink, pixel art) | Planned | Planned |
+| Toon shading and inverted-hull outlines | Working | Working |
+| Shadows, deferred and Forward+ shading | Planned | Planned |
+| Ink, hatching and pixel-art rendering | Planned | Planned |
 
 ## Architecture
 
@@ -215,7 +215,7 @@ GitHub Actions runs two workflows:
 | ✔︎ | **Rendering hardware interface** (0.2.0): Direct3D 12 and Metal backends, shaders, pipelines, GPU capture |
 | ✔︎ | **Meshes, textures, camera and viewport** (0.3.0): textures, resource lifetimes, scene viewport, editor camera, glTF |
 | ✔︎ | **Engine architecture** (0.4.0): scene and Hierarchy/Inspector, picking and gizmos, render list, culling and levels of detail, virtual file system, asset pipeline, scene serialization |
-| In progress | **Lighting and PBR**: lights, tone mapping, physically based materials, image-based lighting |
+| ✔︎ | **Lighting and PBR** (0.5.0): lights, HDR and tone mapping, physically based materials, normal maps, image-based lighting, compressed textures, toon shading and outlines |
 | Planned | **Advanced rendering**: shadows, deferred and Forward+ shading, post-processing |
 | Planned | **Compute, VFX, animation and gameplay**: job system, Tracy profiling, particles, skinning, Jolt physics, navigation, audio |
 
