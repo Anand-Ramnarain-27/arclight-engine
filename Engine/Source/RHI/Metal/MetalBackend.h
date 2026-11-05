@@ -27,6 +27,8 @@
 
 #include <SDL3/SDL_metal.h>
 
+#include <array>
+#include <chrono>
 #include <vector>
 
 namespace arc::rhi::metal
@@ -127,8 +129,12 @@ namespace arc::rhi::metal
     class MetalCommandList final : public CommandList
     {
     public:
-        /// setConstants() allocates from the given region of `ring`.
-        void begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region);
+        /// setConstants() allocates from the given region of `ring`. With `timing`, each render pass
+        /// samples four timestamps (start and end of its vertex and fragment stages) into `samples`
+        /// from `firstSample` on.
+        void begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region,
+                   GpuTimingRecorder* timing = nullptr, id<MTLCounterSampleBuffer> samples = nil,
+                   uint32_t firstSample = 0);
 
         /// Returns the command buffer, ready to commit, and resets the list.
         [[nodiscard]] id<MTLCommandBuffer> finish();
@@ -184,6 +190,11 @@ namespace arc::rhi::metal
         // Debug groups pushed outside a pass go on the command buffer, inside a pass on the
         // encoder. true = pushed on the encoder.
         std::vector<bool> m_debugGroupOnEncoder;
+
+        GpuTimingRecorder* m_timing = nullptr;
+        id<MTLCounterSampleBuffer> m_timestampSamples = nil;
+        uint32_t m_firstSample = 0;
+        uint32_t m_timedPass = GpuTimingRecorder::kNoPass;
     };
 
     class MetalSwapchain final : public Swapchain
@@ -242,8 +253,21 @@ namespace arc::rhi::metal
         [[nodiscard]] std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Sampler> createSamplerImpl(const SamplerDesc& desc) override;
 
+        /// Timestamps sampled per render pass: the start and end of its vertex and fragment stages.
+        static constexpr uint32_t kSamplesPerPass = 4;
+
     private:
         void startCapture();
+        /// Leaves GPU timing unsupported, rather than failing, on GPUs that cannot sample timestamps
+        /// at the boundaries of a pass.
+        void createTimestampSampling();
+        /// Measures how many nanoseconds a GPU timestamp tick is, once enough time has passed since
+        /// createTimestampSampling() to measure it accurately.
+        void calibrateGpuClock();
+        /// Reads the timestamps of the frame that last used the current slot into the GPU timing recorder.
+        void resolveTimestamps();
+        [[nodiscard]] int64_t gpuClockNs() const;
+
         id<MTLDevice> m_device = nil;
         id<MTLCommandQueue> m_queue = nil;
 
@@ -258,5 +282,16 @@ namespace arc::rhi::metal
         MetalCommandList m_commandList;
         AdapterInfo m_adapterInfo;
         std::unique_ptr<UploadRing> m_uploadRing;
+
+        // kSamplesPerPass * GpuTimingRecorder::kMaxPassesPerFrame samples per frame slot.
+        id<MTLCounterSampleBuffer> m_timestampSamples = nil;
+        std::array<uint32_t, kMaxFramesInFlight> m_timedPasses{};
+        std::vector<int64_t> m_timestampsNs;
+        // Timestamps are in GPU ticks, nanoseconds on Apple silicon but not on every Mac GPU, so the
+        // tick length is measured against the CPU clock. Zero until measured; frames are not timed
+        // until then.
+        MTLTimestamp m_calibrationGpuTicks = 0;
+        std::chrono::steady_clock::time_point m_calibrationCpuTime;
+        double m_nsPerGpuTick = 0.0;
     };
 }

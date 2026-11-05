@@ -6,8 +6,10 @@
 
 #import <Foundation/Foundation.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <system_error>
+#include <utility>
 
 // The Objective-C runtime functions behind @autoreleasepool. A frame spans beginFrame() and
 // endFrame(), which a lexical @autoreleasepool block cannot, so the pool is pushed and popped
@@ -113,7 +115,118 @@ namespace arc::rhi::metal
         ARC_LOG_INFO("Metal API validation is controlled by the Xcode scheme, or MTL_DEBUG_LAYER=1 outside Xcode");
 
         m_uploadRing = std::make_unique<UploadRing>();
-        return m_uploadRing->init(*this, 2 * 1024 * 1024, "Upload Ring");
+        if (!m_uploadRing->init(*this, 2 * 1024 * 1024, "Upload Ring"))
+            return false;
+
+        createTimestampSampling();
+        return true;
+    }
+
+    void MetalDevice::createTimestampSampling()
+    {
+        GpuTimingRecorder& timing = gpuTimingRecorder();
+        id<MTLCounterSet> timestamps = nil;
+        if ([m_device supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary])
+            for (id<MTLCounterSet> counterSet in m_device.counterSets)
+                if ([counterSet.name isEqualToString:MTLCommonCounterSetTimestamp])
+                    timestamps = counterSet;
+        if (!timestamps)
+        {
+            ARC_LOG_WARN("'{}' cannot sample timestamps at render pass boundaries; GPU timing is off",
+                         m_device.name.UTF8String);
+            timing.init(Backend::Metal, false, 0);
+            return;
+        }
+
+        // Metal limits a sample buffer to 32 KB, which is 4096 timestamps; this needs 1024.
+        MTLCounterSampleBufferDescriptor* descriptor = [[MTLCounterSampleBufferDescriptor alloc] init];
+        descriptor.counterSet = timestamps;
+        descriptor.storageMode = MTLStorageModeShared;
+        descriptor.sampleCount = kMaxFramesInFlight * GpuTimingRecorder::kMaxPassesPerFrame * kSamplesPerPass;
+        descriptor.label = @"GPU Timestamps";
+        NSError* error = nil;
+        m_timestampSamples = [m_device newCounterSampleBufferWithDescriptor:descriptor error:&error];
+        if (!m_timestampSamples)
+        {
+            ARC_LOG_WARN("Creating the timestamp sample buffer failed ({}); GPU timing is off",
+                         error ? error.localizedDescription.UTF8String : "unknown error");
+            timing.init(Backend::Metal, false, 0);
+            return;
+        }
+
+        MTLTimestamp cpuTicks = 0;
+        [m_device sampleTimestamps:&cpuTicks gpuTimestamp:&m_calibrationGpuTicks];
+        m_calibrationCpuTime = std::chrono::steady_clock::now();
+        // Until calibrateGpuClock() has measured the tick, the clock reading assumes nanoseconds; Tracy
+        // is only synchronised after the measurement.
+        timing.init(Backend::Metal, true, static_cast<int64_t>(m_calibrationGpuTicks));
+    }
+
+    void MetalDevice::calibrateGpuClock()
+    {
+        if (m_nsPerGpuTick > 0.0 || !m_timestampSamples)
+            return;
+
+        // Over a quarter of a second, the error of the two readings is well under 0.1 %.
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsedNs = std::chrono::duration<double, std::nano>(now - m_calibrationCpuTime).count();
+        if (elapsedNs < 250e6)
+            return;
+
+        MTLTimestamp cpuTicks = 0;
+        MTLTimestamp gpuTicks = 0;
+        [m_device sampleTimestamps:&cpuTicks gpuTimestamp:&gpuTicks];
+        const double cpuElapsedNs =
+            std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - m_calibrationCpuTime).count();
+        if (gpuTicks <= m_calibrationGpuTicks)
+            return;
+        m_nsPerGpuTick = cpuElapsedNs / static_cast<double>(gpuTicks - m_calibrationGpuTicks);
+        ARC_LOG_TRACE("GPU timestamp tick measured at {:.4f} ns", m_nsPerGpuTick);
+    }
+
+    int64_t MetalDevice::gpuClockNs() const
+    {
+        MTLTimestamp cpuTicks = 0;
+        MTLTimestamp gpuTicks = 0;
+        [m_device sampleTimestamps:&cpuTicks gpuTimestamp:&gpuTicks];
+        return static_cast<int64_t>(static_cast<double>(gpuTicks) * m_nsPerGpuTick);
+    }
+
+    void MetalDevice::resolveTimestamps()
+    {
+        const uint32_t slot = frameSlot();
+        const uint32_t passes = std::exchange(m_timedPasses[slot], 0u);
+        if (passes == 0)
+            return;
+
+        const NSRange range = NSMakeRange(slot * GpuTimingRecorder::kMaxPassesPerFrame * kSamplesPerPass,
+                                          passes * kSamplesPerPass);
+        NSData* data = [m_timestampSamples resolveCounterRange:range];
+        const auto* samples = data && data.length >= range.length * sizeof(MTLCounterResultTimestamp)
+                                  ? static_cast<const MTLCounterResultTimestamp*>(data.bytes)
+                                  : nullptr;
+
+        const auto toNs = [this](MTLTimestamp ticks) -> int64_t {
+            if (ticks == 0 || ticks == MTLCounterErrorValue)
+                return 0;
+            return static_cast<int64_t>(static_cast<double>(ticks) * m_nsPerGpuTick);
+        };
+        m_timestampsNs.assign(passes * 2, 0);
+        for (uint32_t pass = 0; samples && pass < passes; ++pass)
+        {
+            const MTLCounterResultTimestamp* sample = samples + pass * kSamplesPerPass;
+            // The earliest stage start and the latest stage end; a stage that did not run has no sample.
+            const int64_t vertexStart = toNs(sample[0].timestamp);
+            const int64_t vertexEnd = toNs(sample[1].timestamp);
+            const int64_t fragmentStart = toNs(sample[2].timestamp);
+            const int64_t fragmentEnd = toNs(sample[3].timestamp);
+            int64_t start = vertexStart != 0 ? vertexStart : fragmentStart;
+            if (fragmentStart != 0)
+                start = std::min(start, fragmentStart);
+            m_timestampsNs[2 * pass] = start;
+            m_timestampsNs[2 * pass + 1] = std::max(vertexEnd, fragmentEnd);
+        }
+        gpuTimingRecorder().resolve(slot, m_timestampsNs);
     }
 
     std::unique_ptr<Buffer> MetalDevice::createBufferImpl(const BufferDesc& desc)
@@ -405,6 +518,13 @@ namespace arc::rhi::metal
         dispatch_semaphore_wait(m_frameSemaphore, DISPATCH_TIME_FOREVER);
         m_frameAutoreleasePool = objc_autoreleasePoolPush();
 
+        // The wait above means the frame that last used this slot has completed, so its samples are written.
+        resolveTimestamps();
+        calibrateGpuClock();
+        GpuTimingRecorder& timing = gpuTimingRecorder();
+        if (m_nsPerGpuTick > 0.0 && timing.startTracySession())
+            timing.syncClock(gpuClockNs());
+
         if (m_captureRequested)
         {
             m_captureRequested = false;
@@ -417,12 +537,20 @@ namespace arc::rhi::metal
         // The semaphore wait above means the frame that last used this slot has completed: a queue
         // finishes command buffers in commit order.
         m_uploadRing->reset(frameSlot());
-        m_commandList.begin(commandBuffer, *m_uploadRing, frameSlot());
+        // Frames recorded before the tick is measured are not timed, as their samples could not be converted.
+        const bool timed = m_nsPerGpuTick > 0.0;
+        if (timed)
+            timing.beginFrame(frameSlot(), frameNumber());
+        m_commandList.begin(commandBuffer, *m_uploadRing, frameSlot(), timed ? &timing : nullptr,
+                            timed ? m_timestampSamples : nil,
+                            frameSlot() * GpuTimingRecorder::kMaxPassesPerFrame * kSamplesPerPass);
         return m_commandList;
     }
 
     void MetalDevice::endFrame(Swapchain& swapchain)
     {
+        if (m_nsPerGpuTick > 0.0)
+            m_timedPasses[frameSlot()] = gpuTimingRecorder().endFrame();
         id<MTLCommandBuffer> commandBuffer = m_commandList.finish();
         m_commandList.decayBufferStates();
 

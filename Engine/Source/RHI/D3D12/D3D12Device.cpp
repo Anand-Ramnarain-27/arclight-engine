@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <system_error>
+#include <utility>
 
 namespace arc::rhi::d3d12
 {
@@ -63,6 +64,7 @@ namespace arc::rhi::d3d12
         if (m_device)
             waitIdle();
         m_uploadRing.reset();
+        m_timestampReadback.reset();
         m_deferredRelease.releaseAll();
 
         if (m_fenceEvent)
@@ -78,6 +80,7 @@ namespace arc::rhi::d3d12
         m_commandList.release();
         m_immediateList.release();
         m_immediateAllocator.Reset();
+        m_timestampHeap.Reset();
         m_rootSignature.Reset();
         m_shaderVisibleSamplerHeap.release();
         m_shaderVisibleSrvHeap.release();
@@ -184,6 +187,8 @@ namespace arc::rhi::d3d12
         if (!m_uploadRing->init(*this, 2 * 1024 * 1024, "Upload Ring"))
             return false;
 
+        createTimestampQueries();
+
         if (!succeeded(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_immediateAllocator)),
                        "CreateCommandAllocator"))
             return false;
@@ -191,6 +196,66 @@ namespace arc::rhi::d3d12
 
         return m_commandList.init(*this, m_frames[0].allocator.Get(), "Frame Command List") &&
                m_immediateList.init(*this, m_immediateAllocator.Get(), "Immediate Command List");
+    }
+
+    void D3D12Device::createTimestampQueries()
+    {
+        GpuTimingRecorder& timing = gpuTimingRecorder();
+        if (FAILED(m_queue->GetTimestampFrequency(&m_timestampFrequency)) || m_timestampFrequency == 0)
+        {
+            ARC_LOG_WARN("The direct queue reports no timestamp frequency; GPU timing is off");
+            timing.init(Backend::D3D12, false, 0);
+            return;
+        }
+
+        const uint32_t count = kMaxFramesInFlight * GpuTimingRecorder::kTimestampsPerFrame;
+        D3D12_QUERY_HEAP_DESC heapDesc{};
+        heapDesc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        heapDesc.Count = count;
+        if (!succeeded(m_device->CreateQueryHeap(&heapDesc, IID_PPV_ARGS(&m_timestampHeap)), "CreateQueryHeap"))
+        {
+            timing.init(Backend::D3D12, false, 0);
+            return;
+        }
+        setDebugName(m_timestampHeap.Get(), "GPU Timestamps");
+
+        m_timestampReadback = createBuffer({
+            .size = count * sizeof(uint64_t),
+            .memory = MemoryType::Readback,
+            .debugName = "GPU Timestamp Readback",
+        });
+        if (!m_timestampReadback)
+        {
+            m_timestampHeap.Reset();
+            timing.init(Backend::D3D12, false, 0);
+            return;
+        }
+        timing.init(Backend::D3D12, true, gpuClockNs());
+    }
+
+    int64_t D3D12Device::gpuClockNs() const
+    {
+        UINT64 gpuTicks = 0;
+        UINT64 cpuTicks = 0;
+        if (FAILED(m_queue->GetClockCalibration(&gpuTicks, &cpuTicks)))
+            return 0;
+        return ticksToNanoseconds(gpuTicks, m_timestampFrequency);
+    }
+
+    void D3D12Device::resolveTimestamps()
+    {
+        const uint32_t slot = frameSlot();
+        const uint32_t passes = std::exchange(m_timedPasses[slot], 0u);
+        if (passes == 0)
+            return;
+
+        // The frame's fence has passed, so ResolveQueryData has written this part of the buffer.
+        const auto* ticks = static_cast<const uint64_t*>(m_timestampReadback->mappedData()) +
+                            slot * GpuTimingRecorder::kTimestampsPerFrame;
+        m_timestampsNs.resize(passes * 2);
+        for (uint32_t i = 0; i < passes * 2; ++i)
+            m_timestampsNs[i] = ticks[i] != 0 ? ticksToNanoseconds(ticks[i], m_timestampFrequency) : 0;
+        gpuTimingRecorder().resolve(slot, m_timestampsNs);
     }
 
     void D3D12Device::loadPixCapturer()
@@ -804,12 +869,19 @@ namespace arc::rhi::d3d12
         m_deferredRelease.release(m_fence->GetCompletedValue());
         m_frameOpen = true;
 
+        resolveTimestamps();
+        GpuTimingRecorder& timing = gpuTimingRecorder();
+        if (timing.startTracySession())
+            timing.syncClock(gpuClockNs());
+        timing.beginFrame(frameSlot(), frameNumber());
+
         m_shaderVisibleSrvHeap.resetTransient(frameSlot());
         m_shaderVisibleSamplerHeap.resetTransient(frameSlot());
         m_uploadRing->reset(frameSlot());
 
         ARC_VERIFY(SUCCEEDED(frame.allocator->Reset()));
-        m_commandList.begin(frame.allocator.Get(), frameSlot());
+        m_commandList.begin(frame.allocator.Get(), frameSlot(), &timing, m_timestampHeap.Get(),
+                            frameSlot() * GpuTimingRecorder::kTimestampsPerFrame);
         return m_commandList;
     }
 
@@ -819,6 +891,17 @@ namespace arc::rhi::d3d12
 
         if (D3D12Texture* backbuffer = d3dSwapchain.acquiredBackbuffer())
             m_commandList.barrier(*backbuffer, ResourceState::Present);
+
+        const uint32_t timedPasses = gpuTimingRecorder().endFrame();
+        m_timedPasses[frameSlot()] = timedPasses;
+        if (timedPasses > 0)
+        {
+            const uint32_t first = frameSlot() * GpuTimingRecorder::kTimestampsPerFrame;
+            m_commandList.native()->ResolveQueryData(m_timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, first,
+                                                     timedPasses * 2,
+                                                     static_cast<D3D12Buffer&>(*m_timestampReadback).resource(),
+                                                     first * sizeof(uint64_t));
+        }
 
         if (m_commandList.close())
         {

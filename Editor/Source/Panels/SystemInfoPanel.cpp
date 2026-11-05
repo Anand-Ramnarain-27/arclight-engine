@@ -78,6 +78,7 @@ namespace arc
             if (!adapter.driver.empty())
                 row("Driver", adapter.driver);
             row("Frames in flight", std::format("{}", rhi::kMaxFramesInFlight));
+            row("GPU timestamps", m_app.renderer().device().gpuTimingSupported() ? "per render pass" : "not supported");
             const std::string_view captureTool = m_app.renderer().device().gpuCaptureTool();
             row("GPU capture", captureTool.empty() ? std::string("none attached") : std::string(captureTool));
 

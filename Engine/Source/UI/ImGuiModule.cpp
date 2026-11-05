@@ -2,6 +2,7 @@
 
 #include "Application/Application.h"
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "RHI/Device.h"
 #include "UI/ImGuiRenderBackend.h"
 
@@ -77,6 +78,7 @@ namespace arc
 
     void ImGuiModule::update(const FrameTime& /*time*/)
     {
+        ARC_PROFILE_SCOPE("ImGui new frame");
         m_renderBackend->newFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -88,6 +90,7 @@ namespace arc
 
     void ImGuiModule::postRender()
     {
+        ARC_PROFILE_SCOPE("ImGui render");
         if (!m_frameStarted)
             return;
         m_frameStarted = false;

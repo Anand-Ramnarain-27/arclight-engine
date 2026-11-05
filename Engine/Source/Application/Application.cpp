@@ -2,6 +2,7 @@
 
 #include "Core/Assert.h"
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 
 #include <SDL3/SDL.h>
 
@@ -38,13 +39,19 @@ namespace arc
 
         while (!m_quitRequested)
         {
+            // Outside every zone: a frame in the profiler runs from here to here.
+            profiler::frameMark();
+
             if (!m_minimized)
                 m_renderer->waitUntilReady();
 
             const Clock::time_point frameStart = Clock::now();
 
             m_input.beginFrame();
-            pumpEvents();
+            {
+                ARC_PROFILE_SCOPE("Events");
+                pumpEvents();
+            }
 
             if (m_minimized)
             {
@@ -75,16 +82,44 @@ namespace arc
         m_frameTime = m_gameClock.tick(realDelta);
         m_frameStats.addFrame(m_frameTime.realDelta * 1000.0f);
 
-        for (auto& module : m_modules) module->update(m_frameTime);
-        for (auto& module : m_modules) module->preRender();
+        {
+            ARC_PROFILE_SCOPE("Update");
+            for (auto& module : m_modules)
+            {
+                ARC_PROFILE_SCOPE_NAMED("Module update", module->name());
+                module->update(m_frameTime);
+            }
+        }
+        {
+            ARC_PROFILE_SCOPE("Pre-render");
+            for (auto& module : m_modules)
+            {
+                ARC_PROFILE_SCOPE_NAMED("Module pre-render", module->name());
+                module->preRender();
+            }
+        }
 
         // render() and postRender() run even when no frame could begin, so modules with
         // per-frame bookkeeping (ImGui must end every frame it starts) stay balanced.
         const bool frameActive = m_renderer->beginFrame();
-        for (auto& module : m_modules) module->render();
-        if (frameActive)
-            m_renderer->finishScene();
-        for (auto& module : m_modules) module->postRender();
+        {
+            ARC_PROFILE_SCOPE("Render");
+            for (auto& module : m_modules)
+            {
+                ARC_PROFILE_SCOPE_NAMED("Module render", module->name());
+                module->render();
+            }
+            if (frameActive)
+                m_renderer->finishScene();
+        }
+        {
+            ARC_PROFILE_SCOPE("Post-render");
+            for (auto& module : m_modules)
+            {
+                ARC_PROFILE_SCOPE_NAMED("Module post-render", module->name());
+                module->postRender();
+            }
+        }
         if (frameActive)
             m_renderer->endFrame();
     }
@@ -99,6 +134,8 @@ namespace arc
         if (remaining <= Clock::duration::zero())
             return;
 
+        ARC_PROFILE_SCOPE("Frame limiter");
+
         // A plain OS sleep can overshoot by several milliseconds (Windows timer granularity).
         // SDL_DelayPrecise sleeps for most of the interval and spins for the remainder.
         const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count();
@@ -107,6 +144,9 @@ namespace arc
 
     bool Application::init()
     {
+        profiler::setMainThread();
+        m_profilerLogSink = log::addSink([](const log::Record& record) { profiler::message(record.level, record.message); });
+
         const int sdlVersion = SDL_GetVersion();
         ARC_LOG_INFO("Arclight starting (SDL {}.{}.{})", SDL_VERSIONNUM_MAJOR(sdlVersion),
                      SDL_VERSIONNUM_MINOR(sdlVersion), SDL_VERSIONNUM_MICRO(sdlVersion));
@@ -146,6 +186,12 @@ namespace arc
 
     void Application::shutdown()
     {
+        if (m_profilerLogSink != 0)
+        {
+            log::removeSink(m_profilerLogSink);
+            m_profilerLogSink = 0;
+        }
+
         // Modules may own GPU resources that in-flight frames still reference.
         if (m_renderer)
             m_renderer->waitIdle();

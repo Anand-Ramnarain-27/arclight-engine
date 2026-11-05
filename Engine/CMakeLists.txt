@@ -9,6 +9,8 @@ add_library(ArclightEngine STATIC
     Source/Core/Assert.cpp
     Source/Core/Log.h
     Source/Core/Log.cpp
+    Source/Core/Profiler.h
+    Source/Core/Profiler.cpp
     Source/Core/Time.h
     Source/Core/Time.cpp
     Source/Math/Math.h
@@ -47,6 +49,8 @@ add_library(ArclightEngine STATIC
     Source/RHI/ShaderUtils.h
     Source/RHI/ShaderUtils.cpp
     Source/RHI/DeferredRelease.h
+    Source/RHI/GpuTiming.h
+    Source/RHI/GpuTiming.cpp
     Source/RHI/BufferUtils.h
     Source/RHI/BufferUtils.cpp
     Source/RHI/UploadRing.h
@@ -191,6 +195,14 @@ target_compile_definitions(ArclightEngine PUBLIC ARCLIGHT_VERSION="${PROJECT_VER
 # PRIVATE: no engine header includes SDL, ImGui or a graphics API header, so none of them
 # leak to engine users through the engine.
 target_link_libraries(ArclightEngine PRIVATE SDL3::SDL3-static imgui stb_image tinygltf meshoptimizer mikktspace bc7enc)
+
+# Only engine .cpp files include Tracy's header; Core/Profiler.h is the engine's interface to it.
+if(ARCLIGHT_TRACY)
+    target_link_libraries(ArclightEngine PRIVATE TracyClient)
+    target_compile_definitions(ArclightEngine PRIVATE ARC_TRACY=1)
+else()
+    target_compile_definitions(ArclightEngine PRIVATE ARC_TRACY=0)
+endif()
 
 arclight_set_warnings(ArclightEngine)
 

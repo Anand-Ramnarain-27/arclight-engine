@@ -1,6 +1,7 @@
 #include "Renderer/GltfImporter.h"
 
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "Platform/FileSystem.h"
 #include "Renderer/TangentGenerator.h"
 
@@ -835,6 +836,7 @@ namespace arc
 
     std::optional<ModelData> importGltf(const std::string& path)
     {
+        ARC_PROFILE_SCOPE("Import glTF");
         const std::optional<std::vector<std::byte>> file = readFile(path);
         if (!file)
         {

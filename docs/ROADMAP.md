@@ -11,7 +11,7 @@ Status: **Done** (released or merged and working on both platforms), **In progre
 | [Meshes, textures, camera and viewport](#meshes-textures-camera-and-viewport) | 0.3.0 | Done |
 | [Engine architecture](#engine-architecture) | 0.4.0 | Done |
 | [Lighting and PBR](#lighting-and-pbr) | 0.5.0 | Done |
-| [Compute, threading and profiling](#compute-threading-and-profiling) | | Planned |
+| [Compute, threading and profiling](#compute-threading-and-profiling) | | In progress |
 | [Advanced rendering](#advanced-rendering) | | Planned |
 | [Visual effects](#visual-effects) | | Planned |
 | [Animation](#animation) | | Planned |
@@ -77,11 +77,13 @@ Stylized rendering is a second material model alongside PBR, chosen per material
 
 ## Compute, threading and profiling
 
-**Planned.**
+**In progress.** Profiling comes first, so the work after it can be measured.
 
+- Profiling: Tracy zones, frame marks, plots and log messages; GPU timestamps for every render pass on both backends, also sent to Tracy; an in-editor Profiler panel.
 - Compute shaders and unordered-access resources on both backends.
-- Job system with a thread pool, and game/render thread synchronisation.
-- Profiling with Tracy and GPU timestamps.
+- Job system with a thread pool.
+- Asynchronous asset loading.
+- Game/render thread synchronisation.
 
 ## Advanced rendering
 

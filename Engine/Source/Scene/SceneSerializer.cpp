@@ -1,6 +1,7 @@
 #include "Scene/SceneSerializer.h"
 
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "Scene/ComponentDataStorage.h"
 #include "Scene/ComponentRegistry.h"
 #include "Scene/Scene.h"
@@ -234,6 +235,7 @@ namespace arc
 
     std::string writeScene(const Scene& scene)
     {
+        ARC_PROFILE_SCOPE("Write scene");
         Json objects = Json::array();
         for (const GameObject* root : scene.roots())
             writeObject(objects, *root, nullptr);
@@ -249,6 +251,7 @@ namespace arc
 
     bool readScene(Scene& scene, std::string_view json, const SceneLoadOptions& options, std::string* error)
     {
+        ARC_PROFILE_SCOPE("Read scene");
         std::vector<ParsedObject> objects;
         if (!parse(json, kSceneFormat, objects, error))
             return false;

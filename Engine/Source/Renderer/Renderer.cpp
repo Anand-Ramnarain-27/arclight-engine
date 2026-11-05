@@ -2,6 +2,7 @@
 
 #include "Core/Assert.h"
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "Platform/Window.h"
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
@@ -88,11 +89,13 @@ namespace arc
 
     void Renderer::waitUntilReady()
     {
+        ARC_PROFILE_SCOPE("Wait for swapchain");
         m_swapchain->waitUntilReady();
     }
 
     bool Renderer::beginFrame()
     {
+        ARC_PROFILE_SCOPE("Begin GPU frame");
         ARC_ASSERT(!isFrameActive());
 
         if (m_pendingSize)
@@ -112,7 +115,17 @@ namespace arc
         if (size.width == 0 || size.height == 0)
             return false;
 
-        m_commandList = &m_device->beginFrame(*m_swapchain);
+        {
+            // Blocks until the GPU has finished the frame that last used this frame slot.
+            ARC_PROFILE_SCOPE("Wait for GPU");
+            m_commandList = &m_device->beginFrame(*m_swapchain);
+        }
+        const rhi::GpuFrameTimings& gpu = m_device->gpuTimings();
+        if (gpu.valid && gpu.frameNumber != m_plottedGpuFrame)
+        {
+            profiler::plot("GPU frame (ms)", gpu.frameMs);
+            m_plottedGpuFrame = gpu.frameNumber;
+        }
         // beginFrame() has waited for the oldest frame in flight, so its freed ranges can be reused.
         m_geometry->collect(m_device->frameNumber());
         m_backbufferCleared = false;
@@ -123,6 +136,7 @@ namespace arc
 
     void Renderer::endFrame()
     {
+        ARC_PROFILE_SCOPE("Submit and present");
         ARC_ASSERT(isFrameActive());
 
         if (!m_backbufferCleared && beginBackbufferPass("Clear"))
@@ -192,6 +206,7 @@ namespace arc
         if (!m_sceneCleared && beginScenePass("Clear Scene"))
             endScenePass();
 
+        ARC_PROFILE_SCOPE("Tone map");
         rhi::CommandList& list = commandList();
         list.barrier(*m_sceneTarget, rhi::ResourceState::ShaderRead);
         rhi::RenderPassDesc pass;

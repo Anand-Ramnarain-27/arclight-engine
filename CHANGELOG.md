@@ -5,6 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+Phase 5: compute, threading and profiling.
+
+### Added
+
+#### Profiling
+- [Tracy](https://github.com/wolfpld/tracy) 0.14.1, built into the engine on demand and listening on localhost only (`ARCLIGHT_TRACY`, on by default): nothing is collected until a Tracy profiler of the same version connects.
+- `Core/Profiler.h`: `ARC_PROFILE_SCOPE`, `ARC_PROFILE_FUNCTION` and `ARC_PROFILE_SCOPE_NAMED` zones, frame marks, plots and thread names, without Tracy's headers in the engine's public headers. Every log message also goes to Tracy's message list, with its severity.
+- The main thread's zones are also kept per frame for the editor, so the frame can be broken down without Tracy (`profiler::lastCpuFrame()`).
+- Zones around the main loop (events, each module's update, pre-render, render and post-render, waiting for the GPU and the swapchain, submit and present, the frame limiter) and the costly engine work: culling, render list sorting, draw recording, glTF import, LOD and tangent generation, texture encoding, asset cooking and loading, scene reading and writing, environment baking and raycasts.
+- GPU timestamps for every render pass of a frame, named by its debug name (`RHI/GpuTiming`, `Device::gpuTimings()`): a timestamp query heap resolved into a readback buffer on Direct3D 12; a counter sample buffer sampled at the start and end of each pass's vertex and fragment stages on Metal, whose tick is measured against the CPU clock. Results arrive two frames later, when the frame's slot comes round again. In Tracy they are zones of a GPU context, resynchronised with the CPU clock whenever a profiler connects.
+- Editor: a *Profiler* panel with CPU and GPU frame-time graphs, the main thread's zones as a tree (average, maximum and calls per frame, share of the frame), each render pass's GPU time, a timeline of the newest GPU frame, a GPU timing switch and Tracy's connection state. *System Info* shows whether the GPU supports timestamps.
+- Unit tests for the zone recorder, GPU timestamp conversion and the pass timing bookkeeping.
+
 ## [0.5.0] - 2026-11-05
 
 Phase 4: lighting and PBR.

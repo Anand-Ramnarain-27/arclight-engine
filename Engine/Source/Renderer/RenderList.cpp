@@ -1,5 +1,6 @@
 #include "Renderer/RenderList.h"
 
+#include "Core/Profiler.h"
 #include "Renderer/Model.h"
 
 #include <algorithm>
@@ -94,6 +95,7 @@ namespace arc
 
     void RenderList::sort(const Vec3& cameraPosition, const Vec3& cameraForward, bool sortOpaque)
     {
+        ARC_PROFILE_SCOPE("Sort render list");
         const auto computeDepth = [&](RenderItem& item) {
             const Primitive& primitive = item.model->primitives()[item.primitive];
             const Vec3 centre = m_transforms[item.transform].world.transformPoint(primitive.bounds.center());

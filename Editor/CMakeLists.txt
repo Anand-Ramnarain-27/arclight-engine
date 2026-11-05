@@ -21,6 +21,8 @@ add_executable(Arclight
     Source/Panels/PerformancePanel.cpp
     Source/Panels/PlaybackPanel.h
     Source/Panels/PlaybackPanel.cpp
+    Source/Panels/ProfilerPanel.h
+    Source/Panels/ProfilerPanel.cpp
     Source/Panels/ScenePanel.h
     Source/Panels/ScenePanel.cpp
     Source/Panels/SystemInfoPanel.h

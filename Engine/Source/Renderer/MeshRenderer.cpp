@@ -1,6 +1,7 @@
 #include "Renderer/MeshRenderer.h"
 
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "RHI/Buffer.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
@@ -279,6 +280,7 @@ namespace arc
 
     RenderStats MeshRenderer::draw(Renderer& renderer, const RenderList& list, Queue queue, DebugView debugView)
     {
+        ARC_PROFILE_SCOPE("Record mesh draws");
         RenderStats stats;
         rhi::CommandList& commandList = renderer.commandList();
         const bool reversedZ = renderer.sceneCamera().reversedZ;
@@ -437,6 +439,7 @@ namespace arc
 
     RenderStats MeshRenderer::drawOutlines(Renderer& renderer, const RenderList& list)
     {
+        ARC_PROFILE_SCOPE("Record outlines");
         RenderStats stats;
         rhi::CommandList& commandList = renderer.commandList();
         const bool reversedZ = renderer.sceneCamera().reversedZ;

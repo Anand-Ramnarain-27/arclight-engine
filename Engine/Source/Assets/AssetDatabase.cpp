@@ -3,6 +3,7 @@
 #include "Assets/AssetImporters.h"
 #include "Core/Hash.h"
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "Core/Time.h"
 #include "Platform/FileSystem.h"
 #include "Platform/VirtualFileSystem.h"
@@ -55,6 +56,7 @@ namespace arc
 
     size_t AssetDatabase::refresh()
     {
+        ARC_PROFILE_SCOPE("Scan assets");
         const Stopwatch timer;
 
         // Assets registered from outside the root are kept: the scan would not find them again.
@@ -305,6 +307,7 @@ namespace arc
 
     std::optional<std::vector<std::byte>> AssetDatabase::cooked(AssetRecord& record, bool force)
     {
+        ARC_PROFILE_SCOPE("Read or cook asset");
         const std::optional<SourceFingerprint> source = fingerprint(record);
         if (!source)
         {
@@ -395,6 +398,7 @@ namespace arc
 
     std::optional<ModelData> AssetDatabase::loadModel(AssetId id)
     {
+        ARC_PROFILE_SCOPE("Load cooked model");
         AssetRecord* record = findRecord(id);
         if (!record || record->meta.type != AssetType::Model)
             return std::nullopt;
@@ -414,6 +418,7 @@ namespace arc
 
     std::optional<CookedTexture> AssetDatabase::loadTexture(AssetId id)
     {
+        ARC_PROFILE_SCOPE("Load cooked texture");
         AssetRecord* record = findRecord(id);
         if (!record || record->meta.type != AssetType::Texture)
             return std::nullopt;

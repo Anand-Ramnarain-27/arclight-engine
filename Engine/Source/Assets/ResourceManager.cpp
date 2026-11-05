@@ -2,6 +2,7 @@
 
 #include "Assets/AssetDatabase.h"
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "Core/Time.h"
 #include "RHI/Texture.h"
 #include "Renderer/Model.h"
@@ -28,6 +29,7 @@ namespace arc
 
     std::shared_ptr<const Model> ResourceManager::loadModel(AssetId asset)
     {
+        ARC_PROFILE_SCOPE("Load model");
         if (const auto cached = m_models.find(asset); cached != m_models.end())
             if (std::shared_ptr<const Model> model = cached->second.lock())
                 return model;
@@ -66,6 +68,7 @@ namespace arc
 
     std::shared_ptr<const TextureAsset> ResourceManager::loadTexture(AssetId asset)
     {
+        ARC_PROFILE_SCOPE("Load texture");
         if (const auto cached = m_textures.find(asset); cached != m_textures.end())
             if (std::shared_ptr<const TextureAsset> texture = cached->second.lock())
                 return texture;

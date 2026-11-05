@@ -167,5 +167,6 @@ namespace arc
         Camera m_sceneCamera;
         bool m_sceneCleared = false;
         bool m_sceneResolved = false;
+        uint64_t m_plottedGpuFrame = ~0ull;
     };
 }

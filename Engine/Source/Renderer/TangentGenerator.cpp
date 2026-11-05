@@ -1,5 +1,7 @@
 #include "Renderer/TangentGenerator.h"
 
+#include "Core/Profiler.h"
+
 #include <meshoptimizer.h>
 #include <mikktspace.h>
 
@@ -31,6 +33,7 @@ namespace arc
 
     void generateTangents(std::vector<MeshVertex>& vertices, std::vector<uint32_t>& indices)
     {
+        ARC_PROFILE_SCOPE("Generate tangents");
         if (indices.size() < 3)
         {
             fillDefaultTangents(vertices);

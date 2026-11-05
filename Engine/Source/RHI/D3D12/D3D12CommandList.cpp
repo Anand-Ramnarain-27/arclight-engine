@@ -60,10 +60,14 @@ namespace arc::rhi::d3d12
         return close();
     }
 
-    void D3D12CommandList::begin(ID3D12CommandAllocator* allocator, uint32_t transientRegion)
+    void D3D12CommandList::begin(ID3D12CommandAllocator* allocator, uint32_t transientRegion, GpuTimingRecorder* timing,
+                                 ID3D12QueryHeap* timestampHeap, uint32_t firstTimestamp)
     {
         ARC_VERIFY(SUCCEEDED(m_list->Reset(allocator, nullptr)));
         m_transientRegion = transientRegion;
+        m_timing = timestampHeap ? timing : nullptr;
+        m_timestampHeap = timestampHeap;
+        m_firstTimestamp = firstTimestamp;
 
         // Set once per command list: changing heaps mid-list can stall the GPU on some hardware,
         // which is why everything shaders read lives in these two heaps.
@@ -370,6 +374,11 @@ namespace arc::rhi::d3d12
         if (m_passHasDebugGroup)
             beginEvent(m_list.Get(), desc.debugName);
 
+        // After the barriers, so the pass's time is its own work, clears included.
+        m_timedPass = m_timing ? m_timing->beginPass(desc.debugName) : GpuTimingRecorder::kNoPass;
+        if (m_timedPass != GpuTimingRecorder::kNoPass)
+            m_list->EndQuery(m_timestampHeap, D3D12_QUERY_TYPE_TIMESTAMP, m_firstTimestamp + 2 * m_timedPass);
+
         const D3D12_CPU_DESCRIPTOR_HANDLE rtv = target.rtvFor(desc.color.mipLevel, desc.color.arrayLayer);
         m_list->OMSetRenderTargets(1, &rtv, FALSE, depth ? &depth->dsv : nullptr);
 
@@ -401,6 +410,13 @@ namespace arc::rhi::d3d12
         ARC_ASSERT(m_inRenderPass);
         m_inRenderPass = false;
         m_pipeline = nullptr;
+
+        if (m_timedPass != GpuTimingRecorder::kNoPass)
+        {
+            m_list->EndQuery(m_timestampHeap, D3D12_QUERY_TYPE_TIMESTAMP, m_firstTimestamp + 2 * m_timedPass + 1);
+            m_timing->endPass(m_timedPass);
+            m_timedPass = GpuTimingRecorder::kNoPass;
+        }
 
         if (m_passHasDebugGroup)
             m_list->EndEvent();

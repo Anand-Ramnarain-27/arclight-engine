@@ -1,6 +1,7 @@
 #include "Renderer/Skybox.h"
 
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "Platform/FileSystem.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
@@ -195,6 +196,7 @@ namespace arc
 
     bool Skybox::loadEquirect(Renderer& renderer, const std::string& path)
     {
+        ARC_PROFILE_SCOPE("Load HDR sky");
         HdrImage image = loadHdrImage(path);
         if (image.empty())
             return false;
@@ -229,6 +231,7 @@ namespace arc
 
     bool Skybox::loadFaces(Renderer& renderer, const std::string& folder)
     {
+        ARC_PROFILE_SCOPE("Load sky faces");
         std::array<Image, 6> faces;
         for (size_t face = 0; face < faces.size(); ++face)
         {
@@ -266,6 +269,7 @@ namespace arc
 
     void Skybox::draw(Renderer& renderer)
     {
+        ARC_PROFILE_SCOPE("Record sky");
         const Camera& camera = renderer.sceneCamera();
         rhi::Pipeline* pipeline = m_pipelines[camera.reversedZ].get();
         rhi::Texture* radiance = m_environment.radiance();

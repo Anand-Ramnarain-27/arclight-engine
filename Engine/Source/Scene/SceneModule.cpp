@@ -4,6 +4,7 @@
 #include "Core/Log.h"
 #include "Assets/AssetModule.h"
 #include "Assets/ResourceManager.h"
+#include "Core/Profiler.h"
 #include "Platform/FileSystem.h"
 #include "Scene/SceneSerializer.h"
 #include "Renderer/Model.h"
@@ -43,6 +44,7 @@ namespace arc
 
     void SceneModule::update(const FrameTime& time)
     {
+        ARC_PROFILE_SCOPE("Scene update");
         m_scene->update(time);
     }
 
@@ -174,16 +176,22 @@ namespace arc
         };
 
         m_renderList.clear();
-        cullAndCollect(m_cullCamera.frustum(m_cullAspect), lods);
+        {
+            ARC_PROFILE_SCOPE("Cull and collect");
+            cullAndCollect(m_cullCamera.frustum(m_cullAspect), lods);
+        }
         m_renderList.sort(camera.position, camera.forward(), sortDraws);
 
-        m_lights.clear();
-        m_sceneLightCount = collectLights(*m_scene, m_lights);
-        m_usedDefaultLight = m_sceneLightCount == 0 && lighting.defaultLight;
-        if (m_usedDefaultLight)
-            m_lights.push_back(defaultSunLight());
-        const EnvironmentLighting environment = m_skybox.environmentLighting();
-        m_meshRenderer.setLighting(renderer, m_lights, lighting, &environment);
+        {
+            ARC_PROFILE_SCOPE("Collect lights");
+            m_lights.clear();
+            m_sceneLightCount = collectLights(*m_scene, m_lights);
+            m_usedDefaultLight = m_sceneLightCount == 0 && lighting.defaultLight;
+            if (m_usedDefaultLight)
+                m_lights.push_back(defaultSunLight());
+            const EnvironmentLighting environment = m_skybox.environmentLighting();
+            m_meshRenderer.setLighting(renderer, m_lights, lighting, &environment);
+        }
         renderer.toneMapper().passThrough = MeshRenderer::isDataView(debugView);
 
         m_stats = {};

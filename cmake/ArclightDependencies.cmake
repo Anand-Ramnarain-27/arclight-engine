@@ -154,6 +154,36 @@ foreach(sdl_target IN ITEMS SDL3-static SDL_uclibc)
     endif()
 endforeach()
 
+# Tracy (BSD-3): CPU zones, GPU zones fed from the RHI's timestamps, frame marks, plots and log
+# messages, viewed in the Tracy profiler, whose version must match this one (0.14.1). Its own CMake
+# build is skipped, as it installs the client into the release package; TracyClient.cpp is the
+# whole client. On demand, so nothing is collected until a profiler connects, and listening on
+# localhost only, which keeps the Windows firewall from asking about the editor.
+option(ARCLIGHT_TRACY "Build the Tracy profiler client into the engine" ON)
+if(ARCLIGHT_TRACY)
+    FetchContent_Declare(tracy
+        GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+        GIT_TAG        v0.14.1
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  no-cmake
+    )
+    FetchContent_MakeAvailable(tracy)
+    find_package(Threads REQUIRED)
+    add_library(TracyClient STATIC ${tracy_SOURCE_DIR}/public/TracyClient.cpp)
+    target_include_directories(TracyClient SYSTEM PUBLIC ${tracy_SOURCE_DIR}/public)
+    # Every user of the Tracy headers must see the same options as the client.
+    target_compile_definitions(TracyClient PUBLIC
+        TRACY_ENABLE
+        TRACY_ON_DEMAND
+        TRACY_ONLY_LOCALHOST
+        TRACY_NO_FRAME_IMAGE
+        # Tracy's crash handler replaces the debugger's and AddressSanitizer's handling of a crash.
+        TRACY_NO_CRASH_HANDLER
+    )
+    target_link_libraries(TracyClient PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+    set_target_properties(TracyClient PROPERTIES FOLDER "ThirdParty")
+endif()
+
 # Dear ImGui ships no CMake build of its own.
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp

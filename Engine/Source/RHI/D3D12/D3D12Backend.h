@@ -227,8 +227,11 @@ namespace arc::rhi::d3d12
         [[nodiscard]] bool init(D3D12Device& device, ID3D12CommandAllocator* allocator, std::string_view name);
 
         /// The allocator must not be in use by the GPU. Descriptor tables are built in the given
-        /// transient region of the device's shader-visible heaps, which must have been reset.
-        void begin(ID3D12CommandAllocator* allocator, uint32_t transientRegion);
+        /// transient region of the device's shader-visible heaps, which must have been reset. With
+        /// `timing`, each render pass writes its start and end timestamps into `timestampHeap` from
+        /// `firstTimestamp` on.
+        void begin(ID3D12CommandAllocator* allocator, uint32_t transientRegion, GpuTimingRecorder* timing = nullptr,
+                   ID3D12QueryHeap* timestampHeap = nullptr, uint32_t firstTimestamp = 0);
         [[nodiscard]] bool close();
         void release() { m_list.Reset(); }
 
@@ -283,6 +286,11 @@ namespace arc::rhi::d3d12
         bool m_inRenderPass = false;
         bool m_passHasDebugGroup = false;
         int m_debugDepth = 0;
+
+        GpuTimingRecorder* m_timing = nullptr;
+        ID3D12QueryHeap* m_timestampHeap = nullptr;
+        uint32_t m_firstTimestamp = 0;
+        uint32_t m_timedPass = GpuTimingRecorder::kNoPass;
     };
 
     class D3D12Swapchain final : public Swapchain
@@ -398,6 +406,11 @@ namespace arc::rhi::d3d12
         [[nodiscard]] bool createRootSignature();
         [[nodiscard]] bool selectAdapter();
         void configureInfoQueue();
+        /// Leaves GPU timing unsupported, rather than failing, if the queue cannot report timestamps.
+        void createTimestampQueries();
+        /// Reads the timestamps of the frame that last used the current slot into the GPU timing recorder.
+        void resolveTimestamps();
+        [[nodiscard]] int64_t gpuClockNs() const;
         [[nodiscard]] uint64_t signal();
         void waitForFence(uint64_t value);
 
@@ -415,6 +428,14 @@ namespace arc::rhi::d3d12
 
         std::array<FrameContext, kMaxFramesInFlight> m_frames;
         D3D12CommandList m_commandList;
+
+        // GpuTimingRecorder::kTimestampsPerFrame timestamps per frame slot, resolved at the end of each
+        // frame into the slot's part of the readback buffer.
+        ComPtr<ID3D12QueryHeap> m_timestampHeap;
+        std::unique_ptr<Buffer> m_timestampReadback;
+        uint64_t m_timestampFrequency = 0;   // Ticks per second.
+        std::array<uint32_t, kMaxFramesInFlight> m_timedPasses{};
+        std::vector<int64_t> m_timestampsNs;
 
         // Shared by every pipeline; see RootParameter. One layout for all shaders keeps the RHI's
         // slot model identical to Metal's, where every stage has fixed texture and sampler slots.

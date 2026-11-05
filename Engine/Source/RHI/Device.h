@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Handle.h"
+#include "RHI/GpuTiming.h"
 #include "RHI/RHITypes.h"
 
 #include <functional>
@@ -120,6 +121,17 @@ namespace arc::rhi
         /// Number of frames begun since the device was created.
         [[nodiscard]] uint64_t frameNumber() const { return m_frameNumber; }
 
+        /// How long each render pass of the newest finished frame took on the GPU. Frame command lists
+        /// time every pass, named by its debugName; submitImmediate() work is not timed.
+        [[nodiscard]] const GpuFrameTimings& gpuTimings() const { return m_gpuTiming.latest(); }
+
+        /// False on the Null backend and on GPUs that cannot sample timestamps at pass boundaries.
+        [[nodiscard]] bool gpuTimingSupported() const { return m_gpuTiming.supported(); }
+
+        /// Takes effect from the next frame. On by default; timing costs two GPU timestamps per pass.
+        void setGpuTimingEnabled(bool enabled) { m_gpuTiming.setEnabled(enabled); }
+        [[nodiscard]] bool gpuTimingEnabled() const { return m_gpuTiming.enabled(); }
+
     protected:
         Device() = default;
 
@@ -130,6 +142,9 @@ namespace arc::rhi
 
         /// GPU objects whose owners have destroyed them but which the GPU may still be using.
         [[nodiscard]] virtual uint32_t awaitingReleaseCount() const { return 0; }
+
+        /// Driven by the backend's frame functions; see GpuTimingRecorder.
+        [[nodiscard]] GpuTimingRecorder& gpuTimingRecorder() { return m_gpuTiming; }
 
         void advanceFrame()
         {
@@ -145,6 +160,7 @@ namespace arc::rhi
 
         uint32_t m_frameSlot = 0;
         uint64_t m_frameNumber = 0;
+        GpuTimingRecorder m_gpuTiming;
 
         // Every live resource created through this device, for find() and the leak report.
         HandlePool<Buffer*, Buffer> m_buffers;

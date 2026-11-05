@@ -173,6 +173,8 @@ The sample *Lantern* model opens at start-up. To import another model, choose **
 
 The Scene panel's **View** menu holds the debug views, culling (freeze it, then fly away to see what was culled), level-of-detail and sky settings. A sky loads from an equirectangular Radiance `.hdr` file or a folder of six images named `px`, `nx`, `py`, `ny`, `pz` and `nz`, and lights the scene through image-based lighting; it can be turned and brightened there too. Free HDR skies are on [Poly Haven](https://polyhaven.com/hdris) (CC0). Its **Lighting** menu holds the reflectance model (Cook-Torrance GGX by default; Lambert, Phong and Blinn-Phong to compare, with energy conservation and Fresnel switchable), roughness and metallic overrides, the ambient light (the sky's image-based lighting, or a sky and ground hemisphere), exposure and the tone curve. Lights are added with **GameObject > Light**; click a light's icon in the Scene view to select it. To give an object a toon look, select it and open **Style** under its Mesh component in the Inspector: each material can switch to **Toon** shading (bands, highlight, rim light, or a ramp texture) and get an outline, for that object only. For an imported room or any other hierarchy, right-click it in the Hierarchy and use **Shading** to switch everything below it (or the whole scene) to toon or back at once.
 
+The **Profiler** panel breaks the main thread's frame into zones and shows how long each render pass takes on the GPU. For every thread and a full timeline, run the [Tracy profiler](https://github.com/wolfpld/tracy/releases/tag/v0.14.1) 0.14.1 (the version must match) and connect to `127.0.0.1` while the editor is running.
+
 Scenes are saved with **File > Save Scene** (Ctrl+S, Cmd+S on macOS) and opened with **File > Open Scene** or by double-clicking a `.scene` file in the Files panel; the last one opens again at start-up. Right-click an object in the Hierarchy and choose **Save as Prefab** to reuse it, then double-click the `.prefab` or drag it into the Scene view to place copies. Changes made while playing (F5) are undone on Stop.
 
 In the Hierarchy panel, drag objects onto each other to reparent them, or between rows to reorder them; right-click for create, duplicate and delete. **View > Reset Layout** restores the default docking layout.
@@ -204,7 +206,7 @@ The tests use the Null backend, so they need no GPU. Configure with `-DARCLIGHT_
 
 GitHub Actions runs two workflows:
 
-- **[CI](.github/workflows/ci.yml)**, on every push to `main` and `phase-4` and on every pull request: configures, builds, tests and packages Windows and macOS, and keeps the zips as workflow artifacts.
+- **[CI](.github/workflows/ci.yml)**, on every push to `main` and `phase-5` and on every pull request: configures, builds, tests and packages Windows and macOS, and keeps the zips as workflow artifacts.
 - **[Release](.github/workflows/release.yml)**, on every `v*` tag: the same build, with both zips attached to a draft GitHub release. The steps are in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Roadmap
@@ -236,6 +238,7 @@ Third-party code, all downloaded by CMake at pinned versions:
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | Mesh simplification for levels of detail, vertex welding | [MIT](https://github.com/zeux/meshoptimizer/blob/master/LICENSE.md) |
 | [MikkTSpace](https://github.com/mmikk/MikkTSpace) | Tangents for normal maps | [zlib](https://github.com/mmikk/MikkTSpace/blob/master/mikktspace.h) |
 | [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo) | BC1 to BC7 texture encoding | [MIT or public domain](https://github.com/richgel999/bc7enc_rdo/blob/master/LICENSE) |
+| [Tracy](https://github.com/wolfpld/tracy) | CPU and GPU profiling | [BSD 3-Clause](https://github.com/wolfpld/tracy/blob/master/LICENSE) |
 | [tinygltf](https://github.com/syoyo/tinygltf) | glTF 2.0 parsing | [MIT](https://github.com/syoyo/tinygltf/blob/release/LICENSE) |
 | [nlohmann/json](https://github.com/nlohmann/json) (included with tinygltf) | JSON parsing | [MIT](https://github.com/nlohmann/json/blob/develop/LICENSE.MIT) |
 | [RenderDoc in-app API](https://github.com/baldurk/renderdoc) | GPU capture trigger (Windows, header only) | [MIT](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md) |

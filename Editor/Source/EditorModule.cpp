@@ -8,6 +8,7 @@
 #include "Panels/InspectorPanel.h"
 #include "Panels/PerformancePanel.h"
 #include "Panels/PlaybackPanel.h"
+#include "Panels/ProfilerPanel.h"
 #include "Panels/ScenePanel.h"
 #include "Panels/SystemInfoPanel.h"
 #include "Platform/FileSystem.h"
@@ -64,6 +65,7 @@ namespace arc
                                   },
                               }));
         m_panels.push_back(std::make_unique<PerformancePanel>(app));
+        m_panels.push_back(std::make_unique<ProfilerPanel>(app));
         m_panels.push_back(std::make_unique<SystemInfoPanel>(app));
     }
 
@@ -315,6 +317,7 @@ namespace arc
         ImGui::DockBuilderDockWindow("Playback", top);
         ImGui::DockBuilderDockWindow("Console", bottom);
         ImGui::DockBuilderDockWindow("Files", bottom);
+        ImGui::DockBuilderDockWindow("Profiler", bottom);
         ImGui::DockBuilderDockWindow("Inspector", rightTop);
         ImGui::DockBuilderDockWindow("Performance", rightBottom);
         ImGui::DockBuilderDockWindow("System Info", rightBottom);

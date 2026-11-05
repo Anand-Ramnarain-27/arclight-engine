@@ -1,6 +1,7 @@
 #include "Renderer/TextureEncoding.h"
 
 #include "Core/Assert.h"
+#include "Core/Profiler.h"
 
 #include <bc7decomp.h>
 #include <bc7enc.h>
@@ -213,6 +214,7 @@ namespace arc
 
     EncodedTexture encodeTexture(std::span<const Image> levels, rhi::Format format)
     {
+        ARC_PROFILE_SCOPE("Encode texture");
         ARC_ASSERT(!levels.empty() && !levels[0].empty(), "Nothing to encode");
         ARC_ASSERT(rhi::isBlockCompressed(format) || format == rhi::Format::RGBA8_UNORM ||
                        format == rhi::Format::RGBA8_UNORM_SRGB,

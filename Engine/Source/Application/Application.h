@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Application/Module.h"
+#include "Core/Log.h"
 #include "Core/Time.h"
 #include "Platform/FileDialog.h"
 #include "Platform/Input.h"
@@ -125,6 +126,7 @@ namespace arc
         // Count of modules whose init() succeeded; only these are shut down.
         size_t m_initializedModules = 0;
 
+        log::SinkId m_profilerLogSink = 0;   // Sends log messages to Tracy.
         bool m_platformInitialized = false;
         bool m_quitRequested = false;
         bool m_minimized = false;

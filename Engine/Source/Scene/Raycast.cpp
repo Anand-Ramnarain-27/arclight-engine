@@ -1,5 +1,6 @@
 #include "Scene/Raycast.h"
 
+#include "Core/Profiler.h"
 #include "Renderer/Model.h"
 #include "Scene/MeshComponent.h"
 #include "Scene/Scene.h"
@@ -42,6 +43,7 @@ namespace arc
 
     std::optional<RaycastHit> raycast(const Scene& scene, const Ray& ray)
     {
+        ARC_PROFILE_SCOPE("Raycast");
         std::optional<RaycastHit> best;
         scene.forEachActive([&](GameObject& object) {
             for (const std::unique_ptr<Component>& component : object.components())

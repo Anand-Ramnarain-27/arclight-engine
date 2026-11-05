@@ -30,10 +30,14 @@ namespace arc::rhi::metal
         }
     }
 
-    void MetalCommandList::begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region)
+    void MetalCommandList::begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region,
+                                 GpuTimingRecorder* timing, id<MTLCounterSampleBuffer> samples, uint32_t firstSample)
     {
         ARC_ASSERT(m_commandBuffer == nil, "Command list begun twice");
         m_commandBuffer = commandBuffer;
+        m_timing = samples != nil ? timing : nullptr;
+        m_timestampSamples = samples;
+        m_firstSample = firstSample;
         setUploadRing(ring, region);
         m_zeroConstants = ring.zeroBlock();
     }
@@ -46,6 +50,8 @@ namespace arc::rhi::metal
 
         id<MTLCommandBuffer> commandBuffer = m_commandBuffer;
         m_commandBuffer = nil;
+        m_timing = nullptr;
+        m_timestampSamples = nil;
         return commandBuffer;
     }
 
@@ -76,6 +82,20 @@ namespace arc::rhi::metal
             pass.depthAttachment.clearDepth = desc.depth.clearDepth;
         }
 
+        // Apple GPUs can only sample counters at stage boundaries, which is why passes are the unit of
+        // GPU timing. A pass with no draws may not run its vertex stage, so both stages are sampled.
+        m_timedPass = m_timing ? m_timing->beginPass(desc.debugName) : GpuTimingRecorder::kNoPass;
+        if (m_timedPass != GpuTimingRecorder::kNoPass)
+        {
+            const NSUInteger first = m_firstSample + MetalDevice::kSamplesPerPass * m_timedPass;
+            MTLRenderPassSampleBufferAttachmentDescriptor* sampling = pass.sampleBufferAttachments[0];
+            sampling.sampleBuffer = m_timestampSamples;
+            sampling.startOfVertexSampleIndex = first;
+            sampling.endOfVertexSampleIndex = first + 1;
+            sampling.startOfFragmentSampleIndex = first + 2;
+            sampling.endOfFragmentSampleIndex = first + 3;
+        }
+
         m_renderEncoder = [m_commandBuffer renderCommandEncoderWithDescriptor:pass];
         if (!desc.debugName.empty())
             m_renderEncoder.label = toNSString(desc.debugName);
@@ -104,6 +124,9 @@ namespace arc::rhi::metal
         [m_renderEncoder endEncoding];
         m_renderEncoder = nil;
         m_renderPassDescriptor = nil;
+        if (m_timing)
+            m_timing->endPass(m_timedPass);
+        m_timedPass = GpuTimingRecorder::kNoPass;
         m_indexBuffer = nil;
         m_hasPipeline = false;
     }

@@ -1,6 +1,7 @@
 #include "Renderer/EnvironmentMaps.h"
 
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
 #include "RHI/Pipeline.h"
@@ -165,6 +166,7 @@ namespace arc
 
     bool EnvironmentMaps::bakeFromEquirect(rhi::Texture& equirect, std::string_view name)
     {
+        ARC_PROFILE_SCOPE("Bake environment");
         const rhi::TextureDesc& desc = equirect.desc();
         const uint32_t size = radianceSizeForEquirect(desc.size.width);
         return bake(equirect, kFromEquirect, size, static_cast<float>(desc.size.width) / 4.0f, name);
@@ -172,6 +174,7 @@ namespace arc
 
     bool EnvironmentMaps::bakeFromCube(rhi::Texture& cube, std::string_view name)
     {
+        ARC_PROFILE_SCOPE("Bake environment");
         const uint32_t sourceSize = cube.desc().size.width;
         const uint32_t size = std::clamp(std::bit_floor(sourceSize), 16u, kMaxRadianceSize);
         return bake(cube, kFromCube, size, static_cast<float>(sourceSize), name);

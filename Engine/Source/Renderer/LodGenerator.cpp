@@ -1,5 +1,7 @@
 #include "Renderer/LodGenerator.h"
 
+#include "Core/Profiler.h"
+
 #include <meshoptimizer.h>
 
 #include <algorithm>
@@ -10,6 +12,7 @@ namespace arc
 {
     void generateLods(ModelData& data, const LodSettings& settings)
     {
+        ARC_PROFILE_SCOPE("Generate LODs");
         std::vector<uint32_t> source;
         std::vector<uint32_t> simplified;
         for (Primitive& primitive : data.primitives)
