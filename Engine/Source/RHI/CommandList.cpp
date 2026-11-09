@@ -83,6 +83,37 @@ namespace arc::rhi
                    "Structured buffer '{}' is in state {}", desc.debugName, resourceStateName(buffer.state()));
     }
 
+    void CommandList::validateStorageBufferBinding(uint32_t slot, const Buffer& buffer)
+    {
+        ARC_ASSERT(slot < kMaxStorageSlots, "Storage slot {} is out of range", slot);
+        ARC_ASSERT(hasFlag(buffer.desc().usage, BufferUsage::Storage), "'{}' was not created with Storage usage",
+                   buffer.desc().debugName);
+        ARC_ASSERT(buffer.state() == ResourceState::UnorderedAccess, "Storage buffer '{}' is in state {}, expected UnorderedAccess",
+                   buffer.desc().debugName, resourceStateName(buffer.state()));
+    }
+
+    void CommandList::validateStorageTextureBinding(uint32_t slot, const Texture& texture, uint32_t mipLevel)
+    {
+        const TextureDesc& desc = texture.desc();
+        ARC_ASSERT(slot < kMaxStorageSlots, "Storage slot {} is out of range", slot);
+        ARC_ASSERT(hasFlag(desc.usage, TextureUsage::Storage), "'{}' was not created with Storage usage", desc.debugName);
+        ARC_ASSERT(mipLevel < desc.mipLevels, "'{}' has no mip level {}", desc.debugName, mipLevel);
+        ARC_ASSERT(texture.state() == ResourceState::UnorderedAccess,
+                   "Storage texture '{}' is in state {}, expected UnorderedAccess", desc.debugName,
+                   resourceStateName(texture.state()));
+    }
+
+    void CommandList::validateDispatch(const ComputePipeline* pipeline, uint32_t groupsX, uint32_t groupsY,
+                                       uint32_t groupsZ)
+    {
+        ARC_ASSERT(pipeline, "Dispatch without a compute pipeline");
+        // D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION.
+        constexpr uint32_t kMaxGroups = 65535;
+        ARC_ASSERT(groupsX > 0 && groupsY > 0 && groupsZ > 0, "Dispatch of {}x{}x{} groups", groupsX, groupsY, groupsZ);
+        ARC_ASSERT(groupsX <= kMaxGroups && groupsY <= kMaxGroups && groupsZ <= kMaxGroups,
+                   "Dispatch of {}x{}x{} groups exceeds {} in a dimension", groupsX, groupsY, groupsZ, kMaxGroups);
+    }
+
     void CommandList::validateSamplerBinding(uint32_t slot)
     {
         ARC_ASSERT(slot < kMaxSamplerSlots, "Sampler slot {} is out of range", slot);

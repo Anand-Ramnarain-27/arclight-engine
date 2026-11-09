@@ -41,9 +41,16 @@ namespace arc::rhi::metal
     // vertex buffer goes in the last of Metal's 31 buffer slots to stay clear of both.
     inline constexpr NSUInteger kVertexBufferIndex = 30;
 
-    /// Timestamps sampled per render pass for GPU timing: the start and end of its vertex and
-    /// fragment stages.
+    /// Timestamps sampled per pass for GPU timing: the start and end of a render pass's vertex and
+    /// fragment stages, or the start and end of a compute pass in the first two.
     inline constexpr uint32_t kTimestampSamplesPerPass = 4;
+
+    /// Storage slot u<n> is [[buffer(kStorageSlotOffset + n)]] or [[texture(kStorageSlotOffset + n)]],
+    /// matching -fvk-u-shift in ArclightShaders.cmake.
+    inline constexpr NSUInteger kStorageSlotOffset = 16;
+
+    /// Per frame slot: which timed passes were compute passes, whose timestamps are laid out differently.
+    using ComputePassFlags = std::array<bool, GpuTimingRecorder::kMaxPassesPerFrame>;
 
     class MetalTexture final : public Texture
     {
@@ -57,12 +64,18 @@ namespace arc::rhi::metal
         {
             m_texture = texture;
             m_desc = desc;
+            m_mipViews.clear();
         }
 
         [[nodiscard]] id<MTLTexture> native() const { return m_texture; }
 
+        /// A view of one mip level, for binding as a storage texture: a compute shader writes the
+        /// texture's first level, so other levels need a view that starts there. Created on first use.
+        [[nodiscard]] id<MTLTexture> mipView(uint32_t mipLevel);
+
     private:
         id<MTLTexture> m_texture = nil;
+        std::vector<id<MTLTexture>> m_mipViews;
     };
 
     class MetalSampler final : public Sampler
@@ -130,6 +143,21 @@ namespace arc::rhi::metal
         id<MTLDepthStencilState> m_depthState = nil;
     };
 
+    class MetalComputePipeline final : public ComputePipeline
+    {
+    public:
+        MetalComputePipeline(const ComputePipelineDesc& desc, id<MTLComputePipelineState> state)
+            : ComputePipeline(desc)
+            , m_state(state)
+        {
+        }
+
+        [[nodiscard]] id<MTLComputePipelineState> state() const { return m_state; }
+
+    private:
+        id<MTLComputePipelineState> m_state = nil;
+    };
+
     class MetalCommandList final : public CommandList
     {
     public:
@@ -138,14 +166,21 @@ namespace arc::rhi::metal
         /// from `firstSample` on.
         void begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region,
                    GpuTimingRecorder* timing = nullptr, id<MTLCounterSampleBuffer> samples = nil,
-                   uint32_t firstSample = 0);
+                   uint32_t firstSample = 0, ComputePassFlags* computePasses = nullptr);
 
         /// Returns the command buffer, ready to commit, and resets the list.
         [[nodiscard]] id<MTLCommandBuffer> finish();
 
         void beginRenderPass(const RenderPassDesc& desc) override;
         void endRenderPass() override;
+        void beginComputePass(const ComputePassDesc& desc) override;
+        void endComputePass() override;
         void setPipeline(Pipeline& pipeline) override;
+        void setComputePipeline(ComputePipeline& pipeline) override;
+        void setStorageBuffer(uint32_t slot, Buffer& buffer) override;
+        void setStorageTexture(uint32_t slot, Texture& texture, uint32_t mipLevel) override;
+        void dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) override;
+        void storageBarrier() override;
         void setVertexBuffer(Buffer& buffer, uint64_t offset) override;
         void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset) override;
         void setTexture(uint32_t slot, Texture& texture) override;
@@ -178,11 +213,16 @@ namespace arc::rhi::metal
         // pass, a debug group change, or the end of the command buffer.
         id<MTLBlitCommandEncoder> blitEncoder();
         void endBlitEncoder();
+        [[nodiscard]] bool inPass() const { return m_renderEncoder != nil || m_computeEncoder != nil; }
+        /// The encoder of the open render or compute pass, or nil.
+        [[nodiscard]] id<MTLCommandEncoder> passEncoder() const;
 
         id<MTLCommandBuffer> m_commandBuffer = nil;
         id<MTLRenderCommandEncoder> m_renderEncoder = nil;
         UploadAllocation m_zeroConstants;
         id<MTLBlitCommandEncoder> m_blitEncoder = nil;
+        id<MTLComputeCommandEncoder> m_computeEncoder = nil;
+        MetalComputePipeline* m_computePipeline = nullptr;
 
         // Metal takes the index buffer as a draw argument rather than as bound state.
         id<MTLBuffer> m_indexBuffer = nil;
@@ -199,6 +239,7 @@ namespace arc::rhi::metal
         id<MTLCounterSampleBuffer> m_timestampSamples = nil;
         uint32_t m_firstSample = 0;
         uint32_t m_timedPass = GpuTimingRecorder::kNoPass;
+        ComputePassFlags* m_computePasses = nullptr;
     };
 
     class MetalSwapchain final : public Swapchain
@@ -236,6 +277,7 @@ namespace arc::rhi::metal
         [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::MetalLib; }
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<ComputePipeline> createComputePipeline(const ComputePipelineDesc& desc) override;
         void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;
@@ -287,6 +329,7 @@ namespace arc::rhi::metal
         // kTimestampSamplesPerPass * GpuTimingRecorder::kMaxPassesPerFrame samples per frame slot.
         id<MTLCounterSampleBuffer> m_timestampSamples = nil;
         std::array<uint32_t, kMaxFramesInFlight> m_timedPasses{};
+        std::array<ComputePassFlags, kMaxFramesInFlight> m_computePasses{};
         std::vector<int64_t> m_timestampsNs;
         // Timestamps are in GPU ticks, nanoseconds on Apple silicon but not on every Mac GPU, so the
         // tick length is measured against the CPU clock. Zero until measured; frames are not timed

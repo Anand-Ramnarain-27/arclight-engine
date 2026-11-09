@@ -11,6 +11,7 @@
 namespace arc::rhi
 {
     class Buffer;
+    class ComputePipeline;
     class Pipeline;
     struct PipelineDesc;
     class Sampler;
@@ -49,12 +50,21 @@ namespace arc::rhi
         std::string_view debugName{};
     };
 
+    struct ComputePassDesc
+    {
+        /// Shown in GPU debuggers and the profiler. May be empty.
+        std::string_view debugName{};
+    };
+
     /// Records GPU work for one frame. Obtained from Device::beginFrame() and valid until
     /// Device::endFrame().
     ///
-    /// Draw commands may only be recorded between beginRenderPass() and endRenderPass(); copies
-    /// and barriers only outside a pass. Passes do not nest. On Metal a pass is a render command
-    /// encoder, on D3D12 it sets the render targets and performs the load action.
+    /// Draw commands may only be recorded between beginRenderPass() and endRenderPass(), and
+    /// dispatches between beginComputePass() and endComputePass(); copies and barriers only outside a
+    /// pass. Passes do not nest. On Metal a pass is a render or compute command encoder; on D3D12 a
+    /// render pass sets the render targets and performs the load action, and a compute pass only
+    /// scopes the compute bindings. Bindings (textures, buffers, samplers, constants) apply to the
+    /// pass they are set in and are reset by each new pass.
     ///
     /// beginRenderPass() moves the colour target to the RenderTarget state, and the depth target to
     /// DepthWrite, itself. Every pipeline set in a pass must have been created for the pass's colour
@@ -70,6 +80,12 @@ namespace arc::rhi
         virtual void beginRenderPass(const RenderPassDesc& desc) = 0;
         virtual void endRenderPass() = 0;
 
+        /// Resources a compute pass reads or writes must be moved to ShaderRead or UnorderedAccess
+        /// with barrier() before the pass begins. Its storage writes are visible to everything
+        /// recorded after endComputePass().
+        virtual void beginComputePass(const ComputePassDesc& desc) = 0;
+        virtual void endComputePass() = 0;
+
         /// The draw state below is only valid inside a render pass and is reset by each new pass.
         virtual void setPipeline(Pipeline& pipeline) = 0;
 
@@ -81,13 +97,13 @@ namespace arc::rhi
         /// Same state rule as setVertexBuffer(), with IndexBuffer instead of VertexBuffer.
         virtual void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset = 0) = 0;
 
-        /// Binds a texture to slot t<slot> of both shader stages, for the draws that follow in this
-        /// pass. The texture must have Sampled usage and be in the ShaderRead state. Every slot a
+        /// Binds a texture to slot t<slot> of both shader stages (or of the compute shader in a compute
+        /// pass), for the draws or dispatches that follow in this pass. The texture must have Sampled usage and be in the ShaderRead state. Every slot a
         /// shader reads must be bound: Metal's API validation rejects a draw with a missing texture.
         virtual void setTexture(uint32_t slot, Texture& texture) = 0;
 
-        /// Binds a Structured buffer to slot t<slot> of both shader stages, read as a StructuredBuffer,
-        /// for the draws that follow in this pass. `slot` is at least kFirstStructuredBufferSlot. A
+        /// Binds a Structured buffer to slot t<slot> of both shader stages (or of the compute shader),
+        /// read as a StructuredBuffer, for the draws or dispatches that follow in this pass. `slot` is at least kFirstStructuredBufferSlot. A
         /// GPU-only buffer must be in the ShaderRead or Common state (promoted on first use, as with
         /// vertex buffers); an Upload buffer may be bound as it is, but the CPU must not write the
         /// part a frame in flight still reads.
@@ -97,7 +113,8 @@ namespace arc::rhi
         virtual void setSampler(uint32_t slot, Sampler& sampler) = 0;
 
         /// Copies `data` into this frame's upload ring and binds it to cbuffer slot b<slot> of both
-        /// shader stages, for the draws that follow in this pass. The bytes must follow HLSL's
+        /// shader stages (or of the compute shader), for the draws or dispatches that follow in this
+        /// pass. The bytes must follow HLSL's
         /// cbuffer packing (16-byte rows; see ShaderConstants.h). Calling it again before the next
         /// draw replaces the binding; earlier draws keep the data they were recorded with. Slots
         /// nothing has set read as zero.
@@ -112,6 +129,28 @@ namespace arc::rhi
 
         virtual void draw(uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t firstVertex = 0,
                           uint32_t firstInstance = 0) = 0;
+
+        /// Only valid inside a compute pass.
+        virtual void setComputePipeline(ComputePipeline& pipeline) = 0;
+
+        /// Binds a Storage buffer to slot u<slot> of the compute shader, read and written as a
+        /// RWStructuredBuffer. The buffer must be in the UnorderedAccess state. Only valid inside a
+        /// compute pass.
+        virtual void setStorageBuffer(uint32_t slot, Buffer& buffer) = 0;
+
+        /// Binds one mip level of a Storage texture to slot u<slot> of the compute shader, read and
+        /// written as a RWTexture2D. The texture must be in the UnorderedAccess state. Only valid
+        /// inside a compute pass.
+        virtual void setStorageTexture(uint32_t slot, Texture& texture, uint32_t mipLevel = 0) = 0;
+
+        /// Runs groupsX * groupsY * groupsZ thread groups of the compute pipeline. Only valid inside a
+        /// compute pass, after setComputePipeline().
+        virtual void dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
+
+        /// Makes the storage writes of the dispatches before it visible to the dispatches after it in
+        /// the same pass, which otherwise may run at the same time. Only valid inside a compute pass.
+        /// D3D12 unordered-access barrier; nothing on Metal, whose compute passes run dispatches in order.
+        virtual void storageBarrier() = 0;
         virtual void drawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0,
                                  int32_t baseVertex = 0, uint32_t firstInstance = 0) = 0;
 
@@ -174,6 +213,9 @@ namespace arc::rhi
                                         uint32_t rowPitch, ResourceState bufferState);
         static void validateTextureBinding(uint32_t slot, const Texture& texture);
         static void validateBufferBinding(uint32_t slot, const Buffer& buffer);
+        static void validateStorageBufferBinding(uint32_t slot, const Buffer& buffer);
+        static void validateStorageTextureBinding(uint32_t slot, const Texture& texture, uint32_t mipLevel);
+        static void validateDispatch(const ComputePipeline* pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ);
 
         /// Checks the attachments and remembers their formats for validatePipelineForPass().
         void validateRenderPass(const RenderPassDesc& desc);

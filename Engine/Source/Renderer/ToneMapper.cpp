@@ -5,6 +5,7 @@
 #include "RHI/Pipeline.h"
 #include "RHI/Shader.h"
 #include "RHI/Texture.h"
+#include "Renderer/AutoExposure.h"
 #include "Renderer/ShaderLibrary.h"
 
 #include <cmath>
@@ -14,16 +15,24 @@ namespace arc
 {
     namespace
     {
-        // Mirrors ToneMapConstants in ToneMap.hlsl: three scalars, padded to one 16-byte row.
+        // Mirrors ToneMapConstants in ToneMap.hlsl: two 16-byte rows.
         struct ToneMapConstants
         {
             float exposureScale = 1.0f;
             uint32_t toneOperator = 0;
             uint32_t passThrough = 0;
-            uint32_t padding = 0;
+            uint32_t autoExposure = 0;
+            float keyValue = 0.18f;
+            float minAutoExposure = 1.0f;
+            float maxAutoExposure = 1.0f;
+            float padding = 0.0f;
         };
         static_assert(offsetof(ToneMapConstants, passThrough) == 8);
-        static_assert(sizeof(ToneMapConstants) == 16);
+        static_assert(offsetof(ToneMapConstants, keyValue) == 16);
+        static_assert(sizeof(ToneMapConstants) == 32);
+
+        // The t slot of the exposure state in ToneMap.hlsl.
+        constexpr uint32_t kExposureStateSlot = 4;
     }
 
     const char* toneMapOperatorName(ToneMapOperator op)
@@ -65,16 +74,21 @@ namespace arc
         m_pipeline.reset();
     }
 
-    void ToneMapper::draw(rhi::CommandList& commandList, rhi::Texture& scene) const
+    void ToneMapper::draw(rhi::CommandList& commandList, rhi::Texture& scene, AutoExposure& autoExposure) const
     {
         if (!m_pipeline)
             return;
         commandList.setPipeline(*m_pipeline);
         commandList.setTexture(0, scene);
+        commandList.setBuffer(kExposureStateSlot, autoExposure.stateBuffer());
         commandList.setConstants(1, ToneMapConstants{
                                         .exposureScale = std::exp2(exposure),
                                         .toneOperator = static_cast<uint32_t>(op),
                                         .passThrough = passThrough ? 1u : 0u,
+                                        .autoExposure = autoExposure.enabled ? 1u : 0u,
+                                        .keyValue = autoExposure.keyValue,
+                                        .minAutoExposure = std::exp2(autoExposure.minEv),
+                                        .maxAutoExposure = std::exp2(autoExposure.maxEv),
                                     });
         commandList.draw(3);
     }

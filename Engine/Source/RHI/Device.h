@@ -17,9 +17,11 @@ namespace arc::rhi
 {
     class Buffer;
     class CommandList;
+    class ComputePipeline;
     class Pipeline;
     class Sampler;
     class Shader;
+    struct ComputePipelineDesc;
     struct PipelineDesc;
     struct ShaderDesc;
     class Swapchain;
@@ -89,6 +91,9 @@ namespace arc::rhi
         /// Compiles the pipeline. Can take milliseconds, so pipelines are created at load time,
         /// never per frame. Returns nullptr and logs on failure.
         [[nodiscard]] virtual std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) = 0;
+
+        /// Same rules as createPipeline(), for a compute shader. Returns nullptr and logs on failure.
+        [[nodiscard]] virtual std::unique_ptr<ComputePipeline> createComputePipeline(const ComputePipelineDesc& desc) = 0;
 
         /// Records commands into a one-off command list, submits it and blocks until the GPU has
         /// finished it. Meant for load-time work such as filling GPU-only buffers. If called while

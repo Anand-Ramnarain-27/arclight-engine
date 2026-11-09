@@ -83,4 +83,48 @@ namespace arc::rhi
     private:
         PipelineDesc m_desc;
     };
+
+    /// Threads in one thread group, as declared by the shader's [numthreads(x, y, z)].
+    struct ThreadGroupSize
+    {
+        uint32_t x = 1;
+        uint32_t y = 1;
+        uint32_t z = 1;
+
+        [[nodiscard]] constexpr uint32_t count() const { return x * y * z; }
+    };
+
+    struct ComputePipelineDesc
+    {
+        const Shader* computeShader = nullptr;
+        /// Must equal the shader's [numthreads]. Metal takes the group size with each dispatch
+        /// rather than from the shader, and the compiled metallib cannot be asked for it, so it is
+        /// given here. At most 1024 threads.
+        ThreadGroupSize threadGroupSize{};
+        std::string debugName{};
+    };
+
+    /// A compiled compute shader. D3D12 compute pipeline state object, Metal compute pipeline state.
+    class ComputePipeline
+    {
+    public:
+        virtual ~ComputePipeline() = default;
+
+        ComputePipeline(const ComputePipeline&) = delete;
+        ComputePipeline& operator=(const ComputePipeline&) = delete;
+
+        [[nodiscard]] const ComputePipelineDesc& desc() const { return m_desc; }
+
+    protected:
+        explicit ComputePipeline(const ComputePipelineDesc& desc) : m_desc(desc) {}
+
+    private:
+        ComputePipelineDesc m_desc;
+    };
+
+    /// Thread groups needed to cover `items` with groups of `groupSize`: the division rounded up.
+    [[nodiscard]] constexpr uint32_t groupCount(uint32_t items, uint32_t groupSize)
+    {
+        return (items + groupSize - 1) / groupSize;
+    }
 }

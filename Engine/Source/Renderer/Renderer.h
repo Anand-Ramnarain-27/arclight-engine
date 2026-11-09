@@ -10,6 +10,7 @@
 
 namespace arc
 {
+    class AutoExposure;
     class GeometryPool;
     class ShaderLibrary;
     class ToneMapper;
@@ -131,6 +132,9 @@ namespace arc
         /// Exposure and the tone curve, applied when the scene is copied into the display target.
         [[nodiscard]] ToneMapper& toneMapper() { return *m_toneMapper; }
 
+        /// Measures the scene's brightness on the GPU each frame while enabled, for the tone mapper.
+        [[nodiscard]] AutoExposure& autoExposure() { return *m_autoExposure; }
+
         [[nodiscard]] rhi::Device& device() { return *m_device; }
         [[nodiscard]] const rhi::Device& device() const { return *m_device; }
         [[nodiscard]] rhi::Swapchain& swapchain() { return *m_swapchain; }
@@ -153,6 +157,7 @@ namespace arc
         std::unique_ptr<ShaderLibrary> m_shaders;
         std::unique_ptr<GeometryPool> m_geometry;
         std::unique_ptr<ToneMapper> m_toneMapper;
+        std::unique_ptr<AutoExposure> m_autoExposure;
         rhi::CommandList* m_commandList = nullptr;
         std::optional<Extent2D> m_pendingSize;
         rhi::ClearColor m_clearColor{0.08f, 0.09f, 0.11f, 1.0f};

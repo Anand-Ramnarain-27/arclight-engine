@@ -20,6 +20,7 @@ namespace arc
             {
                 case rhi::ShaderStage::Vertex: return "vs";
                 case rhi::ShaderStage::Pixel:  return "ps";
+                case rhi::ShaderStage::Compute: return "cs";
             }
             return "unknown";
         }

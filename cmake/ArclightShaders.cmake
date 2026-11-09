@@ -93,7 +93,7 @@ endif()
 add_custom_target(ArclightShaders)
 set_target_properties(ArclightShaders PROPERTIES FOLDER "Arclight")
 
-# arclight_compile_shader(SOURCE <file.hlsl> [VERTEX <entry>] [PIXEL <entry>])
+# arclight_compile_shader(SOURCE <file.hlsl> [VERTEX <entry>] [PIXEL <entry>] [COMPUTE <entry>])
 #
 # Compiles each listed stage of one HLSL file. The output name is the file name without its
 # extension, so Engine/Shaders/Textured.hlsl with VERTEX VSMain produces Textured.vs.<ext>.
@@ -102,7 +102,7 @@ function(arclight_compile_shader)
         return()
     endif()
 
-    cmake_parse_arguments(ARG "" "SOURCE;VERTEX;PIXEL" "" ${ARGN})
+    cmake_parse_arguments(ARG "" "SOURCE;VERTEX;PIXEL;COMPUTE" "" ${ARGN})
     get_filename_component(name "${ARG_SOURCE}" NAME_WE)
     get_filename_component(source_dir "${ARG_SOURCE}" DIRECTORY)
     file(GLOB includes CONFIGURE_DEPENDS "${source_dir}/*.hlsli")
@@ -110,7 +110,10 @@ function(arclight_compile_shader)
     # Debug: unoptimised with embedded debug info, so PIX and RenderDoc show HLSL source.
     set(common_flags -HV 2021 -WX -I "${source_dir}")
     set(dxil_flags "$<IF:$<CONFIG:Debug>,-Od;-Zi;-Qembed_debug,-O3>")
-    set(spirv_flags -spirv -fspv-target-env=vulkan1.1 "$<IF:$<CONFIG:Debug>,-O0,-O3>")
+    # Vulkan 1.1 for the wave intrinsics (SPIR-V group operations). -fvk-u-shift moves u registers
+    # to bindings 16 and up, so on Metal a storage buffer or texture in u<n> does not share
+    # [[buffer(n)]] with b<n> or [[texture(n)]] with t<n>; see kMaxStorageSlots.
+    set(spirv_flags -spirv -fspv-target-env=vulkan1.1 -fvk-u-shift 16 0 "$<IF:$<CONFIG:Debug>,-O0,-O3>")
     # Keeps line tables and the MSL source in the metallib for the Xcode shader debugger.
     set(metal_flags "$<$<CONFIG:Debug>:-gline-tables-only;-frecord-sources>")
     set(macos_min "${CMAKE_OSX_DEPLOYMENT_TARGET}")
@@ -119,7 +122,7 @@ function(arclight_compile_shader)
     endif()
 
     set(outputs "")
-    foreach(stage IN ITEMS VERTEX PIXEL)
+    foreach(stage IN ITEMS VERTEX PIXEL COMPUTE)
         if(NOT ARG_${stage})
             continue()
         endif()
@@ -127,9 +130,12 @@ function(arclight_compile_shader)
         if(stage STREQUAL "VERTEX")
             set(short vs)
             set(profile vs_${ARCLIGHT_SHADER_MODEL})
-        else()
+        elseif(stage STREQUAL "PIXEL")
             set(short ps)
             set(profile ps_${ARCLIGHT_SHADER_MODEL})
+        else()
+            set(short cs)
+            set(profile cs_${ARCLIGHT_SHADER_MODEL})
         endif()
 
         set(base "${name}.${short}")

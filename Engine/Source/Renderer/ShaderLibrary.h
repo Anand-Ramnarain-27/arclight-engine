@@ -17,7 +17,8 @@ namespace arc
     /// Loads shaders compiled at build time from the Shaders/ folder next to the executable.
     ///
     /// A shader is identified by its source file name and stage: Textured.hlsl's vertex stage is
-    /// Shaders/Textured.vs.dxil on D3D12 and Shaders/Textured.vs.metallib on Metal.
+    /// Shaders/Textured.vs.dxil on D3D12 and Shaders/Textured.vs.metallib on Metal; compute shaders
+    /// are <Name>.cs.<ext>.
     class ShaderLibrary
     {
     public:

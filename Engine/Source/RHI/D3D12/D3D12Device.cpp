@@ -147,6 +147,14 @@ namespace arc::rhi::d3d12
         if (SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE, &architecture, sizeof(architecture))))
             m_adapterInfo.unifiedMemory = architecture.UMA == TRUE;
 
+        D3D12_FEATURE_DATA_D3D12_OPTIONS1 options1{};
+        if (SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS1, &options1, sizeof(options1))) &&
+            options1.WaveOps)
+        {
+            m_adapterInfo.waveLaneCountMin = options1.WaveLaneCountMin;
+            m_adapterInfo.waveLaneCountMax = options1.WaveLaneCountMax;
+        }
+
         if (m_debugLayer)
             configureInfoQueue();
 
@@ -457,6 +465,8 @@ namespace arc::rhi::d3d12
         resourceDesc.SampleDesc.Count = 1;
         // Required for buffers.
         resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        if (hasFlag(desc.usage, BufferUsage::Storage))
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
         // A committed resource gets its own implicit heap. Simple, at the cost of a 64 KB
         // minimum allocation per buffer; suballocating from shared heaps comes later.
@@ -494,7 +504,27 @@ namespace arc::rhi::d3d12
             m_device->CreateShaderResourceView(resource.Get(), &view, srv.cpu);
         }
 
-        return std::make_unique<D3D12Buffer>(*this, std::move(resource), desc, mapped, trackedState, srv);
+        D3D12Descriptor uav;
+        if (hasFlag(desc.usage, BufferUsage::Storage))
+        {
+            uav = m_cpuSrvHeap.allocate();
+            if (!uav.valid())
+            {
+                m_cpuSrvHeap.free(srv);
+                return nullptr;
+            }
+            D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+            view.Format = DXGI_FORMAT_UNKNOWN;
+            view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            view.Buffer.FirstElement = 0;
+            view.Buffer.NumElements = static_cast<UINT>(desc.size / desc.stride);
+            view.Buffer.StructureByteStride = desc.stride;
+            m_device->CreateUnorderedAccessView(resource.Get(), nullptr, &view, uav.cpu);
+        }
+
+        auto buffer = std::make_unique<D3D12Buffer>(*this, std::move(resource), desc, mapped, trackedState, srv);
+        buffer->setUav(uav);
+        return buffer;
     }
 
     std::unique_ptr<Texture> D3D12Device::createTextureImpl(const TextureDesc& desc)
@@ -516,6 +546,8 @@ namespace arc::rhi::d3d12
         // driver keep it compressed.
         if (hasFlag(desc.usage, TextureUsage::DepthStencil))
             resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+        if (hasFlag(desc.usage, TextureUsage::Storage))
+            resourceDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
         D3D12_HEAP_PROPERTIES heap{};
         heap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -598,7 +630,31 @@ namespace arc::rhi::d3d12
             m_device->CreateDepthStencilView(resource.Get(), nullptr, dsv.cpu);
         }
 
-        return std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, std::move(rtvs), dsv);
+        // One unordered-access view per mip level: a view writes exactly one level.
+        std::vector<D3D12Descriptor> uavs;
+        if (hasFlag(desc.usage, TextureUsage::Storage))
+        {
+            for (uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+            {
+                const D3D12Descriptor view = m_cpuSrvHeap.allocate();
+                if (!view.valid())
+                    break;
+                D3D12_UNORDERED_ACCESS_VIEW_DESC viewDesc{};
+                viewDesc.Format = resourceDesc.Format;
+                viewDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+                viewDesc.Texture2D.MipSlice = mip;
+                m_device->CreateUnorderedAccessView(resource.Get(), nullptr, &viewDesc, view.cpu);
+                uavs.push_back(view);
+            }
+        }
+        const bool uavsComplete = uavs.size() == (hasFlag(desc.usage, TextureUsage::Storage) ? desc.mipLevels : 0u);
+
+        auto texture = std::make_unique<D3D12Texture>(*this, std::move(resource), desc, srv, std::move(rtvs), dsv);
+        // The texture frees whatever views it was given, so a partial set is handed over before failing.
+        texture->setUavs(std::move(uavs));
+        if (!uavsComplete)
+            return nullptr;
+        return texture;
     }
 
     std::unique_ptr<Sampler> D3D12Device::createSamplerImpl(const SamplerDesc& desc)
@@ -688,9 +744,16 @@ namespace arc::rhi::d3d12
     bool D3D12Device::createDefaultDescriptors()
     {
         m_nullSrv = m_cpuSrvHeap.allocate();
+        m_nullUav = m_cpuSrvHeap.allocate();
         m_defaultSampler = m_cpuSamplerHeap.allocate();
-        if (!m_nullSrv.valid() || !m_defaultSampler.valid())
+        if (!m_nullSrv.valid() || !m_nullUav.valid() || !m_defaultSampler.valid())
             return false;
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+        uavDesc.Format = DXGI_FORMAT_R32_UINT;
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uavDesc.Buffer.NumElements = 1;
+        m_device->CreateUnorderedAccessView(nullptr, nullptr, &uavDesc, m_nullUav.cpu);
 
         // A null resource with a full description is a valid SRV that reads as zero.
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -717,10 +780,14 @@ namespace arc::rhi::d3d12
         // A root signature is the function signature of a pipeline: which constants, buffers and
         // descriptor tables its shaders read, and in which root slots. This one gives every shader
         // the same slots: a table of kMaxTextureSlots SRVs (t0..), one of kMaxSamplerSlots samplers
-        // (s0..) and a root CBV per constant slot (b0..), all visible to every stage.
+        // (s0..), one of kMaxStorageSlots UAVs (u0..) and a root CBV per constant slot (b0..), all
+        // visible to every stage. Graphics and compute pipelines share it; each list has a separate
+        // graphics and compute binding of it.
         const D3D12_DESCRIPTOR_RANGE textureRange{D3D12_DESCRIPTOR_RANGE_TYPE_SRV, kMaxTextureSlots, 0, 0,
                                                   D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
         const D3D12_DESCRIPTOR_RANGE samplerRange{D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, kMaxSamplerSlots, 0, 0,
+                                                  D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
+        const D3D12_DESCRIPTOR_RANGE storageRange{D3D12_DESCRIPTOR_RANGE_TYPE_UAV, kMaxStorageSlots, 0, 0,
                                                   D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
 
         std::array<D3D12_ROOT_PARAMETER, kRootParameterCount> parameters{};
@@ -730,6 +797,9 @@ namespace arc::rhi::d3d12
         parameters[kRootSamplerTable].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         parameters[kRootSamplerTable].DescriptorTable = {1, &samplerRange};
         parameters[kRootSamplerTable].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        parameters[kRootStorageTable].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[kRootStorageTable].DescriptorTable = {1, &storageRange};
+        parameters[kRootStorageTable].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         for (uint32_t slot = 0; slot < kMaxConstantSlots; ++slot)
         {
             D3D12_ROOT_PARAMETER& parameter = parameters[kRootFirstConstants + slot];
@@ -829,6 +899,23 @@ namespace arc::rhi::d3d12
         setDebugName(state.Get(), desc.debugName);
 
         return std::make_unique<D3D12Pipeline>(*this, desc, std::move(state), m_rootSignature.Get());
+    }
+
+    std::unique_ptr<ComputePipeline> D3D12Device::createComputePipeline(const ComputePipelineDesc& desc)
+    {
+        ARC_ASSERT(desc.computeShader && desc.computeShader->stage() == ShaderStage::Compute);
+        ARC_ASSERT(desc.threadGroupSize.count() > 0 && desc.threadGroupSize.count() <= 1024,
+                   "Compute pipeline '{}' has {} threads a group", desc.debugName, desc.threadGroupSize.count());
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};
+        pso.pRootSignature = m_rootSignature.Get();
+        pso.CS = static_cast<const D3D12Shader*>(desc.computeShader)->bytecode();
+
+        ComPtr<ID3D12PipelineState> state;
+        if (!succeeded(m_device->CreateComputePipelineState(&pso, IID_PPV_ARGS(&state)), "CreateComputePipelineState"))
+            return nullptr;
+        setDebugName(state.Get(), desc.debugName);
+        return std::make_unique<D3D12ComputePipeline>(*this, desc, std::move(state), m_rootSignature.Get());
     }
 
     void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)

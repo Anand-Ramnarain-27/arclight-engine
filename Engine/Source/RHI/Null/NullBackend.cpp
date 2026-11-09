@@ -91,6 +91,12 @@ namespace arc::rhi
             explicit NullPipeline(const PipelineDesc& desc) : Pipeline(desc) {}
         };
 
+        class NullComputePipeline final : public ComputePipeline
+        {
+        public:
+            explicit NullComputePipeline(const ComputePipelineDesc& desc) : ComputePipeline(desc) {}
+        };
+
         class NullSwapchain final : public Swapchain
         {
         public:
@@ -125,7 +131,7 @@ namespace arc::rhi
         public:
             void beginRenderPass(const RenderPassDesc& desc) override
             {
-                ARC_ASSERT(!m_inRenderPass, "Render passes do not nest");
+                ARC_ASSERT(!inPass(), "Passes do not nest");
                 validateRenderPass(desc);
                 desc.color.texture->setState(ResourceState::RenderTarget);
                 if (desc.depth.texture)
@@ -140,6 +146,48 @@ namespace arc::rhi
                 m_pipeline = nullptr;
                 m_hasVertexBuffer = false;
                 m_hasIndexBuffer = false;
+            }
+
+            void beginComputePass(const ComputePassDesc& /*desc*/) override
+            {
+                ARC_ASSERT(!inPass(), "Passes do not nest");
+                m_inComputePass = true;
+            }
+
+            void endComputePass() override
+            {
+                ARC_ASSERT(m_inComputePass);
+                m_inComputePass = false;
+                m_computePipeline = nullptr;
+            }
+
+            void setComputePipeline(ComputePipeline& pipeline) override
+            {
+                ARC_ASSERT(m_inComputePass, "setComputePipeline outside a compute pass");
+                m_computePipeline = &pipeline;
+            }
+
+            void setStorageBuffer(uint32_t slot, Buffer& buffer) override
+            {
+                ARC_ASSERT(m_inComputePass, "setStorageBuffer outside a compute pass");
+                validateStorageBufferBinding(slot, buffer);
+            }
+
+            void setStorageTexture(uint32_t slot, Texture& texture, uint32_t mipLevel) override
+            {
+                ARC_ASSERT(m_inComputePass, "setStorageTexture outside a compute pass");
+                validateStorageTextureBinding(slot, texture, mipLevel);
+            }
+
+            void dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) override
+            {
+                ARC_ASSERT(m_inComputePass, "Dispatch outside a compute pass");
+                validateDispatch(m_computePipeline, groupsX, groupsY, groupsZ);
+            }
+
+            void storageBarrier() override
+            {
+                ARC_ASSERT(m_inComputePass, "storageBarrier outside a compute pass");
             }
 
             void setPipeline(Pipeline& pipeline) override
@@ -169,19 +217,19 @@ namespace arc::rhi
 
             void setTexture(uint32_t slot, Texture& texture) override
             {
-                ARC_ASSERT(m_inRenderPass, "setTexture outside a render pass");
+                ARC_ASSERT(inPass(), "setTexture outside a pass");
                 validateTextureBinding(slot, texture);
             }
 
             void setBuffer(uint32_t slot, Buffer& buffer) override
             {
-                ARC_ASSERT(m_inRenderPass, "setBuffer outside a render pass");
+                ARC_ASSERT(inPass(), "setBuffer outside a pass");
                 validateBufferBinding(slot, buffer);
             }
 
             void setSampler(uint32_t slot, Sampler& /*sampler*/) override
             {
-                ARC_ASSERT(m_inRenderPass, "setSampler outside a render pass");
+                ARC_ASSERT(inPass(), "setSampler outside a pass");
                 validateSamplerBinding(slot);
             }
 
@@ -200,7 +248,7 @@ namespace arc::rhi
 
             void copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size) override
             {
-                ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+                ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
                 ARC_ASSERT(dst.state() == ResourceState::CopyDest, "Copy destination '{}' is in state {}",
                            dst.desc().debugName, resourceStateName(dst.state()));
                 ARC_ASSERT(src.state() == ResourceState::CopySource, "Copy source '{}' is in state {}",
@@ -213,7 +261,7 @@ namespace arc::rhi
             void copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src, uint64_t srcOffset,
                                      uint32_t srcRowPitch) override
             {
-                ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+                ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
                 validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                                     ResourceState::CopySource);
                 copyRows(static_cast<NullTexture&>(dst).level(mipLevel, arrayLayer), levelRowBytes(dst, mipLevel),
@@ -223,7 +271,7 @@ namespace arc::rhi
             void copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
                                      uint32_t mipLevel, uint32_t arrayLayer) override
             {
-                ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+                ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
                 validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
                                     ResourceState::CopyDest);
                 const uint32_t bytes = levelRowBytes(src, mipLevel);
@@ -236,14 +284,14 @@ namespace arc::rhi
 
             void barrier(Buffer& buffer, ResourceState state) override
             {
-                ARC_ASSERT(!m_inRenderPass, "Barriers are not allowed inside a render pass");
+                ARC_ASSERT(!inPass(), "Barriers are not allowed inside a pass");
                 ARC_ASSERT(buffer.desc().memory == MemoryType::GpuOnly, "'{}' has a fixed state", buffer.desc().debugName);
                 trackBufferState(buffer, state);
             }
 
             void barrier(Texture& texture, ResourceState state) override
             {
-                ARC_ASSERT(!m_inRenderPass, "Barriers are not allowed inside a render pass");
+                ARC_ASSERT(!inPass(), "Barriers are not allowed inside a pass");
                 texture.setState(state);
             }
 
@@ -259,14 +307,14 @@ namespace arc::rhi
 
             void checkEndOfFrame() const
             {
-                ARC_ASSERT(!m_inRenderPass, "Frame ended inside a render pass");
+                ARC_ASSERT(!inPass(), "Frame ended inside a pass");
                 ARC_ASSERT(m_debugDepth == 0, "Frame ended with open debug groups");
             }
 
         protected:
             void bindConstants(uint32_t /*slot*/, Buffer& /*buffer*/, uint64_t /*offset*/) override
             {
-                ARC_ASSERT(m_inRenderPass, "setConstants outside a render pass");
+                ARC_ASSERT(inPass(), "setConstants outside a pass");
             }
 
         private:
@@ -296,10 +344,14 @@ namespace arc::rhi
                            "Pipeline '{}' reads vertices but no vertex buffer is set", m_pipeline->desc().debugName);
             }
 
+            [[nodiscard]] bool inPass() const { return m_inRenderPass || m_inComputePass; }
+
             Pipeline* m_pipeline = nullptr;
+            ComputePipeline* m_computePipeline = nullptr;
             bool m_hasVertexBuffer = false;
             bool m_hasIndexBuffer = false;
             bool m_inRenderPass = false;
+            bool m_inComputePass = false;
             int m_debugDepth = 0;
         };
 
@@ -354,6 +406,14 @@ namespace arc::rhi
                 ARC_ASSERT(desc.vertexShader && desc.vertexShader->stage() == ShaderStage::Vertex);
                 ARC_ASSERT(desc.pixelShader && desc.pixelShader->stage() == ShaderStage::Pixel);
                 return std::make_unique<NullPipeline>(desc);
+            }
+
+            std::unique_ptr<ComputePipeline> createComputePipeline(const ComputePipelineDesc& desc) override
+            {
+                ARC_ASSERT(desc.computeShader && desc.computeShader->stage() == ShaderStage::Compute);
+                ARC_ASSERT(desc.threadGroupSize.count() > 0 && desc.threadGroupSize.count() <= 1024,
+                           "Compute pipeline '{}' has {} threads a group", desc.debugName, desc.threadGroupSize.count());
+                return std::make_unique<NullComputePipeline>(desc);
             }
 
             void submitImmediate(const std::function<void(CommandList&)>& record) override

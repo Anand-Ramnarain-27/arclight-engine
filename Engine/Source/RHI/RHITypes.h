@@ -43,6 +43,12 @@ namespace arc::rhi
     /// with b0..b3.
     inline constexpr uint32_t kFirstStructuredBufferSlot = kMaxConstantSlots;
 
+    /// Storage slots u0..u7 that compute shaders read and write: a RWStructuredBuffer
+    /// (setStorageBuffer) or a RWTexture2D (setStorageTexture). On Metal the shader build shifts
+    /// them past the t and b slots (-fvk-u-shift 16), so u<n> is [[buffer(16 + n)]] or
+    /// [[texture(16 + n)]].
+    inline constexpr uint32_t kMaxStorageSlots = 8;
+
     /// Constant data is placed at multiples of this many bytes (D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT),
     /// which also satisfies Metal's buffer offset rules.
     inline constexpr uint32_t kConstantBufferAlignment = 256;
@@ -159,6 +165,9 @@ namespace arc::rhi
         /// Read by shaders as a StructuredBuffer<T> in a t slot, bound with CommandList::setBuffer().
         /// BufferDesc::stride is sizeof(T).
         Structured = 1 << 3,
+        /// Read and written by compute shaders as a RWStructuredBuffer<T> in a u slot, bound with
+        /// CommandList::setStorageBuffer(). GPU-only memory; BufferDesc::stride is sizeof(T).
+        Storage = 1 << 4,
     };
 
     [[nodiscard]] constexpr BufferUsage operator|(BufferUsage a, BufferUsage b)
@@ -179,6 +188,10 @@ namespace arc::rhi
         RenderTarget = 1 << 1,
         /// A depth target for render passes. Requires a depth format, and excludes the other usages.
         DepthStencil = 1 << 2,
+        /// Read and written by compute shaders as a RWTexture2D in a u slot, one mip level at a time,
+        /// bound with CommandList::setStorageTexture(). 2D, uncompressed and not sRGB: D3D12 has no
+        /// typed unordered-access views of sRGB formats.
+        Storage = 1 << 3,
     };
 
     [[nodiscard]] constexpr TextureUsage operator|(TextureUsage a, TextureUsage b)
@@ -207,6 +220,8 @@ namespace arc::rhi
         /// A depth target being tested and written by a render pass.
         DepthWrite,
         Present,
+        /// Read and written by compute shaders through a storage binding.
+        UnorderedAccess,
     };
 
     [[nodiscard]] const char* resourceStateName(ResourceState state);
@@ -225,6 +240,7 @@ namespace arc::rhi
     {
         Vertex,
         Pixel,
+        Compute,
     };
 
     /// The compiled shader format a backend consumes; decides which file the loader reads.
@@ -314,6 +330,12 @@ namespace arc::rhi
         /// Sampling BC1 to BC7 textures. Every D3D12 GPU can; on Metal, Apple silicon and the Intel
         /// and AMD GPUs of macOS 11 or later can, but not iOS devices.
         bool blockCompression = true;
+        /// Threads in a wave (SIMD group) that runs in lockstep, the width of the wave intrinsics:
+        /// 32 on NVIDIA and Apple GPUs, 32 or 64 on AMD, 8 to 32 on Intel. D3D12 reports a range;
+        /// Metal reports it per compute pipeline, so it is filled in when the first one is created.
+        /// 0 while unknown.
+        uint32_t waveLaneCountMin = 0;
+        uint32_t waveLaneCountMax = 0;
     };
 
     struct SwapchainDesc

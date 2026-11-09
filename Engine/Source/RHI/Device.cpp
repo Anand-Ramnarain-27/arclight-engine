@@ -148,6 +148,7 @@ namespace arc::rhi
             case ResourceState::RenderTarget:   return "RenderTarget";
             case ResourceState::DepthWrite:     return "DepthWrite";
             case ResourceState::Present:        return "Present";
+            case ResourceState::UnorderedAccess: return "UnorderedAccess";
         }
         return "Unknown";
     }
@@ -158,6 +159,7 @@ namespace arc::rhi
         {
             case ShaderStage::Vertex: return "vertex";
             case ShaderStage::Pixel:  return "pixel";
+            case ShaderStage::Compute: return "compute";
         }
         return "unknown";
     }
@@ -174,6 +176,14 @@ namespace arc::rhi
                            "Structured buffer '{}': stride {} must be a non-zero multiple of 4 that divides the size {}",
                            desc.debugName, desc.stride, desc.size);
                 ARC_ASSERT(desc.memory != MemoryType::Readback, "Structured buffer '{}' cannot be in readback memory",
+                           desc.debugName);
+            }
+            if (hasFlag(desc.usage, BufferUsage::Storage))
+            {
+                ARC_ASSERT(desc.stride > 0 && desc.stride % 4 == 0 && desc.size % desc.stride == 0,
+                           "Storage buffer '{}': stride {} must be a non-zero multiple of 4 that divides the size {}",
+                           desc.debugName, desc.stride, desc.size);
+                ARC_ASSERT(desc.memory == MemoryType::GpuOnly, "Storage buffer '{}' must be in GPU-only memory",
                            desc.debugName);
             }
         }
@@ -200,6 +210,10 @@ namespace arc::rhi
                        "Texture '{}': DepthStencil usage and a depth format go together", desc.debugName);
             ARC_ASSERT(!depthUsage || (desc.usage == TextureUsage::DepthStencil && desc.mipLevels == 1),
                        "Texture '{}': a depth target has a single mip level and no other usage", desc.debugName);
+            ARC_ASSERT(!hasFlag(desc.usage, TextureUsage::Storage) ||
+                           (desc.type == TextureType::Texture2D && !isBlockCompressed(desc.format) &&
+                            !isSrgbFormat(desc.format) && !isDepthFormat(desc.format)),
+                       "Storage texture '{}' must be 2D, uncompressed, not sRGB and not depth", desc.debugName);
         }
 
         void validateSamplerDesc(const SamplerDesc& desc)

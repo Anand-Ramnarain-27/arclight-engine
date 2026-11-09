@@ -138,6 +138,8 @@ namespace arc::rhi::d3d12
         for (const D3D12Descriptor& descriptor : m_rtvDescriptors)
             m_device->rtvHeap().free(descriptor);
         m_device->dsvHeap().free(m_dsvDescriptor);
+        for (const D3D12Descriptor& descriptor : m_uavDescriptors)
+            m_device->cpuSrvHeap().free(descriptor);
         m_device->retire(std::move(m_resource));
     }
 
@@ -170,10 +172,16 @@ namespace arc::rhi::d3d12
     D3D12Buffer::~D3D12Buffer()
     {
         m_device.cpuSrvHeap().free(m_srvDescriptor);
+        m_device.cpuSrvHeap().free(m_uavDescriptor);
         m_device.retire(std::move(m_resource));
     }
 
     D3D12Pipeline::~D3D12Pipeline()
+    {
+        m_device.retire(std::move(m_state));
+    }
+
+    D3D12ComputePipeline::~D3D12ComputePipeline()
     {
         m_device.retire(std::move(m_state));
     }

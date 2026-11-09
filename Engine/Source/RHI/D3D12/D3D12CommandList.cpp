@@ -43,6 +43,7 @@ namespace arc::rhi::d3d12
             case ResourceState::RenderTarget:   return D3D12_RESOURCE_STATE_RENDER_TARGET;
             case ResourceState::DepthWrite:     return D3D12_RESOURCE_STATE_DEPTH_WRITE;
             case ResourceState::Present:        return D3D12_RESOURCE_STATE_PRESENT;
+            case ResourceState::UnorderedAccess: return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
         return D3D12_RESOURCE_STATE_COMMON;
     }
@@ -75,6 +76,7 @@ namespace arc::rhi::d3d12
                                          m_device->shaderVisibleSamplerHeap().native()};
         m_list->SetDescriptorHeaps(2, heaps);
         m_rootSignature = nullptr;
+        m_computeRootSignature = nullptr;
         setUploadRing(m_device->uploadRing(), transientRegion);
         resetBindings();
     }
@@ -83,10 +85,12 @@ namespace arc::rhi::d3d12
     {
         m_textures.fill(m_device->nullSrv());
         m_samplers.fill(m_device->defaultSampler());
+        m_storage.fill(m_device->nullUav());
         const UploadAllocation zeros = m_device->uploadRing().zeroBlock();
         m_constants.fill(static_cast<D3D12Buffer&>(*zeros.buffer).gpuAddress() + zeros.offset);
         m_texturesDirty = true;
         m_samplersDirty = true;
+        m_storageDirty = true;
         m_constantsDirty = (1u << kMaxConstantSlots) - 1;
     }
 
@@ -101,7 +105,7 @@ namespace arc::rhi::d3d12
 
     bool D3D12CommandList::close()
     {
-        ARC_ASSERT(!m_inRenderPass, "Command list closed inside a render pass");
+        ARC_ASSERT(!inPass(), "Command list closed inside a pass");
         ARC_ASSERT(m_debugDepth == 0, "Command list closed with {} open debug group(s)", m_debugDepth);
         return succeeded(m_list->Close(), "ID3D12GraphicsCommandList::Close");
     }
@@ -158,7 +162,7 @@ namespace arc::rhi::d3d12
 
     void D3D12CommandList::setTexture(uint32_t slot, Texture& texture)
     {
-        ARC_ASSERT(m_inRenderPass, "setTexture outside a render pass");
+        ARC_ASSERT(inPass(), "setTexture outside a pass");
         validateTextureBinding(slot, texture);
         const D3D12_CPU_DESCRIPTOR_HANDLE srv = static_cast<D3D12Texture&>(texture).srv;
         if (m_textures[slot].ptr != srv.ptr)
@@ -170,7 +174,7 @@ namespace arc::rhi::d3d12
 
     void D3D12CommandList::setBuffer(uint32_t slot, Buffer& buffer)
     {
-        ARC_ASSERT(m_inRenderPass, "setBuffer outside a render pass");
+        ARC_ASSERT(inPass(), "setBuffer outside a pass");
         validateBufferBinding(slot, buffer);
         // Shares the texture table: a StructuredBuffer is an SRV like a texture, in a t register.
         const D3D12_CPU_DESCRIPTOR_HANDLE srv = static_cast<D3D12Buffer&>(buffer).srv();
@@ -183,7 +187,7 @@ namespace arc::rhi::d3d12
 
     void D3D12CommandList::setSampler(uint32_t slot, Sampler& sampler)
     {
-        ARC_ASSERT(m_inRenderPass, "setSampler outside a render pass");
+        ARC_ASSERT(inPass(), "setSampler outside a pass");
         validateSamplerBinding(slot);
         const D3D12_CPU_DESCRIPTOR_HANDLE descriptor = static_cast<D3D12Sampler&>(sampler).descriptor();
         if (m_samplers[slot].ptr != descriptor.ptr)
@@ -195,12 +199,12 @@ namespace arc::rhi::d3d12
 
     void D3D12CommandList::bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset)
     {
-        ARC_ASSERT(m_inRenderPass, "setConstants outside a render pass");
+        ARC_ASSERT(inPass(), "setConstants outside a pass");
         m_constants[slot] = static_cast<D3D12Buffer&>(buffer).gpuAddress() + offset;
         m_constantsDirty |= 1u << slot;
     }
 
-    bool D3D12CommandList::flushBindings()
+    bool D3D12CommandList::flushBindings(bool compute)
     {
         // Root descriptor tables point into a shader-visible heap, but views are created in CPU-only
         // heaps: CopyDescriptors may only read from those, since shader-visible heaps can live in
@@ -219,7 +223,10 @@ namespace arc::rhi::d3d12
             const UINT tableSize = kMaxTextureSlots;
             device->CopyDescriptors(1, &table.cpu, &tableSize, kMaxTextureSlots, m_textures.data(), sourceSizes.data(),
                                     D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-            m_list->SetGraphicsRootDescriptorTable(kRootTextureTable, table.gpu);
+            if (compute)
+                m_list->SetComputeRootDescriptorTable(kRootTextureTable, table.gpu);
+            else
+                m_list->SetGraphicsRootDescriptorTable(kRootTextureTable, table.gpu);
             m_texturesDirty = false;
         }
 
@@ -234,15 +241,39 @@ namespace arc::rhi::d3d12
             const UINT tableSize = kMaxSamplerSlots;
             device->CopyDescriptors(1, &table.cpu, &tableSize, kMaxSamplerSlots, m_samplers.data(), sourceSizes.data(),
                                     D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
-            m_list->SetGraphicsRootDescriptorTable(kRootSamplerTable, table.gpu);
+            if (compute)
+                m_list->SetComputeRootDescriptorTable(kRootSamplerTable, table.gpu);
+            else
+                m_list->SetGraphicsRootDescriptorTable(kRootSamplerTable, table.gpu);
             m_samplersDirty = false;
+        }
+
+        // Only compute shaders write storage, so the graphics binding of the table is left unset.
+        if (compute && m_storageDirty)
+        {
+            const D3D12Descriptor table = m_device->shaderVisibleSrvHeap().allocateTransient(m_transientRegion, kMaxStorageSlots);
+            if (!table.valid())
+                return false;
+            std::array<UINT, kMaxStorageSlots> sourceSizes;
+            sourceSizes.fill(1);
+            const UINT tableSize = kMaxStorageSlots;
+            device->CopyDescriptors(1, &table.cpu, &tableSize, kMaxStorageSlots, m_storage.data(), sourceSizes.data(),
+                                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            m_list->SetComputeRootDescriptorTable(kRootStorageTable, table.gpu);
+            m_storageDirty = false;
         }
 
         // Root CBVs hold the GPU address directly, with no descriptor: the cheapest way to bind
         // small data that changes every draw.
         for (uint32_t slot = 0; slot < kMaxConstantSlots; ++slot)
-            if (m_constantsDirty & (1u << slot))
+        {
+            if ((m_constantsDirty & (1u << slot)) == 0)
+                continue;
+            if (compute)
+                m_list->SetComputeRootConstantBufferView(kRootFirstConstants + slot, m_constants[slot]);
+            else
                 m_list->SetGraphicsRootConstantBufferView(kRootFirstConstants + slot, m_constants[slot]);
+        }
         m_constantsDirty = 0;
         return true;
     }
@@ -250,7 +281,7 @@ namespace arc::rhi::d3d12
     void D3D12CommandList::draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
     {
         ARC_ASSERT(m_pipeline, "Draw without a pipeline");
-        if (flushBindings())
+        if (flushBindings(false))
             m_list->DrawInstanced(vertexCount, instanceCount, firstVertex, firstInstance);
     }
 
@@ -258,13 +289,13 @@ namespace arc::rhi::d3d12
                                        int32_t baseVertex, uint32_t firstInstance)
     {
         ARC_ASSERT(m_pipeline, "Draw without a pipeline");
-        if (flushBindings())
+        if (flushBindings(false))
             m_list->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
     }
 
     void D3D12CommandList::copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size)
     {
-        ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
         ARC_ASSERT(dst.state() == ResourceState::CopyDest, "Copy destination '{}' is in state {}",
                    dst.desc().debugName, resourceStateName(dst.state()));
         ARC_ASSERT(src.state() == ResourceState::CopySource, "Copy source '{}' is in state {}",
@@ -278,7 +309,7 @@ namespace arc::rhi::d3d12
     void D3D12CommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src,
                                                uint64_t srcOffset, uint32_t srcRowPitch)
     {
-        ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
         validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                             ResourceState::CopySource);
 
@@ -300,7 +331,7 @@ namespace arc::rhi::d3d12
     void D3D12CommandList::copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
                                                uint32_t mipLevel, uint32_t arrayLayer)
     {
-        ARC_ASSERT(!m_inRenderPass, "Copies are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
         validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
                             ResourceState::CopyDest);
 
@@ -321,7 +352,7 @@ namespace arc::rhi::d3d12
 
     void D3D12CommandList::barrier(Buffer& buffer, ResourceState state)
     {
-        ARC_ASSERT(!m_inRenderPass, "Barriers are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Barriers are not allowed inside a pass");
         // Upload heap resources must stay in GENERIC_READ and readback heap resources in
         // COPY_DEST for their whole lifetime; the debug layer rejects any transition.
         ARC_ASSERT(buffer.desc().memory == MemoryType::GpuOnly, "'{}' has a fixed state", buffer.desc().debugName);
@@ -343,7 +374,7 @@ namespace arc::rhi::d3d12
 
     void D3D12CommandList::barrier(Texture& texture, ResourceState state)
     {
-        ARC_ASSERT(!m_inRenderPass, "Barriers are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Barriers are not allowed inside a pass");
         if (texture.state() == state)
             return;
 
@@ -358,9 +389,25 @@ namespace arc::rhi::d3d12
         texture.setState(state);
     }
 
+    void D3D12CommandList::beginTimedPass(std::string_view name)
+    {
+        m_timedPass = m_timing ? m_timing->beginPass(name) : GpuTimingRecorder::kNoPass;
+        if (m_timedPass != GpuTimingRecorder::kNoPass)
+            m_list->EndQuery(m_timestampHeap, D3D12_QUERY_TYPE_TIMESTAMP, m_firstTimestamp + 2 * m_timedPass);
+    }
+
+    void D3D12CommandList::endTimedPass()
+    {
+        if (m_timedPass == GpuTimingRecorder::kNoPass)
+            return;
+        m_list->EndQuery(m_timestampHeap, D3D12_QUERY_TYPE_TIMESTAMP, m_firstTimestamp + 2 * m_timedPass + 1);
+        m_timing->endPass(m_timedPass);
+        m_timedPass = GpuTimingRecorder::kNoPass;
+    }
+
     void D3D12CommandList::beginRenderPass(const RenderPassDesc& desc)
     {
-        ARC_ASSERT(!m_inRenderPass, "Render passes do not nest");
+        ARC_ASSERT(!inPass(), "Passes do not nest");
         validateRenderPass(desc);
 
         auto& target = static_cast<D3D12Texture&>(*desc.color.texture);
@@ -375,9 +422,7 @@ namespace arc::rhi::d3d12
             beginEvent(m_list.Get(), desc.debugName);
 
         // After the barriers, so the pass's time is its own work, clears included.
-        m_timedPass = m_timing ? m_timing->beginPass(desc.debugName) : GpuTimingRecorder::kNoPass;
-        if (m_timedPass != GpuTimingRecorder::kNoPass)
-            m_list->EndQuery(m_timestampHeap, D3D12_QUERY_TYPE_TIMESTAMP, m_firstTimestamp + 2 * m_timedPass);
+        beginTimedPass(desc.debugName);
 
         const D3D12_CPU_DESCRIPTOR_HANDLE rtv = target.rtvFor(desc.color.mipLevel, desc.color.arrayLayer);
         m_list->OMSetRenderTargets(1, &rtv, FALSE, depth ? &depth->dsv : nullptr);
@@ -411,16 +456,97 @@ namespace arc::rhi::d3d12
         m_inRenderPass = false;
         m_pipeline = nullptr;
 
-        if (m_timedPass != GpuTimingRecorder::kNoPass)
-        {
-            m_list->EndQuery(m_timestampHeap, D3D12_QUERY_TYPE_TIMESTAMP, m_firstTimestamp + 2 * m_timedPass + 1);
-            m_timing->endPass(m_timedPass);
-            m_timedPass = GpuTimingRecorder::kNoPass;
-        }
+        endTimedPass();
 
         if (m_passHasDebugGroup)
             m_list->EndEvent();
         m_passHasDebugGroup = false;
+    }
+
+    void D3D12CommandList::beginComputePass(const ComputePassDesc& desc)
+    {
+        ARC_ASSERT(!inPass(), "Passes do not nest");
+        m_inComputePass = true;
+        m_passHasDebugGroup = !desc.debugName.empty();
+        if (m_passHasDebugGroup)
+            beginEvent(m_list.Get(), desc.debugName);
+        beginTimedPass(desc.debugName);
+        resetBindings();
+    }
+
+    void D3D12CommandList::endComputePass()
+    {
+        ARC_ASSERT(m_inComputePass);
+        m_inComputePass = false;
+        m_computePipeline = nullptr;
+        // Storage written in the pass may be read or written again by the next pass with no state
+        // change in between, which a transition barrier would otherwise order.
+        D3D12_RESOURCE_BARRIER uavBarrier{};
+        uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        m_list->ResourceBarrier(1, &uavBarrier);
+        endTimedPass();
+        if (m_passHasDebugGroup)
+            m_list->EndEvent();
+        m_passHasDebugGroup = false;
+    }
+
+    void D3D12CommandList::setComputePipeline(ComputePipeline& pipeline)
+    {
+        ARC_ASSERT(m_inComputePass, "setComputePipeline outside a compute pass");
+        m_computePipeline = &static_cast<D3D12ComputePipeline&>(pipeline);
+        m_list->SetPipelineState(m_computePipeline->state());
+        if (m_computeRootSignature != m_computePipeline->rootSignature())
+        {
+            m_computeRootSignature = m_computePipeline->rootSignature();
+            m_list->SetComputeRootSignature(m_computeRootSignature);
+            m_texturesDirty = true;
+            m_samplersDirty = true;
+            m_storageDirty = true;
+            m_constantsDirty = (1u << kMaxConstantSlots) - 1;
+        }
+    }
+
+    void D3D12CommandList::setStorageBuffer(uint32_t slot, Buffer& buffer)
+    {
+        ARC_ASSERT(m_inComputePass, "setStorageBuffer outside a compute pass");
+        validateStorageBufferBinding(slot, buffer);
+        const D3D12_CPU_DESCRIPTOR_HANDLE uav = static_cast<D3D12Buffer&>(buffer).uav();
+        if (m_storage[slot].ptr != uav.ptr)
+        {
+            m_storage[slot] = uav;
+            m_storageDirty = true;
+        }
+    }
+
+    void D3D12CommandList::setStorageTexture(uint32_t slot, Texture& texture, uint32_t mipLevel)
+    {
+        ARC_ASSERT(m_inComputePass, "setStorageTexture outside a compute pass");
+        validateStorageTextureBinding(slot, texture, mipLevel);
+        const D3D12_CPU_DESCRIPTOR_HANDLE uav = static_cast<D3D12Texture&>(texture).uavFor(mipLevel);
+        if (m_storage[slot].ptr != uav.ptr)
+        {
+            m_storage[slot] = uav;
+            m_storageDirty = true;
+        }
+    }
+
+    void D3D12CommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+    {
+        ARC_ASSERT(m_inComputePass, "Dispatch outside a compute pass");
+        validateDispatch(m_computePipeline, groupsX, groupsY, groupsZ);
+        if (flushBindings(true))
+            m_list->Dispatch(groupsX, groupsY, groupsZ);
+    }
+
+    void D3D12CommandList::storageBarrier()
+    {
+        ARC_ASSERT(m_inComputePass, "storageBarrier outside a compute pass");
+        // A UAV barrier with no resource orders every unordered-access write before it against every
+        // access after it.
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barrier.UAV.pResource = nullptr;
+        m_list->ResourceBarrier(1, &barrier);
     }
 
     void D3D12CommandList::pushDebugGroup(std::string_view name)

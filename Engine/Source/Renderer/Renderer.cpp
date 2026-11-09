@@ -4,18 +4,117 @@
 #include "Core/Log.h"
 #include "Core/Profiler.h"
 #include "Platform/Window.h"
+#include "RHI/Buffer.h"
 #include "RHI/BufferUtils.h"
 #include "RHI/CommandList.h"
 #include "RHI/Device.h"
+#include "RHI/Pipeline.h"
+#include "RHI/Shader.h"
 #include "RHI/Swapchain.h"
 #include "RHI/Texture.h"
 #include "RHI/TextureUtils.h"
+#include "Renderer/AutoExposure.h"
 #include "Renderer/GeometryPool.h"
 #include "Renderer/ShaderLibrary.h"
 #include "Renderer/ToneMapper.h"
 
+#include <cstddef>
+#include <cstring>
+#include <vector>
+
 namespace arc
 {
+#if ARC_DEBUG
+    namespace
+    {
+        // Mirrors SelfTestConstants in ComputeSelfTest.hlsl.
+        struct SelfTestConstants
+        {
+            uint32_t multiplier = 0;
+            uint32_t padding[3]{};
+        };
+
+        // Runs ComputeSelfTest.hlsl on the GPU and checks what it wrote: storage buffer and texture
+        // writes, constants, group-shared memory, group barriers and wave intrinsics.
+        bool verifyCompute(rhi::Device& device, const ShaderLibrary& shaders)
+        {
+            constexpr uint32_t kSize = 16;
+            constexpr uint32_t kGroupSize = 8;
+            constexpr uint32_t kGroups = (kSize / kGroupSize) * (kSize / kGroupSize);
+            constexpr uint32_t kMultiplier = 3;
+
+            const auto shader = shaders.load("ComputeSelfTest", rhi::ShaderStage::Compute, "CSMain");
+            if (!shader)
+                return false;
+            const auto pipeline = device.createComputePipeline({
+                .computeShader = shader.get(),
+                .threadGroupSize = {kGroupSize, kGroupSize, 1},
+                .debugName = "Compute Self-Test",
+            });
+            const auto values = device.createBuffer({
+                .size = (kSize * kSize + kGroups) * sizeof(uint32_t),
+                .usage = rhi::BufferUsage::Storage,
+                .stride = sizeof(uint32_t),
+                .debugName = "Compute Self-Test Values",
+            });
+            const auto image = device.createTexture({
+                .size = {kSize, kSize},
+                .format = rhi::Format::RGBA8_UNORM,
+                .usage = rhi::TextureUsage::Storage,
+                .debugName = "Compute Self-Test Image",
+            });
+            if (!pipeline || !values || !image)
+                return false;
+
+            device.submitImmediate([&](rhi::CommandList& list) {
+                list.barrier(*values, rhi::ResourceState::UnorderedAccess);
+                list.barrier(*image, rhi::ResourceState::UnorderedAccess);
+                list.beginComputePass({.debugName = "Compute Self-Test"});
+                list.setComputePipeline(*pipeline);
+                list.setStorageBuffer(0, *values);
+                list.setStorageTexture(1, *image);
+                list.setConstants(0, SelfTestConstants{.multiplier = kMultiplier});
+                list.dispatch(kSize / kGroupSize, kSize / kGroupSize);
+                list.endComputePass();
+            });
+
+            const std::vector<std::byte> bytes = rhi::readbackBuffer(device, *values, 0, values->desc().size);
+            const std::vector<std::byte> pixels = rhi::readbackTexture(device, *image, 0);
+            if (bytes.size() != values->desc().size || pixels.size() != kSize * kSize * 4)
+                return false;
+
+            std::vector<uint32_t> written(bytes.size() / sizeof(uint32_t));
+            std::memcpy(written.data(), bytes.data(), bytes.size());
+            for (uint32_t i = 0; i < kSize * kSize; ++i)
+                if (written[i] != i * kMultiplier + 1)
+                {
+                    ARC_LOG_ERROR("Compute self-test: value {} is {}, expected {}", i, written[i], i * kMultiplier + 1);
+                    return false;
+                }
+            for (uint32_t group = 0; group < kGroups; ++group)
+                if (written[kSize * kSize + group] != kGroupSize * kGroupSize)
+                {
+                    ARC_LOG_ERROR("Compute self-test: group {} counted {} threads, expected {}", group,
+                                  written[kSize * kSize + group], kGroupSize * kGroupSize);
+                    return false;
+                }
+            // x / 15 stored as UNORM is exactly 17x.
+            for (uint32_t y = 0; y < kSize; ++y)
+                for (uint32_t x = 0; x < kSize; ++x)
+                {
+                    const auto* pixel = pixels.data() + (y * kSize + x) * 4;
+                    if (std::to_integer<uint32_t>(pixel[0]) != 17 * x || std::to_integer<uint32_t>(pixel[1]) != 17 * y ||
+                        std::to_integer<uint32_t>(pixel[3]) != 255)
+                    {
+                        ARC_LOG_ERROR("Compute self-test: pixel ({}, {}) is wrong", x, y);
+                        return false;
+                    }
+                }
+            return true;
+        }
+    }
+#endif
+
     Renderer::Renderer() = default;
 
     Renderer::~Renderer()
@@ -53,6 +152,21 @@ namespace arc
         m_toneMapper = std::make_unique<ToneMapper>();
         if (!m_toneMapper->init(*m_device, *m_shaders, displayFormat()))
             return false;
+        m_autoExposure = std::make_unique<AutoExposure>();
+        if (!m_autoExposure->init(*m_device, *m_shaders))
+            return false;
+
+#if ARC_DEBUG
+        // The Null backend records compute work but runs none of it.
+        if (adapter.backend != rhi::Backend::Null)
+        {
+            if (verifyCompute(*m_device, *m_shaders))
+                ARC_LOG_INFO("RHI self-test: compute (storage buffer and texture, group-shared memory, waves of {}) passed",
+                             m_device->adapterInfo().waveLaneCountMin);
+            else
+                ARC_LOG_ERROR("RHI self-test: compute FAILED");
+        }
+#endif
 
         rhi::SwapchainDesc swapchainDesc;
         swapchainDesc.size = window.pixelSize();
@@ -72,6 +186,7 @@ namespace arc
         if (m_device)
             m_device->waitIdle();
         m_toneMapper.reset();
+        m_autoExposure.reset();
         m_shaders.reset();
         m_geometry.reset();
         m_sceneTarget.reset();
@@ -120,6 +235,7 @@ namespace arc
             ARC_PROFILE_SCOPE("Wait for GPU");
             m_commandList = &m_device->beginFrame(*m_swapchain);
         }
+        m_autoExposure->collectReadback(m_device->frameSlot());
         const rhi::GpuFrameTimings& gpu = m_device->gpuTimings();
         if (gpu.valid && gpu.frameNumber != m_plottedGpuFrame)
         {
@@ -209,13 +325,14 @@ namespace arc
         ARC_PROFILE_SCOPE("Tone map");
         rhi::CommandList& list = commandList();
         list.barrier(*m_sceneTarget, rhi::ResourceState::ShaderRead);
+        m_autoExposure->record(list, *m_sceneTarget, m_device->frameSlot());
         rhi::RenderPassDesc pass;
         pass.color.texture = m_displayTarget.get();
         // Every pixel is written.
         pass.color.load = rhi::LoadOp::DontCare;
         pass.debugName = "Tone Map";
         list.beginRenderPass(pass);
-        m_toneMapper->draw(list, *m_sceneTarget);
+        m_toneMapper->draw(list, *m_sceneTarget, *m_autoExposure);
         list.endRenderPass();
         m_sceneResolved = true;
     }

@@ -120,12 +120,22 @@ namespace arc::rhi::d3d12
         /// Zero if the texture cannot be a depth target.
         D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
 
+        /// Takes ownership of one unordered-access view per mip level, for Storage textures.
+        void setUavs(std::vector<D3D12Descriptor> uavs) { m_uavDescriptors = std::move(uavs); }
+
+        /// The unordered-access view of one mip level. Zero unless the texture has Storage usage.
+        [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE uavFor(uint32_t mipLevel) const
+        {
+            return mipLevel < m_uavDescriptors.size() ? m_uavDescriptors[mipLevel].cpu : D3D12_CPU_DESCRIPTOR_HANDLE{};
+        }
+
     private:
         ComPtr<ID3D12Resource> m_resource;
         D3D12Device* m_device = nullptr;   // Null for backbuffers, whose views the swapchain owns.
         D3D12Descriptor m_srvDescriptor;
         std::vector<D3D12Descriptor> m_rtvDescriptors;
         D3D12Descriptor m_dsvDescriptor;
+        std::vector<D3D12Descriptor> m_uavDescriptors;
     };
 
     class D3D12Sampler final : public Sampler
@@ -165,10 +175,18 @@ namespace arc::rhi::d3d12
         /// table at draw time like a texture's. Zero unless the buffer has Structured usage.
         [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE srv() const { return m_srvDescriptor.cpu; }
 
+        /// Takes ownership of a RWStructuredBuffer view, for Storage buffers.
+        void setUav(const D3D12Descriptor& uav) { m_uavDescriptor = uav; }
+
+        /// In the device's CPU-only SRV heap, copied into the storage table at dispatch time. Zero
+        /// unless the buffer has Storage usage.
+        [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE uav() const { return m_uavDescriptor.cpu; }
+
     private:
         D3D12Device& m_device;
         ComPtr<ID3D12Resource> m_resource;
         D3D12Descriptor m_srvDescriptor;
+        D3D12Descriptor m_uavDescriptor;
     };
 
     [[nodiscard]] D3D12_RESOURCE_STATES toD3D12State(ResourceState state);
@@ -178,7 +196,8 @@ namespace arc::rhi::d3d12
     {
         kRootTextureTable = 0,   // SRV table, t0 .. t(kMaxTextureSlots - 1): textures and structured buffers.
         kRootSamplerTable = 1,   // Sampler table, s0 .. s(kMaxSamplerSlots - 1).
-        kRootFirstConstants = 2, // Root CBVs b0 .. b(kMaxConstantSlots - 1), one parameter each.
+        kRootStorageTable = 2,   // UAV table, u0 .. u(kMaxStorageSlots - 1). Set by compute passes only.
+        kRootFirstConstants = 3, // Root CBVs b0 .. b(kMaxConstantSlots - 1), one parameter each.
         kRootParameterCount = kRootFirstConstants + kMaxConstantSlots,
     };
 
@@ -221,6 +240,29 @@ namespace arc::rhi::d3d12
         ID3D12RootSignature* m_rootSignature = nullptr;
     };
 
+    class D3D12ComputePipeline final : public ComputePipeline
+    {
+    public:
+        D3D12ComputePipeline(D3D12Device& device, const ComputePipelineDesc& desc, ComPtr<ID3D12PipelineState> state,
+                             ID3D12RootSignature* rootSignature)
+            : ComputePipeline(desc)
+            , m_device(device)
+            , m_state(std::move(state))
+            , m_rootSignature(rootSignature)
+        {
+        }
+        ~D3D12ComputePipeline() override;
+
+        [[nodiscard]] ID3D12PipelineState* state() const { return m_state.Get(); }
+        /// Owned by the device; the same root signature as the graphics pipelines.
+        [[nodiscard]] ID3D12RootSignature* rootSignature() const { return m_rootSignature; }
+
+    private:
+        D3D12Device& m_device;
+        ComPtr<ID3D12PipelineState> m_state;
+        ID3D12RootSignature* m_rootSignature = nullptr;
+    };
+
     class D3D12CommandList final : public CommandList
     {
     public:
@@ -237,7 +279,14 @@ namespace arc::rhi::d3d12
 
         void beginRenderPass(const RenderPassDesc& desc) override;
         void endRenderPass() override;
+        void beginComputePass(const ComputePassDesc& desc) override;
+        void endComputePass() override;
         void setPipeline(Pipeline& pipeline) override;
+        void setComputePipeline(ComputePipeline& pipeline) override;
+        void setStorageBuffer(uint32_t slot, Buffer& buffer) override;
+        void setStorageTexture(uint32_t slot, Texture& texture, uint32_t mipLevel) override;
+        void dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) override;
+        void storageBarrier() override;
         void setVertexBuffer(Buffer& buffer, uint64_t offset) override;
         void setIndexBuffer(Buffer& buffer, IndexFormat format, uint64_t offset) override;
         void setTexture(uint32_t slot, Texture& texture) override;
@@ -267,23 +316,32 @@ namespace arc::rhi::d3d12
 
     private:
         void resetBindings();
+        [[nodiscard]] bool inPass() const { return m_inRenderPass || m_inComputePass; }
+        void beginTimedPass(std::string_view name);
+        void endTimedPass();
 
         /// Copies the bound descriptors into fresh shader-visible tables if any binding changed
-        /// since the last draw. Returns false if the transient heap region is full.
-        [[nodiscard]] bool flushBindings();
+        /// since the last draw or dispatch, and sets them on the graphics or the compute root
+        /// signature. Returns false if the transient heap region is full.
+        [[nodiscard]] bool flushBindings(bool compute);
 
         ComPtr<ID3D12GraphicsCommandList> m_list;
         D3D12Device* m_device = nullptr;
         D3D12Pipeline* m_pipeline = nullptr;
         ID3D12RootSignature* m_rootSignature = nullptr;   // As last set on the native list.
+        D3D12ComputePipeline* m_computePipeline = nullptr;
+        ID3D12RootSignature* m_computeRootSignature = nullptr;   // Compute has a root signature of its own.
         uint32_t m_transientRegion = 0;
         std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxTextureSlots> m_textures{};   // Texture or buffer SRVs.
         std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxSamplerSlots> m_samplers{};
+        std::array<D3D12_CPU_DESCRIPTOR_HANDLE, kMaxStorageSlots> m_storage{};
         std::array<D3D12_GPU_VIRTUAL_ADDRESS, kMaxConstantSlots> m_constants{};
         bool m_texturesDirty = true;
         bool m_samplersDirty = true;
+        bool m_storageDirty = true;
         uint32_t m_constantsDirty = 0;   // Bit per slot.
         bool m_inRenderPass = false;
+        bool m_inComputePass = false;
         bool m_passHasDebugGroup = false;
         int m_debugDepth = 0;
 
@@ -342,6 +400,7 @@ namespace arc::rhi::d3d12
         [[nodiscard]] ShaderFormat shaderFormat() const override { return ShaderFormat::DXIL; }
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
+        [[nodiscard]] std::unique_ptr<ComputePipeline> createComputePipeline(const ComputePipelineDesc& desc) override;
         void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;
@@ -374,6 +433,8 @@ namespace arc::rhi::d3d12
         /// Stand-ins copied into the slots a pass has not bound: a null SRV, which reads as zero,
         /// and a point/clamp sampler.
         [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE nullSrv() const { return m_nullSrv.cpu; }
+        /// A null unordered-access view for the storage slots a compute pass has not bound.
+        [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE nullUav() const { return m_nullUav.cpu; }
         [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE defaultSampler() const { return m_defaultSampler.cpu; }
 
         /// Per-frame memory for setConstants().
@@ -448,6 +509,7 @@ namespace arc::rhi::d3d12
         D3D12DescriptorHeap m_shaderVisibleSrvHeap;
         D3D12DescriptorHeap m_shaderVisibleSamplerHeap;
         D3D12Descriptor m_nullSrv;
+        D3D12Descriptor m_nullUav;
         D3D12Descriptor m_defaultSampler;
         std::unique_ptr<UploadRing> m_uploadRing;
 

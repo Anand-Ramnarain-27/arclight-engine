@@ -18,6 +18,15 @@ Phase 5: compute, threading and profiling.
 - Editor: a *Profiler* panel with CPU and GPU frame-time graphs, the main thread's zones as a tree (average, maximum and calls per frame, share of the frame), each render pass's GPU time, a timeline of the newest GPU frame, a GPU timing switch and Tracy's connection state. *System Info* shows whether the GPU supports timestamps.
 - Unit tests for the zone recorder, GPU timestamp conversion and the pass timing bookkeeping.
 
+#### Compute
+- Compute shaders in the RHI on both backends: `ShaderStage::Compute` (`<Name>.cs.dxil` / `.metallib`, `arclight_compile_shader(... COMPUTE <entry>)`), `ComputePipelineDesc` with the thread group size (Metal takes it with each dispatch), `Device::createComputePipeline()`, `groupCount()`.
+- Compute passes: `CommandList::beginComputePass()` / `endComputePass()`, `setComputePipeline()`, `dispatch()`, and `storageBarrier()` between dependent dispatches (a D3D12 unordered-access barrier; Metal's serial compute encoders need none). Textures, structured buffers, samplers and constants bind in compute passes as in render passes. Compute passes are timed on the GPU like render passes.
+- Storage resources: `BufferUsage::Storage` (`RWStructuredBuffer`) and `TextureUsage::Storage` (`RWTexture2D`, one mip level at a time), the `UnorderedAccess` state, and storage slots u0 to u7: a UAV table in the shared D3D12 root signature, and buffer and texture slots 16 and up on Metal (`-fvk-u-shift 16` in the shader build).
+- `AdapterInfo::waveLaneCountMin/Max`: the wave (SIMD group) width, shown in *System Info*.
+- Auto exposure (`Renderer/AutoExposure`): a 256-bin luminance histogram counted per thread group in group-shared memory (`LuminanceHistogram.hlsl`), reduced with wave intrinsics and a group-shared tree to the average log luminance, and adapted over time on the GPU (`ExposureAverage.hlsl`); the tone-mapping pass reads the result from the buffer. Editor: *Lighting > Auto exposure* with compensation, limits, adaptation speeds, key value and the histogram, read back from the GPU.
+- Debug builds run a compute self-test on the GPU at start-up (`ComputeSelfTest.hlsl`): storage buffer and texture writes, constants, group-shared memory and wave intrinsics.
+- Unit tests for compute pipelines, compute passes and storage bindings on the Null backend.
+
 ## [0.5.0] - 2026-11-05
 
 Phase 4: lighting and PBR.

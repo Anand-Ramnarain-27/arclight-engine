@@ -7,6 +7,7 @@
 
 namespace arc
 {
+    class AutoExposure;
     class ShaderLibrary;
 
     namespace rhi
@@ -48,11 +49,13 @@ namespace arc
         void shutdown();
 
         /// Must be called inside a render pass on a target of the format given to init(), with no
-        /// depth target, and the same size as `scene`, which must be in the ShaderRead state.
-        void draw(rhi::CommandList& commandList, rhi::Texture& scene) const;
+        /// depth target, and the same size as `scene`, which must be in the ShaderRead state, as must
+        /// the auto exposure's state buffer.
+        void draw(rhi::CommandList& commandList, rhi::Texture& scene, AutoExposure& autoExposure) const;
 
         ToneMapOperator op = ToneMapOperator::KhronosPbrNeutral;
-        /// Stops: each +1 doubles the brightness before the curve.
+        /// Stops: each +1 doubles the brightness before the curve. With auto exposure, the
+        /// compensation added to what it chose.
         float exposure = 0.0f;
         /// Shows the scene's values as they are, encoded but without exposure or curve. For debug
         /// views whose output is data (normals, texture coordinates), not light.

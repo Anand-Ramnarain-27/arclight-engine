@@ -4,13 +4,19 @@
 // read with Load() and need no sampler.
 
 #include "Common.hlsli"
+#include "Exposure.hlsli"
 
 // Mirrored by ToneMapConstants in Engine/Source/Renderer/ToneMapper.cpp.
 cbuffer ToneMapConstants : register(b1)
 {
-    float exposureScale;   // 2^EV, applied before the curve.
+    float exposureScale;   // 2^EV, applied before the curve; with auto exposure, the compensation.
     uint toneOperator;     // One of the TONE_ values below.
     uint passThrough;      // Non-zero: no exposure or curve, for debug views that show data.
+    uint autoExposure;     // Non-zero: also scale by keyValue / the adapted luminance.
+    float keyValue;        // What the adapted luminance is mapped to: middle grey, 0.18.
+    float minAutoExposure; // Limits of the automatic scale, as factors (2^EV).
+    float maxAutoExposure;
+    float padding;
 };
 
 // Match arc::ToneMapOperator.
@@ -20,6 +26,9 @@ cbuffer ToneMapConstants : register(b1)
 #define TONE_PBR_NEUTRAL 3
 
 Texture2D<float4> g_scene : register(t0);
+// Written by ExposureAverage.hlsl. Bound whether or not auto exposure is on, since Metal validates
+// every buffer a shader declares.
+StructuredBuffer<uint> g_exposureState : register(t4);
 
 float4 VSMain(uint vertexId : SV_VertexID) : SV_Position
 {
@@ -90,7 +99,15 @@ float4 PSMain(float4 position : SV_Position) : SV_Target0
 
     if (passThrough == 0)
     {
-        color *= exposureScale;
+        float scale = exposureScale;
+        if (autoExposure != 0)
+        {
+            const float adapted = asfloat(g_exposureState[EXPOSURE_ADAPTED_LUMINANCE]);
+            // Before the first frame has been measured, the buffer holds 0.
+            if (adapted > 0.0)
+                scale *= clamp(keyValue / adapted, minAutoExposure, maxAutoExposure);
+        }
+        color *= scale;
         if (toneOperator == TONE_REINHARD)
             color = Reinhard(color);
         else if (toneOperator == TONE_ACES)

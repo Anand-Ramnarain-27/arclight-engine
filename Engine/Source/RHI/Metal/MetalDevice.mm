@@ -215,6 +215,12 @@ namespace arc::rhi::metal
         for (uint32_t pass = 0; samples && pass < passes; ++pass)
         {
             const MTLCounterResultTimestamp* sample = samples + pass * kTimestampSamplesPerPass;
+            if (m_computePasses[slot][pass])
+            {
+                m_timestampsNs[2 * pass] = toNs(sample[0].timestamp);
+                m_timestampsNs[2 * pass + 1] = toNs(sample[1].timestamp);
+                continue;
+            }
             // The earliest stage start and the latest stage end; a stage that did not run has no sample.
             const int64_t vertexStart = toNs(sample[0].timestamp);
             const int64_t vertexEnd = toNs(sample[1].timestamp);
@@ -281,6 +287,8 @@ namespace arc::rhi::metal
             usage |= MTLTextureUsageShaderRead;
         if (hasFlag(desc.usage, TextureUsage::RenderTarget) || hasFlag(desc.usage, TextureUsage::DepthStencil))
             usage |= MTLTextureUsageRenderTarget;
+        if (hasFlag(desc.usage, TextureUsage::Storage))
+            usage |= MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
         descriptor.usage = usage;
 
         id<MTLTexture> texture = [m_device newTextureWithDescriptor:descriptor];
@@ -437,6 +445,40 @@ namespace arc::rhi::metal
         return std::make_unique<MetalPipeline>(desc, state, depthState);
     }
 
+    std::unique_ptr<ComputePipeline> MetalDevice::createComputePipeline(const ComputePipelineDesc& desc)
+    {
+        ARC_ASSERT(desc.computeShader && desc.computeShader->stage() == ShaderStage::Compute);
+        ARC_ASSERT(desc.threadGroupSize.count() > 0 && desc.threadGroupSize.count() <= 1024,
+                   "Compute pipeline '{}' has {} threads a group", desc.debugName, desc.threadGroupSize.count());
+
+        MTLComputePipelineDescriptor* descriptor = [[MTLComputePipelineDescriptor alloc] init];
+        descriptor.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
+        descriptor.computeFunction = static_cast<const MetalShader*>(desc.computeShader)->function();
+        NSError* error = nil;
+        id<MTLComputePipelineState> state = [m_device newComputePipelineStateWithDescriptor:descriptor
+                                                                                    options:MTLPipelineOptionNone
+                                                                                 reflection:nil
+                                                                                      error:&error];
+        if (!state)
+        {
+            ARC_LOG_ERROR("Failed to create Metal compute pipeline '{}': {}", desc.debugName,
+                          error ? error.localizedDescription.UTF8String : "unknown error");
+            return nullptr;
+        }
+        // A kernel's limit can be below 1024 when it uses many registers or much threadgroup memory.
+        if (desc.threadGroupSize.count() > state.maxTotalThreadsPerThreadgroup)
+        {
+            ARC_LOG_ERROR("Metal compute pipeline '{}' allows {} threads a group, not {}", desc.debugName,
+                          state.maxTotalThreadsPerThreadgroup, desc.threadGroupSize.count());
+            return nullptr;
+        }
+
+        const auto width = static_cast<uint32_t>(state.threadExecutionWidth);
+        if (m_adapterInfo.waveLaneCountMin == 0)
+            m_adapterInfo.waveLaneCountMin = m_adapterInfo.waveLaneCountMax = width;
+        return std::make_unique<MetalComputePipeline>(desc, state);
+    }
+
     void MetalDevice::submitImmediate(const std::function<void(CommandList&)>& record)
     {
         @autoreleasepool
@@ -543,7 +585,8 @@ namespace arc::rhi::metal
             timing.beginFrame(frameSlot(), frameNumber());
         m_commandList.begin(commandBuffer, *m_uploadRing, frameSlot(), timed ? &timing : nullptr,
                             timed ? m_timestampSamples : nil,
-                            frameSlot() * GpuTimingRecorder::kMaxPassesPerFrame * kTimestampSamplesPerPass);
+                            frameSlot() * GpuTimingRecorder::kMaxPassesPerFrame * kTimestampSamplesPerPass,
+                            &m_computePasses[frameSlot()]);
         return m_commandList;
     }
 

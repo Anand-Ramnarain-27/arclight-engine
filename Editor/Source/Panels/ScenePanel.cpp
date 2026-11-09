@@ -7,6 +7,7 @@
 #include "Math/Color.h"
 #include "RHI/Device.h"
 #include "RHI/Texture.h"
+#include "Renderer/AutoExposure.h"
 #include "Renderer/ToneMapper.h"
 #include "Scene/EditorCamera.h"
 #include "Scene/EditorGrid.h"
@@ -22,9 +23,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <iterator>
 #include <optional>
+#include <span>
 
 namespace arc
 {
@@ -630,8 +633,16 @@ namespace arc
 
         ImGui::SeparatorText("Exposure");
         ToneMapper& toneMapper = m_app.renderer().toneMapper();
-        ImGui::SliderFloat("Exposure", &toneMapper.exposure, -8.0f, 8.0f, "%+.1f EV");
+        AutoExposure& autoExposure = m_app.renderer().autoExposure();
+        ImGui::Checkbox("Auto exposure", &autoExposure.enabled);
+        ImGui::SetItemTooltip("Measures the scene's average brightness on the GPU every frame (a compute pass: a "
+                              "luminance histogram, then its average) and exposes it to middle grey, adapting over "
+                              "time like an eye.");
+        ImGui::SliderFloat(autoExposure.enabled ? "Compensation" : "Exposure", &toneMapper.exposure, -8.0f, 8.0f,
+                           "%+.1f EV");
         ImGui::SetItemTooltip("Each step doubles (or halves) the light before the tone curve.");
+        if (autoExposure.enabled)
+            drawAutoExposureSettings(autoExposure);
         int op = static_cast<int>(toneMapper.op);
         const char* operators[] = {toneMapOperatorName(ToneMapOperator::Clamp),
                                    toneMapOperatorName(ToneMapOperator::Reinhard),
@@ -645,6 +656,44 @@ namespace arc
             ImGui::TextDisabled("Off while a data view is shown (View > Shading)");
 
         ImGui::EndPopup();
+    }
+
+    void ScenePanel::drawAutoExposureSettings(AutoExposure& autoExposure)
+    {
+        ImGui::DragFloatRange2("Limits", &autoExposure.minEv, &autoExposure.maxEv, 0.1f, -16.0f, 16.0f, "%+.1f EV",
+                               "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
+        ImGui::SetItemTooltip("How far the automatic part may brighten or darken the scene.");
+        ImGui::SliderFloat("Brighten speed", &autoExposure.brightenSpeed, 0.1f, 10.0f, "%.1f /s", ImGuiSliderFlags_Logarithmic);
+        ImGui::SetItemTooltip("How fast the exposure rises when the scene gets darker.");
+        ImGui::SliderFloat("Darken speed", &autoExposure.darkenSpeed, 0.1f, 10.0f, "%.1f /s", ImGuiSliderFlags_Logarithmic);
+        ImGui::SetItemTooltip("How fast the exposure falls when the scene gets brighter; eyes adapt faster this way.");
+        ImGui::SliderFloat("Key value", &autoExposure.keyValue, 0.05f, 0.5f, "%.2f");
+        ImGui::SetItemTooltip("The brightness the scene's average is brought to before the tone curve: 0.18 is middle "
+                              "grey.");
+        if (ImGui::Button("Reset adaptation"))
+            autoExposure.resetAdaptation();
+
+        // Square roots, so the few pixels in the brightest bins still show next to a large background.
+        const std::span<const uint32_t> histogram = autoExposure.histogram();
+        std::array<float, AutoExposure::kBinCount> bars{};
+        float tallest = 0.0f;
+        for (size_t i = 1; i < histogram.size(); ++i)
+        {
+            bars[i] = std::sqrt(static_cast<float>(histogram[i]));
+            tallest = std::max(tallest, bars[i]);
+        }
+        const float adapted = autoExposure.adaptedLuminance();
+        const float automaticEv = adapted > 0.0f ? std::clamp(std::log2(autoExposure.keyValue / adapted),
+                                                              autoExposure.minEv, autoExposure.maxEv)
+                                                 : 0.0f;
+        char overlay[96];
+        std::snprintf(overlay, sizeof(overlay), "average %.3g, adapted %.3g (%+.1f EV)", autoExposure.frameLuminance(),
+                      adapted, automaticEv);
+        ImGui::PlotHistogram("##luminance", bars.data(), static_cast<int>(bars.size()), 0, overlay, 0.0f,
+                             tallest > 0.0f ? tallest : 1.0f, ImVec2(ImGui::GetFontSize() * 18.0f, ImGui::GetFontSize() * 4.0f));
+        ImGui::SetItemTooltip("Pixels by log luminance, from %.3g (left) to %.3g (right); black pixels are left out. "
+                              "Read back from the GPU %u frames late.",
+                              autoExposure.minLuminance(), autoExposure.maxLuminance(), rhi::kMaxFramesInFlight);
     }
 
     void ScenePanel::placeLightIcons(ImVec2 viewMin, ImVec2 viewSize)

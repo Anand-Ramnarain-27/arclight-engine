@@ -14,6 +14,7 @@ struct ImVec2;
 namespace arc
 {
     class Application;
+    class AutoExposure;
     class EditorCamera;
     class EditorGrid;
     class EditorSelection;
@@ -65,6 +66,7 @@ namespace arc
         void drawLightingSettings();
         /// Finds the lights to draw icons for this frame and where they are on screen.
         void placeLightIcons(ImVec2 viewMin, ImVec2 viewSize);
+        void drawAutoExposureSettings(AutoExposure& autoExposure);
         void drawLightIcons(ImVec2 viewMin, ImVec2 viewSize);
         /// The light whose icon is under `mouse`, or null.
         [[nodiscard]] GameObject* lightIconAt(ImVec2 mouse) const;

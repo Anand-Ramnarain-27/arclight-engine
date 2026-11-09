@@ -30,14 +30,29 @@ namespace arc::rhi::metal
         }
     }
 
+    id<MTLTexture> MetalTexture::mipView(uint32_t mipLevel)
+    {
+        if (m_mipViews.size() < m_desc.mipLevels)
+            m_mipViews.resize(m_desc.mipLevels);
+        id<MTLTexture>& view = m_mipViews[mipLevel];
+        if (!view)
+            view = [m_texture newTextureViewWithPixelFormat:m_texture.pixelFormat
+                                                textureType:MTLTextureType2D
+                                                     levels:NSMakeRange(mipLevel, 1)
+                                                     slices:NSMakeRange(0, 1)];
+        return view;
+    }
+
     void MetalCommandList::begin(id<MTLCommandBuffer> commandBuffer, UploadRing& ring, uint32_t region,
-                                 GpuTimingRecorder* timing, id<MTLCounterSampleBuffer> samples, uint32_t firstSample)
+                                 GpuTimingRecorder* timing, id<MTLCounterSampleBuffer> samples, uint32_t firstSample,
+                                 ComputePassFlags* computePasses)
     {
         ARC_ASSERT(m_commandBuffer == nil, "Command list begun twice");
         m_commandBuffer = commandBuffer;
         m_timing = samples != nil ? timing : nullptr;
         m_timestampSamples = samples;
         m_firstSample = firstSample;
+        m_computePasses = computePasses;
         setUploadRing(ring, region);
         m_zeroConstants = ring.zeroBlock();
     }
@@ -45,19 +60,20 @@ namespace arc::rhi::metal
     id<MTLCommandBuffer> MetalCommandList::finish()
     {
         endBlitEncoder();
-        ARC_ASSERT(m_renderEncoder == nil, "Frame ended inside a render pass");
+        ARC_ASSERT(!inPass(), "Frame ended inside a pass");
         ARC_ASSERT(m_debugGroupOnEncoder.empty(), "Frame ended with {} open debug group(s)", m_debugGroupOnEncoder.size());
 
         id<MTLCommandBuffer> commandBuffer = m_commandBuffer;
         m_commandBuffer = nil;
         m_timing = nullptr;
         m_timestampSamples = nil;
+        m_computePasses = nullptr;
         return commandBuffer;
     }
 
     void MetalCommandList::beginRenderPass(const RenderPassDesc& desc)
     {
-        ARC_ASSERT(m_renderEncoder == nil, "Render passes do not nest");
+        ARC_ASSERT(!inPass(), "Passes do not nest");
         validateRenderPass(desc);
         endBlitEncoder();
 
@@ -87,6 +103,8 @@ namespace arc::rhi::metal
         m_timedPass = m_timing ? m_timing->beginPass(desc.debugName) : GpuTimingRecorder::kNoPass;
         if (m_timedPass != GpuTimingRecorder::kNoPass)
         {
+            if (m_computePasses)
+                (*m_computePasses)[m_timedPass] = false;
             const NSUInteger first = m_firstSample + kTimestampSamplesPerPass * m_timedPass;
             MTLRenderPassSampleBufferAttachmentDescriptor* sampling = pass.sampleBufferAttachments[0];
             sampling.sampleBuffer = m_timestampSamples;
@@ -109,10 +127,103 @@ namespace arc::rhi::metal
 
     void MetalCommandList::bindConstants(uint32_t slot, Buffer& buffer, uint64_t offset)
     {
-        ARC_ASSERT(m_renderEncoder != nil, "setConstants outside a render pass");
+        ARC_ASSERT(inPass(), "setConstants outside a pass");
         id<MTLBuffer> native = static_cast<MetalBuffer&>(buffer).native();
+        if (m_computeEncoder)
+        {
+            [m_computeEncoder setBuffer:native offset:offset atIndex:slot];
+            return;
+        }
         [m_renderEncoder setVertexBuffer:native offset:offset atIndex:slot];
         [m_renderEncoder setFragmentBuffer:native offset:offset atIndex:slot];
+    }
+
+    void MetalCommandList::beginComputePass(const ComputePassDesc& desc)
+    {
+        ARC_ASSERT(!inPass(), "Passes do not nest");
+        endBlitEncoder();
+
+        // Serial: each dispatch finishes before the next starts, so storage writes need no barrier
+        // within the pass (see storageBarrier()).
+        MTLComputePassDescriptor* pass = [MTLComputePassDescriptor computePassDescriptor];
+        pass.dispatchType = MTLDispatchTypeSerial;
+        m_timedPass = m_timing ? m_timing->beginPass(desc.debugName) : GpuTimingRecorder::kNoPass;
+        if (m_timedPass != GpuTimingRecorder::kNoPass)
+        {
+            if (m_computePasses)
+                (*m_computePasses)[m_timedPass] = true;
+            const NSUInteger first = m_firstSample + kTimestampSamplesPerPass * m_timedPass;
+            MTLComputePassSampleBufferAttachmentDescriptor* sampling = pass.sampleBufferAttachments[0];
+            sampling.sampleBuffer = m_timestampSamples;
+            sampling.startOfEncoderSampleIndex = first;
+            sampling.endOfEncoderSampleIndex = first + 1;
+        }
+
+        m_computeEncoder = [m_commandBuffer computeCommandEncoderWithDescriptor:pass];
+        if (!desc.debugName.empty())
+            m_computeEncoder.label = toNSString(desc.debugName);
+        for (uint32_t slot = 0; slot < kMaxConstantSlots; ++slot)
+            bindConstants(slot, *m_zeroConstants.buffer, m_zeroConstants.offset);
+    }
+
+    void MetalCommandList::endComputePass()
+    {
+        ARC_ASSERT(m_computeEncoder != nil);
+        ARC_ASSERT(m_debugGroupOnEncoder.empty() || !m_debugGroupOnEncoder.back(),
+                   "Debug group pushed inside the compute pass was not popped");
+        [m_computeEncoder endEncoding];
+        m_computeEncoder = nil;
+        m_computePipeline = nullptr;
+        if (m_timing)
+            m_timing->endPass(m_timedPass);
+        m_timedPass = GpuTimingRecorder::kNoPass;
+    }
+
+    void MetalCommandList::setComputePipeline(ComputePipeline& pipeline)
+    {
+        ARC_ASSERT(m_computeEncoder != nil, "setComputePipeline outside a compute pass");
+        m_computePipeline = &static_cast<MetalComputePipeline&>(pipeline);
+        [m_computeEncoder setComputePipelineState:m_computePipeline->state()];
+    }
+
+    void MetalCommandList::setStorageBuffer(uint32_t slot, Buffer& buffer)
+    {
+        ARC_ASSERT(m_computeEncoder != nil, "setStorageBuffer outside a compute pass");
+        validateStorageBufferBinding(slot, buffer);
+        [m_computeEncoder setBuffer:static_cast<MetalBuffer&>(buffer).native() offset:0 atIndex:kStorageSlotOffset + slot];
+    }
+
+    void MetalCommandList::setStorageTexture(uint32_t slot, Texture& texture, uint32_t mipLevel)
+    {
+        ARC_ASSERT(m_computeEncoder != nil, "setStorageTexture outside a compute pass");
+        validateStorageTextureBinding(slot, texture, mipLevel);
+        auto& metalTexture = static_cast<MetalTexture&>(texture);
+        id<MTLTexture> native = metalTexture.desc().mipLevels == 1 ? metalTexture.native() : metalTexture.mipView(mipLevel);
+        [m_computeEncoder setTexture:native atIndex:kStorageSlotOffset + slot];
+    }
+
+    void MetalCommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+    {
+        ARC_ASSERT(m_computeEncoder != nil, "Dispatch outside a compute pass");
+        validateDispatch(m_computePipeline, groupsX, groupsY, groupsZ);
+        // Metal takes the group size with every dispatch; D3D12 reads it from the shader.
+        const ThreadGroupSize& group = m_computePipeline->desc().threadGroupSize;
+        [m_computeEncoder dispatchThreadgroups:MTLSizeMake(groupsX, groupsY, groupsZ)
+                         threadsPerThreadgroup:MTLSizeMake(group.x, group.y, group.z)];
+    }
+
+    void MetalCommandList::storageBarrier()
+    {
+        ARC_ASSERT(m_computeEncoder != nil, "storageBarrier outside a compute pass");
+        // Nothing to do: the pass's encoder is serial, so each dispatch sees the writes of the ones
+        // before it.
+    }
+
+    id<MTLCommandEncoder> MetalCommandList::passEncoder() const
+    {
+        if (m_renderEncoder)
+            return m_renderEncoder;
+        return m_computeEncoder;
     }
 
     void MetalCommandList::endRenderPass()
@@ -172,31 +283,46 @@ namespace arc::rhi::metal
 
     void MetalCommandList::setTexture(uint32_t slot, Texture& texture)
     {
-        ARC_ASSERT(m_renderEncoder != nil, "setTexture outside a render pass");
+        ARC_ASSERT(inPass(), "setTexture outside a pass");
         validateTextureBinding(slot, texture);
         // The shader build passes --msl-decoration-binding to SPIRV-Cross, so register(t<slot>)
         // becomes [[texture(<slot>)]] in both stages.
         id<MTLTexture> native = static_cast<MetalTexture&>(texture).native();
+        if (m_computeEncoder)
+        {
+            [m_computeEncoder setTexture:native atIndex:slot];
+            return;
+        }
         [m_renderEncoder setVertexTexture:native atIndex:slot];
         [m_renderEncoder setFragmentTexture:native atIndex:slot];
     }
 
     void MetalCommandList::setBuffer(uint32_t slot, Buffer& buffer)
     {
-        ARC_ASSERT(m_renderEncoder != nil, "setBuffer outside a render pass");
+        ARC_ASSERT(inPass(), "setBuffer outside a pass");
         validateBufferBinding(slot, buffer);
         // SPIRV-Cross turns a StructuredBuffer in register(t<slot>) into a device buffer argument at
         // [[buffer(<slot>)]], kept equal to the register by --msl-decoration-binding.
         id<MTLBuffer> native = static_cast<MetalBuffer&>(buffer).native();
+        if (m_computeEncoder)
+        {
+            [m_computeEncoder setBuffer:native offset:0 atIndex:slot];
+            return;
+        }
         [m_renderEncoder setVertexBuffer:native offset:0 atIndex:slot];
         [m_renderEncoder setFragmentBuffer:native offset:0 atIndex:slot];
     }
 
     void MetalCommandList::setSampler(uint32_t slot, Sampler& sampler)
     {
-        ARC_ASSERT(m_renderEncoder != nil, "setSampler outside a render pass");
+        ARC_ASSERT(inPass(), "setSampler outside a pass");
         validateSamplerBinding(slot);
         id<MTLSamplerState> native = static_cast<MetalSampler&>(sampler).native();
+        if (m_computeEncoder)
+        {
+            [m_computeEncoder setSamplerState:native atIndex:slot];
+            return;
+        }
         [m_renderEncoder setVertexSamplerState:native atIndex:slot];
         [m_renderEncoder setFragmentSamplerState:native atIndex:slot];
     }
@@ -244,7 +370,7 @@ namespace arc::rhi::metal
 
     void MetalCommandList::copyBuffer(Buffer& dst, uint64_t dstOffset, Buffer& src, uint64_t srcOffset, uint64_t size)
     {
-        ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
         ARC_ASSERT(dst.state() == ResourceState::CopyDest, "Copy destination '{}' is in state {}",
                    dst.desc().debugName, resourceStateName(dst.state()));
         ARC_ASSERT(src.state() == ResourceState::CopySource, "Copy source '{}' is in state {}",
@@ -261,7 +387,7 @@ namespace arc::rhi::metal
     void MetalCommandList::copyBufferToTexture(Texture& dst, uint32_t mipLevel, uint32_t arrayLayer, Buffer& src,
                                                uint64_t srcOffset, uint32_t srcRowPitch)
     {
-        ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
         validateTextureCopy(dst, mipLevel, arrayLayer, ResourceState::CopyDest, src, srcOffset, srcRowPitch,
                             ResourceState::CopySource);
 
@@ -282,7 +408,7 @@ namespace arc::rhi::metal
     void MetalCommandList::copyTextureToBuffer(Buffer& dst, uint64_t dstOffset, uint32_t dstRowPitch, Texture& src,
                                                uint32_t mipLevel, uint32_t arrayLayer)
     {
-        ARC_ASSERT(m_renderEncoder == nil, "Copies are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Copies are not allowed inside a pass");
         validateTextureCopy(src, mipLevel, arrayLayer, ResourceState::CopySource, dst, dstOffset, dstRowPitch,
                             ResourceState::CopyDest);
 
@@ -300,7 +426,7 @@ namespace arc::rhi::metal
 
     void MetalCommandList::barrier(Buffer& buffer, ResourceState state)
     {
-        ARC_ASSERT(m_renderEncoder == nil, "Barriers are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Barriers are not allowed inside a pass");
         ARC_ASSERT(buffer.desc().memory == MemoryType::GpuOnly, "'{}' has a fixed state", buffer.desc().debugName);
         // Buffers are created with Metal's default hazard tracking, so Metal inserts the
         // synchronisation itself. Only the tracked state changes, which keeps the asserts in
@@ -310,7 +436,7 @@ namespace arc::rhi::metal
 
     void MetalCommandList::barrier(Texture& texture, ResourceState state)
     {
-        ARC_ASSERT(m_renderEncoder == nil, "Barriers are not allowed inside a render pass");
+        ARC_ASSERT(!inPass(), "Barriers are not allowed inside a pass");
         // Hazard tracking covers textures as well as buffers; see barrier(Buffer&).
         texture.setState(state);
     }
@@ -319,9 +445,9 @@ namespace arc::rhi::metal
     {
         endBlitEncoder();
         NSString* label = toNSString(name);
-        const bool onEncoder = m_renderEncoder != nil;
+        const bool onEncoder = inPass();
         if (onEncoder)
-            [m_renderEncoder pushDebugGroup:label];
+            [passEncoder() pushDebugGroup:label];
         else
             [m_commandBuffer pushDebugGroup:label];
         m_debugGroupOnEncoder.push_back(onEncoder);
@@ -332,7 +458,7 @@ namespace arc::rhi::metal
         ARC_ASSERT(!m_debugGroupOnEncoder.empty(), "Unbalanced popDebugGroup");
         endBlitEncoder();
         if (m_debugGroupOnEncoder.back())
-            [m_renderEncoder popDebugGroup];
+            [passEncoder() popDebugGroup];
         else
             [m_commandBuffer popDebugGroup];
         m_debugGroupOnEncoder.pop_back();
