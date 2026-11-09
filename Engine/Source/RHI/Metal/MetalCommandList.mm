@@ -34,7 +34,8 @@ namespace arc::rhi::metal
     {
         if (m_mipViews.size() < m_desc.mipLevels)
             m_mipViews.resize(m_desc.mipLevels);
-        id<MTLTexture>& view = m_mipViews[mipLevel];
+        // A reference to an ARC pointer needs an explicit ownership qualifier.
+        __strong id<MTLTexture>& view = m_mipViews[mipLevel];
         if (!view)
             view = [m_texture newTextureViewWithPixelFormat:m_texture.pixelFormat
                                                 textureType:MTLTextureType2D
