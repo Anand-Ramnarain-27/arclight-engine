@@ -27,6 +27,13 @@ Phase 5: compute, threading and profiling.
 - Debug builds run a compute self-test on the GPU at start-up (`ComputeSelfTest.hlsl`): storage buffer and texture writes, constants, group-shared memory and wave intrinsics.
 - Unit tests for compute pipelines, compute passes and storage bindings on the Null backend.
 
+#### Job system
+- `Core/JobSystem`: worker threads (one per hardware thread but the main one by default, `ApplicationDesc::workerThreads`) running jobs from one queue under a mutex, with condition variables to sleep and wake. `JobCounter` groups jobs; `wait()` runs queued jobs on the waiting thread until its group is done, so jobs can wait on jobs they start. `parallelFor(count, batchSize, body)` hands out batches through an atomic index to a few helper jobs and the calling thread. Workers are named in Tracy and each job is a zone.
+- The Application owns the job system and makes it the active one (`activeJobSystem()`); the free `parallelFor()` runs inline when there is none.
+- On the job system: BC texture encoding (rows of blocks, replacing its own threads), a model's images (each with its mips and encoding, nested in the per-image jobs), level-of-detail simplification (one primitive per job, joined in primitive order so cooked files do not depend on the thread count), the per-mesh frustum tests, level-of-detail choices and render items of culling (batches of 64 objects, each into its own `RenderList`, joined with `RenderList::append()` in batch order) and the opaque sort keys of large render lists.
+- Editor: *System Info* and the *Profiler* panel show the worker count and the jobs run in the last frame.
+- The unit tests run with a three-worker job system, so the parallel paths are tested; new tests for the job system (every index once, batch limits, nested waits with more waiting jobs than workers, jobs queued at shutdown) and for appended render lists.
+
 ## [0.5.0] - 2026-11-05
 
 Phase 4: lighting and PBR.

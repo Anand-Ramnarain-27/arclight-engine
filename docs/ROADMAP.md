@@ -81,7 +81,7 @@ Stylized rendering is a second material model alongside PBR, chosen per material
 
 - Profiling: Tracy zones, frame marks, plots and log messages; GPU timestamps for every render pass on both backends, also sent to Tracy; an in-editor Profiler panel.
 - Compute shaders and storage (unordered-access) resources on both backends, with auto exposure from a luminance histogram as the first user.
-- Job system with a thread pool.
+- Job system with a thread pool: texture encoding, mesh simplification and culling run on it.
 - Asynchronous asset loading.
 - Game/render thread synchronisation.
 

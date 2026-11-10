@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Application/Module.h"
+#include "Core/JobSystem.h"
 #include "Core/Log.h"
 #include "Core/Time.h"
 #include "Platform/FileDialog.h"
@@ -29,6 +30,9 @@ namespace arc
 
         /// 0 means unlimited (or paced by vsync).
         uint32_t maxFrameRate = 0;
+
+        /// Threads in the job system besides the main thread. 0 means one per hardware thread but one.
+        uint32_t workerThreads = 0;
 
         /// Name the per-user folder that is mounted as user://, for example
         /// %APPDATA%/<organization>/<name>/ on Windows and ~/Library/Application Support/<organization>/<name>/ on macOS.
@@ -81,6 +85,9 @@ namespace arc
         /// Valid only while run() is executing.
         [[nodiscard]] Renderer& renderer() { return *m_renderer; }
 
+        /// The active job system (see activeJobSystem()) while run() is executing.
+        [[nodiscard]] JobSystem& jobs() { return *m_jobs; }
+
         [[nodiscard]] VirtualFileSystem& fileSystem() { return m_fileSystem; }
         [[nodiscard]] const VirtualFileSystem& fileSystem() const { return m_fileSystem; }
 
@@ -112,6 +119,7 @@ namespace arc
         ApplicationDesc m_desc;
         VirtualFileSystem m_fileSystem;
         FileDialogs m_fileDialogs;
+        std::unique_ptr<JobSystem> m_jobs;
         std::unique_ptr<Window> m_window;
         std::unique_ptr<Renderer> m_renderer;
         std::vector<std::unique_ptr<Module>> m_modules;

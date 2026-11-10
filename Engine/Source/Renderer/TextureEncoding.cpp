@@ -1,6 +1,7 @@
 #include "Renderer/TextureEncoding.h"
 
 #include "Core/Assert.h"
+#include "Core/JobSystem.h"
 #include "Core/Profiler.h"
 
 #include <bc7decomp.h>
@@ -9,10 +10,8 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstring>
 #include <mutex>
-#include <thread>
 
 namespace arc
 {
@@ -31,27 +30,6 @@ namespace arc
                 rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
                 bc7enc_compress_block_init();
             });
-        }
-
-        // Calls work(i) for every i in [0, count) on all hardware threads, each taking the next index
-        // as it finishes one, so threads that land on cheap rows of blocks are not left idle. The job
-        // system of Phase 5 will replace this.
-        template <typename Work>
-        void parallelFor(uint32_t count, const Work& work)
-        {
-            const uint32_t threads = std::clamp(std::thread::hardware_concurrency(), 1u, std::max(count, 1u));
-            std::atomic<uint32_t> next{0};
-            const auto run = [&] {
-                for (uint32_t i = next++; i < count; i = next++)
-                    work(i);
-            };
-            std::vector<std::thread> pool;
-            pool.reserve(threads - 1);
-            for (uint32_t t = 1; t < threads; ++t)
-                pool.emplace_back(run);
-            run();
-            for (std::thread& thread : pool)
-                thread.join();
         }
 
         // The 4x4 block whose top-left pixel is (x, y), as 16 RGBA pixels. Pixels past the image's
@@ -151,12 +129,15 @@ namespace arc
             const uint32_t blockRows = rhi::rowCount(format, image.size.height);
             const uint32_t blockBytes = rhi::bytesPerBlock(format);
             std::vector<std::byte> encoded(size_t{blocksWide} * blockRows * blockBytes);
-            parallelFor(blockRows, [&](uint32_t blockRow) {
-                for (uint32_t blockColumn = 0; blockColumn < blocksWide; ++blockColumn)
-                {
-                    std::byte* out = &encoded[(size_t{blockRow} * blocksWide + blockColumn) * blockBytes];
-                    encodeBlock(format, readBlock(image, blockColumn * 4, blockRow * 4), out, bc7Params);
-                }
+            // A row of blocks per batch: BC7 spends very different times on flat and detailed blocks, so
+            // small batches balance the threads best, and a row is still thousands of cycles of work.
+            parallelFor(blockRows, 1, [&](uint32_t firstRow, uint32_t endRow) {
+                for (uint32_t blockRow = firstRow; blockRow < endRow; ++blockRow)
+                    for (uint32_t blockColumn = 0; blockColumn < blocksWide; ++blockColumn)
+                    {
+                        std::byte* out = &encoded[(size_t{blockRow} * blocksWide + blockColumn) * blockBytes];
+                        encodeBlock(format, readBlock(image, blockColumn * 4, blockRow * 4), out, bc7Params);
+                    }
             });
             return encoded;
         }

@@ -1,5 +1,6 @@
 #include "Renderer/RenderList.h"
 
+#include "Core/JobSystem.h"
 #include "Core/Profiler.h"
 #include "Renderer/Model.h"
 
@@ -81,6 +82,22 @@ namespace arc
         }
     }
 
+    void RenderList::append(const RenderList& other)
+    {
+        const auto offset = static_cast<uint32_t>(m_transforms.size());
+        m_transforms.insert(m_transforms.end(), other.m_transforms.begin(), other.m_transforms.end());
+        for (const RenderItem& item : other.m_opaque)
+        {
+            m_opaque.push_back(item);
+            m_opaque.back().transform += offset;
+        }
+        for (const RenderItem& item : other.m_blended)
+        {
+            m_blended.push_back(item);
+            m_blended.back().transform += offset;
+        }
+    }
+
     uint64_t RenderList::opaqueSortKey(const RenderItem& item, const RenderTransform& transform)
     {
         const Primitive& primitive = item.model->primitives()[item.primitive];
@@ -102,11 +119,15 @@ namespace arc
             item.viewDepth = dot(centre - cameraPosition, cameraForward);
         };
 
-        for (RenderItem& item : m_opaque)
-        {
-            computeDepth(item);
-            item.sortKey = opaqueSortKey(item, m_transforms[item.transform]);
-        }
+        // Each item's key depends on that item alone, so large lists compute them in parallel.
+        parallelFor(static_cast<uint32_t>(m_opaque.size()), 1024, [&](uint32_t first, uint32_t end) {
+            for (uint32_t i = first; i < end; ++i)
+            {
+                RenderItem& item = m_opaque[i];
+                computeDepth(item);
+                item.sortKey = opaqueSortKey(item, m_transforms[item.transform]);
+            }
+        });
         if (sortOpaque)
             std::sort(m_opaque.begin(), m_opaque.end(), [](const RenderItem& a, const RenderItem& b) { return a.sortKey < b.sortKey; });
 

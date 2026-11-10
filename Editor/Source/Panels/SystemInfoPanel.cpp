@@ -59,6 +59,7 @@ namespace arc
             section("System");
             row("Platform", info.platform);
             row("CPU cores", std::format("{} logical", info.logicalCpuCores));
+            row("Job workers", std::format("{} threads, plus the main thread", m_app.jobs().workerCount()));
             row("CPU features", features.empty() ? "none detected" : features);
             row("Cache line", std::format("{} bytes", info.cpuCacheLineBytes));
             row("RAM", std::format("{:.1f} GB", info.systemRamMB / 1024.0));

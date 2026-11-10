@@ -1,5 +1,6 @@
 #include "Assets/AssetImporters.h"
 
+#include "Core/JobSystem.h"
 #include "Core/Log.h"
 #include "Platform/VirtualFileSystem.h"
 #include "Renderer/GltfImporter.h"
@@ -94,23 +95,32 @@ namespace arc
         const std::vector<TextureContent> contents = imageContents(*data);
         data->encodedImages.resize(data->images.size());
         data->imageColorSpaces.resize(data->images.size(), ColorSpace::Srgb);
+        // An image per job, each encoding its rows of blocks in parallel too: a model's images differ
+        // in size, and the nested batches keep every thread busy until the largest is done.
+        std::vector<uint64_t> imageRawBytes(data->images.size(), 0);
+        parallelFor(static_cast<uint32_t>(data->images.size()), 1, [&](uint32_t first, uint32_t end) {
+            for (uint32_t i = first; i < end; ++i)
+            {
+                Image& image = data->images[i];
+                if (image.empty())
+                    continue;
+                const ColorSpace colorSpace = data->imageColorSpaces[i];
+                const bool alpha = contents[i] == TextureContent::Color && hasTransparency(image);
+                const rhi::Format format =
+                    chooseTextureFormat(contents[i], colorSpace, alpha, settings.textureCompression, image.size);
+                const std::vector<Image> levels = generateMipChain(std::move(image), colorSpace);
+                data->encodedImages[i] = encodeTexture(levels, format);
+                ARC_LOG_TRACE("'{}' image {}: {}x{} as {}", path, i, levels[0].size.width, levels[0].size.height,
+                              rhi::formatName(format));
+                for (const Image& level : levels)
+                    imageRawBytes[i] += level.pixels.size();
+            }
+        });
         uint64_t rawBytes = 0;
         uint64_t encodedBytes = 0;
         for (size_t i = 0; i < data->images.size(); ++i)
         {
-            Image& image = data->images[i];
-            if (image.empty())
-                continue;
-            const ColorSpace colorSpace = data->imageColorSpaces[i];
-            const bool alpha = contents[i] == TextureContent::Color && hasTransparency(image);
-            const rhi::Format format =
-                chooseTextureFormat(contents[i], colorSpace, alpha, settings.textureCompression, image.size);
-            const std::vector<Image> levels = generateMipChain(std::move(image), colorSpace);
-            data->encodedImages[i] = encodeTexture(levels, format);
-            ARC_LOG_TRACE("'{}' image {}: {}x{} as {}", path, i, levels[0].size.width, levels[0].size.height,
-                          rhi::formatName(format));
-            for (const Image& level : levels)
-                rawBytes += level.pixels.size();
+            rawBytes += imageRawBytes[i];
             encodedBytes += data->encodedImages[i].byteSize();
         }
         data->images.assign(data->encodedImages.size(), Image{});

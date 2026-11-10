@@ -75,6 +75,10 @@ namespace arc
         void addMesh(const Model& model, uint32_t mesh, const Mat4& world, const LodPolicy& lods = {},
                      std::span<const MaterialStyle> styles = {});
 
+        /// Adds every item of `other` after this list's own, in its order, for lists built in parallel
+        /// and joined in a fixed order. Before sort().
+        void append(const RenderList& other);
+
         /// Computes view depths and sort keys, then sorts both queues. With `sortOpaque` false the
         /// opaque queue keeps the order items were added in, to compare the state changes.
         void sort(const Vec3& cameraPosition, const Vec3& cameraForward, bool sortOpaque = true);

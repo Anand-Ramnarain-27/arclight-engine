@@ -89,6 +89,8 @@ namespace arc
         bool m_paused = false;
         uint64_t m_lastCpuFrame = ~0ull;
         uint64_t m_lastGpuFrame = ~0ull;
+        uint64_t m_jobsRunBefore = 0;
+        uint64_t m_jobsLastFrame = 0;
 
         std::array<float, kHistorySize> m_cpuHistory{};
         std::array<float, kHistorySize> m_gpuHistory{};

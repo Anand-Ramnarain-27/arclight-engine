@@ -147,6 +147,11 @@ namespace arc
         profiler::setMainThread();
         m_profilerLogSink = log::addSink([](const log::Record& record) { profiler::message(record.level, record.message); });
 
+        // Before the modules, which may run parallel work while they initialise (asset imports).
+        m_jobs = std::make_unique<JobSystem>(m_desc.workerThreads);
+        setActiveJobSystem(m_jobs.get());
+        ARC_LOG_INFO("Job system: {} worker threads", m_jobs->workerCount());
+
         const int sdlVersion = SDL_GetVersion();
         ARC_LOG_INFO("Arclight starting (SDL {}.{}.{})", SDL_VERSIONNUM_MAJOR(sdlVersion),
                      SDL_VERSIONNUM_MINOR(sdlVersion), SDL_VERSIONNUM_MICRO(sdlVersion));
@@ -209,6 +214,11 @@ namespace arc
         // The swapchain references the window, so the renderer goes first.
         m_renderer.reset();
 
+        // Every module has shut down, so nothing queues jobs any more; the destructor runs what is left.
+        if (m_jobs && activeJobSystem() == m_jobs.get())
+            setActiveJobSystem(nullptr);
+        m_jobs.reset();
+
         if (!m_platformInitialized)
             return;
 
@@ -219,6 +229,7 @@ namespace arc
         SDL_Quit();
         m_platformInitialized = false;
     }
+
 
     void Application::mountDefaultFolders()
     {

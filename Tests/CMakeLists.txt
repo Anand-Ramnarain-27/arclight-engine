@@ -14,6 +14,7 @@ add_executable(ArclightTests
     Source/VisibilityTests.cpp
     Source/TimeTests.cpp
     Source/ProfilerTests.cpp
+    Source/JobSystemTests.cpp
     Source/RHITests.cpp
     Source/ComputeTests.cpp
     Source/TextureTests.cpp

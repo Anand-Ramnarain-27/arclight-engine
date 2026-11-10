@@ -126,6 +126,10 @@ namespace arc
         }
         m_cpu.endFrame();
         const double cpuMs = static_cast<double>(cpu.durationNs) * 1e-6;
+
+        const uint64_t jobsRun = m_app.jobs().jobsRun();
+        m_jobsLastFrame = jobsRun - m_jobsRunBefore;
+        m_jobsRunBefore = jobsRun;
         m_cpuFrameSum += cpuMs;
         ++m_cpuFrames;
 
@@ -209,6 +213,9 @@ namespace arc
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Two GPU timestamps per render pass, read back %u frames later.", rhi::kMaxFramesInFlight);
         }
+
+        ImGui::TextDisabled("Jobs: %u workers, %llu jobs in the last frame. Work on the workers shows in Tracy.",
+                            m_app.jobs().workerCount(), static_cast<unsigned long long>(m_jobsLastFrame));
 
         if (!profiler::tracyEnabled())
             ImGui::TextDisabled("Tracy: not built in (ARCLIGHT_TRACY is OFF)");

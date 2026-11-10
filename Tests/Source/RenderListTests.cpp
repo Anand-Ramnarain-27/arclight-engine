@@ -208,3 +208,50 @@ TEST_CASE("Render list: opaque grouped by state then front to back, blended back
     unsorted.sort({10, 0, 0}, {-1, 0, 0}, false);
     CHECK(unsorted.opaque()[0].transform == 0);
 }
+
+TEST_CASE("Render lists built apart and appended equal one list built in order")
+{
+    auto device = rhi::createNullDevice({});
+    REQUIRE(device);
+    GeometryPool pool(*device);
+    MaterialData opaque;
+    MaterialData glass;
+    glass.alphaMode = AlphaMode::Blend;
+    const auto model = Model::create(*device, pool, makeModel(2, {opaque, glass}));
+    REQUIRE(model);
+
+    const Mat4 first = Mat4::translation({1, 0, 0});
+    const Mat4 second = Mat4::translation({0, 2, 0});
+    const Mat4 third = Mat4::scaling({-1, 1, 1});
+
+    RenderList whole;
+    whole.addMesh(*model, 0, first);
+    whole.addMesh(*model, 0, second);
+    whole.addMesh(*model, 0, third);
+
+    RenderList a;
+    a.addMesh(*model, 0, first);
+    RenderList b;
+    b.addMesh(*model, 0, second);
+    b.addMesh(*model, 0, third);
+    RenderList joined;
+    joined.append(a);
+    joined.append(RenderList{});
+    joined.append(b);
+
+    REQUIRE(joined.transforms().size() == whole.transforms().size());
+    REQUIRE(joined.opaque().size() == whole.opaque().size());
+    REQUIRE(joined.blended().size() == whole.blended().size());
+    for (size_t i = 0; i < whole.opaque().size(); ++i)
+    {
+        CHECK(joined.opaque()[i].primitive == whole.opaque()[i].primitive);
+        CHECK(joined.opaque()[i].transform == whole.opaque()[i].transform);
+    }
+    for (size_t i = 0; i < whole.blended().size(); ++i)
+        CHECK(joined.blended()[i].transform == whole.blended()[i].transform);
+    for (size_t i = 0; i < whole.transforms().size(); ++i)
+    {
+        CHECK(joined.transforms()[i].mirrored == whole.transforms()[i].mirrored);
+        CHECK(joined.transforms()[i].world.column(3).x == whole.transforms()[i].world.column(3).x);
+    }
+}

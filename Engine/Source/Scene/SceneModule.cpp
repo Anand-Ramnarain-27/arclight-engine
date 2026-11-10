@@ -4,6 +4,7 @@
 #include "Core/Log.h"
 #include "Assets/AssetModule.h"
 #include "Assets/ResourceManager.h"
+#include "Core/JobSystem.h"
 #include "Core/Profiler.h"
 #include "Platform/FileSystem.h"
 #include "Scene/SceneSerializer.h"
@@ -89,7 +90,7 @@ namespace arc
         return index;
     }
 
-    void SceneModule::addMeshes(const GameObject& object, const Frustum* frustum, const LodPolicy& lods)
+    void SceneModule::addMeshes(const GameObject& object, const Frustum* frustum, const LodPolicy& lods, CullBatch& batch)
     {
         const Mat4& world = object.transform().worldMatrix();
         for (const std::unique_ptr<Component>& component : object.components())
@@ -101,14 +102,14 @@ namespace arc
                 continue;
             if (frustum)
             {
-                ++m_cullingStats.meshesTested;
+                ++batch.meshesTested;
                 if (frustum->classify(Obb::fromAabb(mesh.localBounds(), world)) == Containment::Outside)
                 {
-                    ++m_cullingStats.meshesCulled;
+                    ++batch.meshesCulled;
                     continue;
                 }
             }
-            m_renderList.addMesh(*mesh.model(), mesh.meshIndex(), world, lods, mesh.materialStyles());
+            batch.list.addMesh(*mesh.model(), mesh.meshIndex(), world, lods, mesh.materialStyles());
         }
     }
 
@@ -126,6 +127,7 @@ namespace arc
             m_cullingStats.meshes += m_cullNodes[j].subtreeMeshes;
 
         // The nodes are in depth-first order, so a subtree is the run of nodes up to subtreeEnd.
+        m_drawCandidates.clear();
         uint32_t i = 0;
         while (i < m_cullNodes.size())
         {
@@ -144,14 +146,36 @@ namespace arc
             else if (containment == Containment::Inside)
             {
                 for (uint32_t j = i; j < node.subtreeEnd; ++j)
-                    addMeshes(*m_cullNodes[j].object, nullptr, lods);
+                    if (m_cullNodes[j].subtreeMeshes > 0)
+                        m_drawCandidates.push_back({m_cullNodes[j].object, false});
                 i = node.subtreeEnd;
             }
             else
             {
-                addMeshes(*node.object, &frustum, lods);
+                if (node.subtreeMeshes > 0)
+                    m_drawCandidates.push_back({node.object, true});
                 ++i;
             }
+        }
+
+        // The mesh tests, level-of-detail choices and render items, in parallel. buildCullNode() read
+        // every object's world matrix above, so the transforms' caches are clean and the jobs only read.
+        constexpr uint32_t kBatchSize = 64;
+        const auto candidates = static_cast<uint32_t>(m_drawCandidates.size());
+        m_cullBatches.resize((candidates + kBatchSize - 1) / kBatchSize);
+        parallelFor(candidates, kBatchSize, [&](uint32_t first, uint32_t end) {
+            CullBatch& batch = m_cullBatches[first / kBatchSize];
+            batch.list.clear();
+            batch.meshesTested = 0;
+            batch.meshesCulled = 0;
+            for (uint32_t c = first; c < end; ++c)
+                addMeshes(*m_drawCandidates[c].object, m_drawCandidates[c].test ? &frustum : nullptr, lods, batch);
+        });
+        for (const CullBatch& batch : m_cullBatches)
+        {
+            m_renderList.append(batch.list);
+            m_cullingStats.meshesTested += batch.meshesTested;
+            m_cullingStats.meshesCulled += batch.meshesCulled;
         }
     }
 

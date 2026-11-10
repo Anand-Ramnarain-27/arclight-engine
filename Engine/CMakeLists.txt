@@ -11,6 +11,8 @@ add_library(ArclightEngine STATIC
     Source/Core/Log.cpp
     Source/Core/Profiler.h
     Source/Core/Profiler.cpp
+    Source/Core/JobSystem.h
+    Source/Core/JobSystem.cpp
     Source/Core/Time.h
     Source/Core/Time.cpp
     Source/Math/Math.h

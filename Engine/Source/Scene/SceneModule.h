@@ -137,8 +137,24 @@ namespace arc
             Aabb bounds;                 // World space: the node's meshes and its whole subtree.
         };
 
+        /// An object whose meshes may be drawn; `test` when its bounds cross the frustum's edge, so each
+        /// mesh is tested on its own.
+        struct DrawCandidate
+        {
+            const GameObject* object = nullptr;
+            bool test = false;
+        };
+
+        /// What one batch of candidates added, built on its own thread and joined in batch order.
+        struct CullBatch
+        {
+            RenderList list;
+            uint32_t meshesTested = 0;
+            uint32_t meshesCulled = 0;
+        };
+
         uint32_t buildCullNode(const GameObject& object);
-        void addMeshes(const GameObject& object, const Frustum* frustum, const LodPolicy& lods);
+        static void addMeshes(const GameObject& object, const Frustum* frustum, const LodPolicy& lods, CullBatch& batch);
         void cullAndCollect(const Frustum& frustum, const LodPolicy& lods);
 
         AssetModule& m_assets;
@@ -149,6 +165,8 @@ namespace arc
         RenderStats m_stats;
         Skybox m_skybox;
         std::vector<CullNode> m_cullNodes;
+        std::vector<DrawCandidate> m_drawCandidates;
+        std::vector<CullBatch> m_cullBatches;
         CullingStats m_cullingStats;
         Camera m_cullCamera;
         float m_cullAspect = 1.0f;
