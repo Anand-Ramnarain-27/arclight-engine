@@ -35,14 +35,19 @@ namespace arc
     /// runs queued jobs itself until the group is done, so waiting never leaves a core idle and a job
     /// may wait on jobs it started (nested parallelism) without deadlocking the pool.
     ///
+    /// Long jobs that no frame waits for, such as loading an asset, go to runBackground() instead:
+    /// only workers run them, never a thread that waits, and they never take every worker.
+    ///
     /// Jobs must not throw, and must not touch what other jobs of the same group write without
     /// their own synchronisation. The Application owns one, with a worker per hardware thread but the
     /// main thread, and makes it the active one (see activeJobSystem()).
     class JobSystem
     {
     public:
-        /// 0 workers means one per hardware thread, less one for the thread that waits.
-        explicit JobSystem(uint32_t workerCount = 0);
+        /// 0 workers means one per hardware thread, less one for the thread that waits. There is
+        /// always at least one. `onWorkerExit` runs on each worker as it exits, to free what
+        /// libraries keep per thread for threads they did not create (SDL's error message buffer).
+        explicit JobSystem(uint32_t workerCount = 0, std::function<void()> onWorkerExit = {});
 
         /// Waits for the queued jobs to run, then joins the workers.
         ~JobSystem();
@@ -55,8 +60,17 @@ namespace arc
         /// Queues `job` to run on a worker (or on a thread waiting in wait()).
         void run(JobCounter& counter, std::function<void()> job);
 
-        /// Blocks until every job counted by `counter` has finished, running queued jobs on the calling
-        /// thread meanwhile. Those may belong to other groups.
+        /// Queues `job` to run on a worker once fewer than backgroundLimit() background jobs are
+        /// running. wait() never runs it on the waiting thread, so a frame that waits on its own jobs
+        /// is not held up by a background job it happened to pick up. Foreground jobs go first.
+        void runBackground(JobCounter& counter, std::function<void()> job);
+
+        /// How many background jobs may run at once: every worker but one, which stays free for the
+        /// frame's work, or 1 with a single worker.
+        [[nodiscard]] uint32_t backgroundLimit() const { return m_backgroundLimit; }
+
+        /// Blocks until every job counted by `counter` has finished, running queued foreground jobs on
+        /// the calling thread meanwhile. Those may belong to other groups.
         void wait(JobCounter& counter);
 
         /// Calls `body(begin, end)` for consecutive ranges of at most `batchSize` indices that together
@@ -77,17 +91,22 @@ namespace arc
 
         void workerLoop(uint32_t index);
         [[nodiscard]] bool tryPop(Job& job);
-        void execute(Job& job);
+        [[nodiscard]] bool canStartBackground() const;
+        void execute(Job& job, bool background);
 
         std::vector<std::thread> m_workers;
         std::deque<Job> m_queue;
+        std::deque<Job> m_background;
+        uint32_t m_backgroundRunning = 0;
+        uint32_t m_backgroundLimit = 1;
         std::mutex m_mutex;
-        // Workers sleep on m_jobAvailable while the queue is empty; waiting threads sleep on
+        // Workers sleep on m_jobAvailable while there is nothing they may start; waiting threads sleep on
         // m_jobFinished while their group still has jobs running on other threads.
         std::condition_variable m_jobAvailable;
         std::condition_variable m_jobFinished;
         bool m_stopping = false;
         std::atomic<uint64_t> m_jobsRun{0};
+        std::function<void()> m_onWorkerExit;
     };
 
     /// The job system engine code runs parallel work on, or nullptr when there is none (unit tests

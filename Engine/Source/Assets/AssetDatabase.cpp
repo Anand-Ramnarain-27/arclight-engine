@@ -274,7 +274,7 @@ namespace arc
                stamp.settingsHash == settingsHash(record.meta);
     }
 
-    void AssetDatabase::updateState(AssetRecord& record)
+    void AssetDatabase::updateState(AssetRecord& record) const
     {
         const std::optional<SourceFingerprint> source = fingerprint(record);
         if (!source)
@@ -305,7 +305,7 @@ namespace arc
         record.state = bytes && fnv1a64(*bytes) == header->stamp.sourceHash ? AssetState::UpToDate : AssetState::Stale;
     }
 
-    std::optional<std::vector<std::byte>> AssetDatabase::cooked(AssetRecord& record, bool force)
+    std::optional<std::vector<std::byte>> AssetDatabase::cooked(AssetRecord& record, bool force) const
     {
         ARC_PROFILE_SCOPE("Read or cook asset");
         const std::optional<SourceFingerprint> source = fingerprint(record);
@@ -398,41 +398,67 @@ namespace arc
 
     std::optional<ModelData> AssetDatabase::loadModel(AssetId id)
     {
-        ARC_PROFILE_SCOPE("Load cooked model");
         AssetRecord* record = findRecord(id);
-        if (!record || record->meta.type != AssetType::Model)
+        return record ? loadModel(*record) : std::nullopt;
+    }
+
+    std::optional<CookedTexture> AssetDatabase::loadTexture(AssetId id)
+    {
+        AssetRecord* record = findRecord(id);
+        return record ? loadTexture(*record) : std::nullopt;
+    }
+
+    std::optional<ModelData> AssetDatabase::loadModel(AssetRecord& record) const
+    {
+        ARC_PROFILE_SCOPE("Load cooked model");
+        if (record.meta.type != AssetType::Model)
             return std::nullopt;
-        std::optional<std::vector<std::byte>> bytes = cooked(*record, false);
+        std::optional<std::vector<std::byte>> bytes = cooked(record, false);
         if (!bytes)
             return std::nullopt;
         std::optional<ModelData> data = readCookedModel(*bytes);
         if (!data)
         {
             // A damaged or hand-edited library file: rebuilt from the source once.
-            ARC_LOG_WARN("The cooked copy of '{}' is damaged; importing it again", record->path);
-            bytes = cooked(*record, true);
+            ARC_LOG_WARN("The cooked copy of '{}' is damaged; importing it again", record.path);
+            bytes = cooked(record, true);
             data = bytes ? readCookedModel(*bytes) : std::nullopt;
         }
         return data;
     }
 
-    std::optional<CookedTexture> AssetDatabase::loadTexture(AssetId id)
+    std::optional<CookedTexture> AssetDatabase::loadTexture(AssetRecord& record) const
     {
         ARC_PROFILE_SCOPE("Load cooked texture");
-        AssetRecord* record = findRecord(id);
-        if (!record || record->meta.type != AssetType::Texture)
+        if (record.meta.type != AssetType::Texture)
             return std::nullopt;
-        std::optional<std::vector<std::byte>> bytes = cooked(*record, false);
+        std::optional<std::vector<std::byte>> bytes = cooked(record, false);
         if (!bytes)
             return std::nullopt;
         std::optional<CookedTexture> texture = readCookedTexture(*bytes);
         if (!texture)
         {
-            ARC_LOG_WARN("The cooked copy of '{}' is damaged; importing it again", record->path);
-            bytes = cooked(*record, true);
+            ARC_LOG_WARN("The cooked copy of '{}' is damaged; importing it again", record.path);
+            bytes = cooked(record, true);
             texture = bytes ? readCookedTexture(*bytes) : std::nullopt;
         }
         return texture;
+    }
+
+    void AssetDatabase::finishLoad(const AssetRecord& loaded)
+    {
+        AssetRecord* record = findRecord(loaded.meta.id);
+        if (!record)
+            return;
+        if (record->path != loaded.path || settingsHash(record->meta) != settingsHash(loaded.meta))
+        {
+            updateState(*record);
+            return;
+        }
+        record->state = loaded.state;
+        record->cookedSize = loaded.cookedSize;
+        record->importMilliseconds = loaded.importMilliseconds;
+        record->error = loaded.error;
     }
 
     bool AssetDatabase::setSettings(AssetId id, const ModelImportSettings& model, const TextureImportSettings& texture)

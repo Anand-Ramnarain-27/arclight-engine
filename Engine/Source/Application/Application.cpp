@@ -148,7 +148,8 @@ namespace arc
         m_profilerLogSink = log::addSink([](const log::Record& record) { profiler::message(record.level, record.message); });
 
         // Before the modules, which may run parallel work while they initialise (asset imports).
-        m_jobs = std::make_unique<JobSystem>(m_desc.workerThreads);
+        // Workers call SDL (file system queries), which keeps an error buffer per thread.
+        m_jobs = std::make_unique<JobSystem>(m_desc.workerThreads, [] { SDL_CleanupTLS(); });
         setActiveJobSystem(m_jobs.get());
         ARC_LOG_INFO("Job system: {} worker threads", m_jobs->workerCount());
 

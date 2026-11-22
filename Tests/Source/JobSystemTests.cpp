@@ -136,3 +136,65 @@ TEST_CASE("The free parallelFor runs inline without an active job system")
     std::iota(expected.begin(), expected.end(), 0u);
     CHECK(order == expected);
 }
+
+TEST_CASE("Background jobs run only on workers, at most backgroundLimit() at once")
+{
+    JobSystem jobs(3);
+    CHECK(jobs.backgroundLimit() == 2);
+    CHECK(JobSystem(1).backgroundLimit() == 1);
+
+    const std::thread::id caller = std::this_thread::get_id();
+    std::atomic<uint32_t> running{0};
+    std::atomic<uint32_t> mostRunning{0};
+    std::atomic<bool> ranOnCaller{false};
+    JobCounter counter;
+    for (int i = 0; i < 8; ++i)
+        jobs.runBackground(counter, [&] {
+            if (std::this_thread::get_id() == caller)
+                ranOnCaller = true;
+            const uint32_t now = running.fetch_add(1) + 1;
+            uint32_t most = mostRunning.load();
+            while (now > most && !mostRunning.compare_exchange_weak(most, now)) {}
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            running.fetch_sub(1);
+        });
+    jobs.wait(counter);
+    CHECK(counter.done());
+    CHECK_FALSE(ranOnCaller.load());
+    CHECK(mostRunning.load() >= 1);
+    CHECK(mostRunning.load() <= 2);
+}
+
+TEST_CASE("Foreground work goes ahead while background jobs keep workers busy")
+{
+    JobSystem jobs(2);
+    std::atomic<bool> release{false};
+    JobCounter background;
+    jobs.runBackground(background, [&] {
+        while (!release.load())
+            std::this_thread::yield();
+    });
+
+    // One worker is held by the background job; the other, and this thread, take the batches.
+    std::atomic<uint32_t> covered{0};
+    jobs.parallelFor(1000, 10, [&](uint32_t begin, uint32_t end) { covered.fetch_add(end - begin); });
+    CHECK(covered.load() == 1000);
+    CHECK_FALSE(background.done());
+
+    release = true;
+    jobs.wait(background);
+    CHECK(background.done());
+}
+
+TEST_CASE("Background jobs still queued when the job system is destroyed run first")
+{
+    std::atomic<uint32_t> ran{0};
+    JobCounter counter;
+    {
+        JobSystem jobs(2);
+        for (int i = 0; i < 20; ++i)
+            jobs.runBackground(counter, [&ran] { ran.fetch_add(1); });
+    }
+    CHECK(ran.load() == 20);
+    CHECK(counter.done());
+}

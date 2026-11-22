@@ -55,7 +55,8 @@ namespace arc
     /// written, with a new id, to the first writable layer of the source's mount; where no layer is
     /// writable, the id is derived from the path instead.
     ///
-    /// Main thread only.
+    /// Main thread only, except for the loadModel() and loadTexture() overloads that take a copy of
+    /// a record, which background loads run on workers.
     class AssetDatabase
     {
     public:
@@ -74,7 +75,8 @@ namespace arc
         AssetId registerPath(const std::string& path);
 
         /// Cooks the asset unless its cooked copy is current, or always with `force`. False if the
-        /// source cannot be read or imported.
+        /// source cannot be read or imported. Must not run while the same asset loads on a worker;
+        /// ResourceManager::finishLoads() first.
         bool import(AssetId id, bool force = false);
         /// Imports every asset that is not current. Returns how many were imported.
         size_t importAll(bool force = false);
@@ -82,6 +84,16 @@ namespace arc
         /// The cooked data, importing first when needed. Null after logging on failure.
         [[nodiscard]] std::optional<ModelData> loadModel(AssetId id);
         [[nodiscard]] std::optional<CookedTexture> loadTexture(AssetId id);
+
+        /// The same, for a copy of the asset's record, of which only the import state changes: safe
+        /// on any thread, as long as no other thread cooks the same asset at the same time. Hand the
+        /// copy to finishLoad() on the main thread afterwards.
+        [[nodiscard]] std::optional<ModelData> loadModel(AssetRecord& record) const;
+        [[nodiscard]] std::optional<CookedTexture> loadTexture(AssetRecord& record) const;
+
+        /// Takes the import state from a copy loaded with the overloads above. When the record's
+        /// settings changed meanwhile, its state is checked again instead.
+        void finishLoad(const AssetRecord& loaded);
 
         /// Replaces the asset's import settings and saves them to its .meta file when it has one.
         /// The id and type are kept. The cooked copy becomes stale; the next load re-imports it.
@@ -105,9 +117,9 @@ namespace arc
         [[nodiscard]] std::optional<std::vector<std::byte>> readSource(const AssetRecord& record) const;
         [[nodiscard]] std::optional<CookedHeader> cookedHeader(const AssetRecord& record) const;
         [[nodiscard]] bool matchesExceptSource(const AssetRecord& record, const CookedStamp& stamp) const;
-        void updateState(AssetRecord& record);
+        void updateState(AssetRecord& record) const;
         /// The cooked file's bytes, cooking it first if it is missing, stale or `force` is set.
-        std::optional<std::vector<std::byte>> cooked(AssetRecord& record, bool force);
+        std::optional<std::vector<std::byte>> cooked(AssetRecord& record, bool force) const;
 
         VirtualFileSystem& m_fileSystem;
         std::string m_assetRoot;

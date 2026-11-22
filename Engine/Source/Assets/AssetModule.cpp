@@ -17,6 +17,11 @@ namespace arc
         return true;
     }
 
+    void AssetModule::update(const FrameTime& /*time*/)
+    {
+        m_resources->update(uploadBudgetMilliseconds);
+    }
+
     void AssetModule::shutdown()
     {
         m_resources.reset();

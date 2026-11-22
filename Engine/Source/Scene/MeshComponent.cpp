@@ -5,6 +5,7 @@
 #include "Renderer/Model.h"
 #include "Scene/ComponentData.h"
 #include "Scene/GameObject.h"
+#include "Scene/Scene.h"
 
 #include <algorithm>
 #include <format>
@@ -22,7 +23,19 @@ namespace arc
     {
         m_asset = model ? model->asset() : Uuid{};
         m_model = std::move(model);
+        m_request.reset();
         m_mesh = mesh;
+    }
+
+    bool MeshComponent::updateModelLoad()
+    {
+        if (!m_request || !m_request->finished())
+            return false;
+        m_model = m_request->model();
+        if (!m_model)
+            ARC_LOG_WARN("The model {} of a Mesh component could not be loaded; the reference is kept", m_asset.toString());
+        m_request.reset();
+        return true;
     }
 
     namespace
@@ -140,8 +153,16 @@ namespace arc
         if (!asset)
             return;
         m_asset = *asset;
-        m_model = context.resources ? context.resources->loadModel(*asset) : nullptr;
-        if (!m_model && context.resources)
+        if (!context.resources)
+            return;
+        if (context.loadModelsInBackground)
+        {
+            m_request = context.resources->requestModel(*asset);
+            updateModelLoad();
+            return;
+        }
+        m_model = context.resources->loadModel(*asset);
+        if (!m_model)
             ARC_LOG_WARN("The model {} of a Mesh component could not be loaded; the reference is kept", asset->toString());
     }
 
@@ -236,5 +257,28 @@ namespace arc
             mesh.setMaterialStyle(material, copy);
             return true;
         });
+    }
+
+    namespace
+    {
+        uint32_t updateModelLoads(const GameObject& object)
+        {
+            uint32_t loading = 0;
+            for (const std::unique_ptr<Component>& component : object.components())
+                if (&component->type() == &MeshComponent::staticType())
+                {
+                    auto& mesh = static_cast<MeshComponent&>(*component);
+                    mesh.updateModelLoad();
+                    loading += mesh.isLoading() ? 1 : 0;
+                }
+            for (const GameObject* child : object.children())
+                loading += updateModelLoads(*child);
+            return loading;
+        }
+    }
+
+    uint32_t updateModelLoads(const Scene& scene)
+    {
+        return updateModelLoads(scene.root());
     }
 }

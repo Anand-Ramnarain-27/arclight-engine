@@ -17,6 +17,7 @@
 namespace arc
 {
     class Model;
+    class ModelRequest;
     struct TextureAsset;
     class AssetModule;
 
@@ -72,12 +73,18 @@ namespace arc
         /// Loads the model and instantiates it at the end of `parent`'s children (or the top level).
         /// Returns the new object, or null if the model cannot be loaded.
         GameObject* importModel(const std::string& path, GameObject* parent = nullptr);
+        /// Starts loading the model in the background; ResourceManager::requestModel().
+        [[nodiscard]] std::shared_ptr<const ModelRequest> requestModel(const std::string& path);
 
         /// Models currently loaded, in no particular order.
         [[nodiscard]] std::vector<std::shared_ptr<const Model>> loadedModels() const;
 
+        /// Mesh components whose model is still loading in the background, as of this frame's update().
+        [[nodiscard]] uint32_t loadingMeshes() const { return m_loadingMeshes; }
+
         // Scene files. Paths are virtual or native. Each must be called outside render(), and
-        // replacing the scene makes every GameObject pointer and handle into it stale.
+        // replacing the scene makes every GameObject pointer and handle into it stale. Their models
+        // load in the background: objects appear without meshes, which arrive over the next frames.
 
         /// Removes every object; the scene has no file until it is saved.
         void newScene();
@@ -170,6 +177,8 @@ namespace arc
         CullingStats m_cullingStats;
         Camera m_cullCamera;
         float m_cullAspect = 1.0f;
+        uint64_t m_seenFinishedLoads = 0;
+        uint32_t m_loadingMeshes = 0;
         std::vector<GpuLight> m_lights;
         uint32_t m_sceneLightCount = 0;
         bool m_usedDefaultLight = false;

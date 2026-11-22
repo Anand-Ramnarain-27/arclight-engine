@@ -4,6 +4,7 @@
 #include "Assets/CookedFormats.h"
 #include "Assets/ResourceManager.h"
 #include "Core/BinaryStream.h"
+#include "Core/JobSystem.h"
 #include "Core/Hash.h"
 #include "Platform/VirtualFileSystem.h"
 #include "RHI/Backends.h"
@@ -17,9 +18,11 @@
 
 #include <doctest/doctest.h>
 
+#include <chrono>
 #include <cmath>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace arc;
@@ -658,4 +661,90 @@ TEST_CASE("The resource manager shares what it loads and lets it go with its las
     CHECK(resources.loadedModels().size() == 1);
     CHECK(resources.loadModel("assets://grid.bmp").get() == nullptr);
     CHECK(resources.loadModel("assets://nothing.gltf").get() == nullptr);
+}
+
+TEST_CASE("Models load in the background and are shared with every request")
+{
+    Project project;
+    project.assets->add("grid.bmp", makeBmp(8, 8, 10));
+    for (const char* name : {"a.gltf", "b.gltf", "c.gltf"})
+        project.assets->add(name, triangleGltf());
+    AssetDatabase database(project.fileSystem);
+    database.refresh();
+    const AssetId a = database.findByPath("assets://a.gltf")->meta.id;
+
+    auto device = rhi::createNullDevice({});
+    REQUIRE(device);
+    GeometryPool geometry(*device);
+    ResourceManager resources(database, *device, geometry);
+    REQUIRE(activeJobSystem());
+
+    // Nothing changes before update(), however soon the job finishes.
+    const std::shared_ptr<const ModelRequest> first = resources.requestModel("assets://a.gltf");
+    const std::shared_ptr<const ModelRequest> second = resources.requestModel(a);
+    CHECK(first == second);
+    CHECK(first->state() == ModelRequest::State::Loading);
+    CHECK_FALSE(first->model());
+    CHECK(resources.loadsInFlight() == 1);
+    REQUIRE(resources.loadingPaths().size() == 1);
+    CHECK(resources.loadingPaths()[0] == "assets://a.gltf");
+
+    const uint64_t finishedBefore = resources.finishedLoads();
+    for (int frame = 0; frame < 10000 && resources.loadsInFlight() > 0; ++frame)
+    {
+        resources.update(100.0);
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    REQUIRE(resources.loadsInFlight() == 0);
+    CHECK(resources.finishedLoads() == finishedBefore + 1);
+    REQUIRE(first->state() == ModelRequest::State::Ready);
+    REQUIRE(first->model());
+    CHECK(first->model()->asset() == a);
+    CHECK(first->model()->triangleCount() == 1);
+    CHECK(resources.loadModel(a) == first->model());
+    CHECK(resources.requestModel(a)->model() == first->model());
+    // The worker cooked a copy of the record; the database's own record took its state afterwards.
+    CHECK(database.find(a)->state == AssetState::UpToDate);
+    CHECK(database.find(a)->cookedSize > 0);
+
+    // A synchronous load of a model loading in the background finishes that load.
+    const std::shared_ptr<const ModelRequest> b = resources.requestModel("assets://b.gltf");
+    const std::shared_ptr<const Model> bModel = resources.loadModel("assets://b.gltf");
+    REQUIRE(bModel);
+    CHECK(b->model() == bModel);
+    CHECK(resources.loadsInFlight() == 0);
+
+    // Nobody waits for c any more, so it is never uploaded.
+    std::shared_ptr<const ModelRequest> c = resources.requestModel("assets://c.gltf");
+    const AssetId cId = c->asset();
+    c.reset();
+    resources.finishLoads();
+    CHECK(resources.loadsInFlight() == 0);
+    for (const std::shared_ptr<const Model>& model : resources.loadedModels())
+        CHECK(model->asset() != cId);
+    CHECK(database.find(cId)->state == AssetState::UpToDate);
+
+    CHECK(resources.requestModel("assets://grid.bmp")->state() == ModelRequest::State::Failed);
+    CHECK(resources.requestModel("assets://nothing.gltf")->state() == ModelRequest::State::Failed);
+}
+
+TEST_CASE("A resource manager destroyed with loads in flight waits for their jobs")
+{
+    Project project;
+    for (int i = 0; i < 8; ++i)
+        project.assets->add("model" + std::to_string(i) + ".gltf", triangleGltf());
+    AssetDatabase database(project.fileSystem);
+    database.refresh();
+    auto device = rhi::createNullDevice({});
+    REQUIRE(device);
+    GeometryPool geometry(*device);
+
+    std::vector<std::shared_ptr<const ModelRequest>> requests;
+    {
+        ResourceManager resources(database, *device, geometry);
+        for (int i = 0; i < 8; ++i)
+            requests.push_back(resources.requestModel("assets://model" + std::to_string(i) + ".gltf"));
+    }
+    for (const std::shared_ptr<const ModelRequest>& request : requests)
+        CHECK_FALSE(request->model());
 }

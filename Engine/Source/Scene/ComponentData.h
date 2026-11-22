@@ -64,5 +64,8 @@ namespace arc
     {
         /// Resolves asset ids; null when assets are not to be loaded.
         ResourceManager* resources = nullptr;
+        /// Models are requested from `resources` in the background rather than loaded before load()
+        /// returns. Their components draw nothing until updateModelLoad() sees them finished.
+        bool loadModelsInBackground = false;
     };
 }

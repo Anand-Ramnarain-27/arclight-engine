@@ -265,6 +265,63 @@ TEST_CASE("Loaded scenes get their models from the resource manager")
     CHECK(resources.loaded()[0].references == 3);
 }
 
+TEST_CASE("Scenes can load their models in the background")
+{
+    VirtualFileSystem fileSystem;
+    auto assets = std::make_shared<MemorySource>(true);
+    assets->add("tri.gltf", test::triangleGltf());
+    fileSystem.mount("assets", assets);
+    fileSystem.mount("library", std::make_shared<MemorySource>(true));
+    AssetDatabase database(fileSystem);
+    database.refresh();
+    auto device = rhi::createNullDevice({});
+    REQUIRE(device);
+    GeometryPool geometry(*device);
+    ResourceManager resources(database, *device, geometry);
+
+    const std::string json = [&] {
+        Scene scene;
+        GameObject& parent = scene.create("Parent");
+        const std::shared_ptr<const Model> model = resources.loadModel("assets://tri.gltf");
+        scene.create("A", &parent).addComponent<MeshComponent>(model, 0);
+        scene.create("B", &parent).addComponent<MeshComponent>(model, 0);
+        parent.setActive(false);
+        return writeScene(scene);
+    }();
+    // Released with the scene, so loading it again starts from nothing.
+    REQUIRE(resources.loadedModels().empty());
+
+    SceneLoadOptions options;
+    options.context.resources = &resources;
+    options.context.loadModelsInBackground = true;
+    Scene loaded;
+    REQUIRE(readScene(loaded, json, options));
+    const GameObject& parent = *loaded.roots()[0];
+    const MeshComponent& a = *parent.children()[0]->getComponent<MeshComponent>();
+    const MeshComponent& b = *parent.children()[1]->getComponent<MeshComponent>();
+    CHECK(a.isLoading());
+    CHECK_FALSE(a.hasMesh());
+    CHECK(resources.loadsInFlight() == 1);
+    // Saved the same while loading.
+    CHECK(writeScene(loaded) == json);
+
+    CHECK(updateModelLoads(loaded) == 2);
+    resources.finishLoads();
+    // Inactive objects too.
+    CHECK(updateModelLoads(loaded) == 0);
+    CHECK_FALSE(a.isLoading());
+    REQUIRE(a.hasMesh());
+    CHECK(a.model() == b.model());
+    CHECK(writeScene(loaded) == json);
+
+    // Already loaded: ready as soon as the scene is read.
+    Scene again;
+    REQUIRE(readScene(again, json, options));
+    const MeshComponent& c = *again.roots()[0]->children()[0]->getComponent<MeshComponent>();
+    CHECK_FALSE(c.isLoading());
+    CHECK(c.model() == a.model());
+}
+
 TEST_CASE("Prefabs are placed with new ids, any number of times")
 {
     Scene scene;

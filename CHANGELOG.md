@@ -34,6 +34,15 @@ Phase 5: compute, threading and profiling.
 - Editor: *System Info* and the *Profiler* panel show the worker count and the jobs run in the last frame.
 - The unit tests run with a three-worker job system, so the parallel paths are tested; new tests for the job system (every index once, batch limits, nested waits with more waiting jobs than workers, jobs queued at shutdown) and for appended render lists.
 
+#### Asynchronous asset loading
+- Background jobs (`JobSystem::runBackground()`): only workers run them, never a thread waiting in `wait()`, so a frame is not held up by a long job it picked up while waiting on its own; at most every worker but one runs them at once, and foreground jobs go first.
+- `ResourceManager::requestModel()` returns a shared `ModelRequest`: a background job reads or cooks the model into CPU data, and `ResourceManager::update()` (run by the `AssetModule` each frame) uploads finished loads in request order within a time budget (`AssetModule::uploadBudgetMilliseconds`, 4 ms). Requests for the same asset share one load; a synchronous `loadModel()` of an asset loading in the background finishes that load instead of starting another; a load nobody waits for any more is not uploaded.
+- `AssetDatabase::loadModel()` / `loadTexture()` overloads that cook a copy of an asset's record on any thread, and `finishLoad()` to take its import state back on the main thread, so the database's records stay main-thread only.
+- Scenes, play-mode snapshots and prefabs load their models in the background (`ComponentLoadContext::loadModelsInBackground`): objects appear at once and each `MeshComponent` holds its request, drawing nothing until the model arrives, and is saved the same meanwhile. `updateModelLoads()` hands finished models to the components, run by the `SceneModule` only in frames where a load finished.
+- Editor: models imported from the File menu, the Files panel or by dropping a file are placed and selected once loaded; the sample model no longer blocks start-up while it is cooked. The menu bar shows how many models are loading, with their paths in its tooltip. Reimporting and changing import settings first finish the loads in flight, so the main thread never cooks an asset a worker is cooking.
+- `JobSystem` takes a function that runs on each worker as it exits; the Application frees SDL's per-thread error buffer with it, which file system queries on workers allocate.
+- Unit tests for background jobs (never on the waiting thread, the concurrency limit, foreground work while workers are busy, shutdown), shared and dropped background model loads, a synchronous load during a background one, destruction with loads in flight, and scenes whose meshes load in the background, inactive objects included.
+
 ## [0.5.0] - 2026-11-05
 
 Phase 4: lighting and PBR.

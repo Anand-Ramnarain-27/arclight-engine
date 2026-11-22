@@ -1,6 +1,8 @@
 #include "EditorModule.h"
 
 #include "Application/Application.h"
+#include "Assets/AssetModule.h"
+#include "Assets/ResourceManager.h"
 #include "Core/Log.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/FilesPanel.h"
@@ -15,6 +17,7 @@
 #include "RHI/Device.h"
 #include "Scene/LightComponent.h"
 #include "Scene/MeshComponent.h"
+#include "Scene/ModelInstantiation.h"
 #include "Scene/SceneModule.h"
 #include "Scene/TransformGizmo.h"
 #include "ShadingMenu.h"
@@ -44,6 +47,7 @@ namespace arc
 
     EditorModule::EditorModule(Application& app, ImGuiModule& imgui, AssetModule& assets, SceneModule& scene)
         : Module(app)
+        , m_assets(assets)
         , m_scene(scene)
         , m_selection(scene)
         , m_document(app, scene, m_selection)
@@ -87,7 +91,7 @@ namespace arc
             if (!app().fileSystem().isFile(samplePath))
                 ARC_LOG_WARN("{} not found; re-run CMake to download it, or drop a glTF file on the window", samplePath);
             else
-                importModel(samplePath, false);
+                importModel(samplePath, false, true);
             createLight(m_scene.scene(), LightType::Directional);
             // A new scene with the sample in it has nothing to save yet.
             m_document.markSaved();
@@ -109,22 +113,40 @@ namespace arc
             m_pendingOpen = event.drop.data;
     }
 
-    void EditorModule::importModel(const std::string& path, bool remember)
+    void EditorModule::importModel(const std::string& path, bool remember, bool keepSaved)
     {
         // One path per file, so the model cache shares a model dropped from Explorer with the same
         // model imported from the Files panel.
         const std::string stored = preferredPath(app().fileSystem(), path);
-        GameObject* object = m_scene.importModel(stored);
-        if (!object)
-            return;
-        m_selection.select(object);
-        frameSelection();
-        if (remember)
-            m_recentModels.add(app().fileSystem(), stored);
+        m_pendingImports.push_back({m_scene.requestModel(stored), stored, remember, keepSaved});
 
         const size_t length = std::min(stored.size(), m_importPath.size() - 1);
         std::memcpy(m_importPath.data(), stored.data(), length);
         m_importPath[length] = '\0';
+    }
+
+    void EditorModule::placeImportedModels()
+    {
+        for (size_t i = 0; i < m_pendingImports.size();)
+        {
+            PendingImport& import = m_pendingImports[i];
+            if (!import.request->finished())
+            {
+                ++i;
+                continue;
+            }
+            if (const std::shared_ptr<const Model>& model = import.request->model())
+            {
+                const bool wasSaved = !m_document.isDirty();
+                m_selection.select(&instantiateModel(m_scene.scene(), model));
+                frameSelection();
+                if (import.remember)
+                    m_recentModels.add(app().fileSystem(), import.path);
+                if (import.keepSaved && wasSaved)
+                    m_document.markSaved();
+            }
+            m_pendingImports.erase(m_pendingImports.begin() + static_cast<std::ptrdiff_t>(i));
+        }
     }
 
     void EditorModule::openPath(const std::string& path)
@@ -174,6 +196,7 @@ namespace arc
             m_pendingOpen.clear();
             openPath(path);
         }
+        placeImportedModels();
 
         handleShortcuts();
         logInputActivity();
@@ -382,7 +405,27 @@ namespace arc
             ImGui::EndMenu();
         }
 
+        drawLoadingStatus();
         ImGui::EndMainMenuBar();
+    }
+
+    void EditorModule::drawLoadingStatus()
+    {
+        const ResourceManager& resources = m_assets.resources();
+        if (resources.loadsInFlight() == 0)
+            return;
+        const std::string text = std::format("Loading {} model{}...", resources.loadsInFlight(),
+                                             resources.loadsInFlight() == 1 ? "" : "s");
+        // Right-aligned, out of the way of the menus.
+        const float spare = ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(text.c_str()).x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(spare, 0.0f));
+        ImGui::TextDisabled("%s", text.c_str());
+        if (ImGui::BeginItemTooltip())
+        {
+            for (const std::string& path : resources.loadingPaths())
+                ImGui::TextUnformatted(path.c_str());
+            ImGui::EndTooltip();
+        }
     }
 
     void EditorModule::drawGameObjectMenu()

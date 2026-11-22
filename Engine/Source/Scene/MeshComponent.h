@@ -15,6 +15,8 @@
 namespace arc
 {
     class Model;
+    class ModelRequest;
+    class Scene;
     struct TextureAsset;
 
     /// Draws one mesh of a Model at its GameObject's transform. The model is shared: every
@@ -25,7 +27,8 @@ namespace arc
     ///
     /// Saved as the model's asset id, the mesh index and the styles that differ from the default.
     /// The id is kept even when the model cannot be loaded, so saving the scene again does not lose
-    /// the reference.
+    /// the reference. A model loaded in the background is held as its request until it finishes;
+    /// the component has no mesh meanwhile, and is saved the same.
     class MeshComponent final : public Component
     {
         ARC_COMPONENT(MeshComponent, "Mesh")
@@ -41,6 +44,12 @@ namespace arc
         [[nodiscard]] uint32_t meshIndex() const { return m_mesh; }
         /// The asset of the model; null for a model not loaded from an asset.
         [[nodiscard]] Uuid modelAsset() const { return m_asset; }
+
+        /// The model is still loading in the background.
+        [[nodiscard]] bool isLoading() const { return m_request != nullptr; }
+        /// Takes the model once its background load has finished, and lets go of the request. True
+        /// if the load finished. Main thread only.
+        bool updateModelLoad();
 
         /// A model is set and the index is one of its meshes.
         [[nodiscard]] bool hasMesh() const;
@@ -73,6 +82,8 @@ namespace arc
         void growStyles(uint32_t material);
 
         std::shared_ptr<const Model> m_model;
+        // Shared with the other components of the same model, which take it in the same frame.
+        std::shared_ptr<const ModelRequest> m_request;
         uint32_t m_mesh = 0;
         Uuid m_asset;
         std::vector<MaterialStyle> m_styles;
@@ -98,4 +109,8 @@ namespace arc
     /// Gives every material drawn in the object's subtree `style`, except for its ramp texture, which
     /// each keeps. Returns the number of materials changed.
     uint32_t copyStyleToHierarchy(GameObject& object, const MaterialStyle& style);
+
+    /// Calls updateModelLoad() on every Mesh component in the scene, inactive objects too. Returns
+    /// how many are still loading.
+    uint32_t updateModelLoads(const Scene& scene);
 }

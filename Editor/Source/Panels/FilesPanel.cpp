@@ -96,7 +96,10 @@ namespace arc
         ImGui::SetItemTooltip("Lists the folders again and rescans assets:// for new and changed assets");
         ImGui::SameLine();
         if (ImGui::Button("Import Changed"))
+        {
+            m_assets.resources().finishLoads();
             database.importAll();
+        }
         ImGui::SetItemTooltip("Cooks every asset whose cooked copy is missing or out of date");
         ImGui::SameLine();
         if (ImGui::Button("Loaded"))
@@ -214,7 +217,10 @@ namespace arc
         if (!isDirectory && assetTypeOf(entry.path) != AssetType::Unknown)
             if (ImGui::MenuItem("Reimport"))
                 if (const AssetId asset = m_assets.database().registerPath(entry.path))
+                {
+                    m_assets.resources().finishLoads();
                     m_assets.database().import(asset, true);
+                }
         if (isDirectory)
         {
             const bool skybox = holdsSkybox(entry.path);
@@ -334,6 +340,7 @@ namespace arc
         ImGui::BeginDisabled(!changed);
         if (ImGui::Button("Apply"))
         {
+            m_assets.resources().finishLoads();
             database.setSettings(asset, m_modelSettings, m_textureSettings);
             database.import(asset);
         }
@@ -343,7 +350,10 @@ namespace arc
         ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("Reimport"))
+        {
+            m_assets.resources().finishLoads();
             database.import(asset, true);
+        }
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
         ImGui::SetItemTooltip("Objects already in the scene keep the version they were loaded with. Import the model "

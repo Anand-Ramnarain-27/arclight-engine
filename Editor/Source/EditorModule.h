@@ -19,6 +19,7 @@ namespace arc
 {
     class AssetModule;
     class ImGuiModule;
+    class ModelRequest;
     class SceneModule;
 
     /// The editor: main menu, dockable panels, the selection, global shortcuts, and the Scene view's
@@ -72,12 +73,25 @@ namespace arc
         void openImportDialog();
         void drawImportPopup();
         void drawAboutPopup();
-        /// `remember` adds the model to the recent models list.
-        void importModel(const std::string& path, bool remember = true);
+        /// Loads the model in the background; it is placed and selected once loaded. `remember` adds it
+        /// to the recent models list. `keepSaved` leaves a scene with no unsaved changes that way, for
+        /// the sample that a new scene starts with.
+        void importModel(const std::string& path, bool remember = true, bool keepSaved = false);
+        void placeImportedModels();
+        void drawLoadingStatus();
         /// A scene, prefab or model, by its extension.
         void openPath(const std::string& path);
         void frameSelection();
 
+        struct PendingImport
+        {
+            std::shared_ptr<const ModelRequest> request;
+            std::string path;
+            bool remember = true;
+            bool keepSaved = false;
+        };
+
+        AssetModule& m_assets;
         SceneModule& m_scene;
         EditorSelection m_selection;
         EditorCamera m_camera;
@@ -91,6 +105,7 @@ namespace arc
         bool m_openAbout = false;
         bool m_openImport = false;
         std::string m_pendingOpen;
+        std::vector<PendingImport> m_pendingImports;
         std::array<char, 1024> m_importPath{};
         RecentFiles m_recentModels{"user://RecentModels.txt", 10};
     };

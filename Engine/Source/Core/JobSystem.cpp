@@ -23,7 +23,8 @@ namespace arc
         g_activeJobSystem.store(jobs, std::memory_order_release);
     }
 
-    JobSystem::JobSystem(uint32_t workerCount)
+    JobSystem::JobSystem(uint32_t workerCount, std::function<void()> onWorkerExit)
+        : m_onWorkerExit(std::move(onWorkerExit))
     {
         if (workerCount == 0)
         {
@@ -31,6 +32,7 @@ namespace arc
             const uint32_t threads = std::max(std::thread::hardware_concurrency(), 2u);
             workerCount = threads - 1;
         }
+        m_backgroundLimit = std::max(workerCount, 2u) - 1;
         m_workers.reserve(workerCount);
         for (uint32_t i = 0; i < workerCount; ++i)
             m_workers.emplace_back([this, i] { workerLoop(i); });
@@ -62,6 +64,22 @@ namespace arc
         m_jobFinished.notify_all();
     }
 
+    void JobSystem::runBackground(JobCounter& counter, std::function<void()> job)
+    {
+        counter.m_pending.fetch_add(1, std::memory_order_relaxed);
+        {
+            const std::scoped_lock lock(m_mutex);
+            ARC_ASSERT(!m_stopping, "Job queued while the job system shuts down");
+            m_background.push_back({std::move(job), &counter});
+        }
+        m_jobAvailable.notify_one();
+    }
+
+    bool JobSystem::canStartBackground() const
+    {
+        return !m_background.empty() && m_backgroundRunning < m_backgroundLimit;
+    }
+
     bool JobSystem::tryPop(Job& job)
     {
         const std::scoped_lock lock(m_mutex);
@@ -72,8 +90,14 @@ namespace arc
         return true;
     }
 
-    void JobSystem::execute(Job& job)
+    void JobSystem::execute(Job& job, bool background)
     {
+        if (background)
+        {
+            ARC_PROFILE_SCOPE("Background job");
+            job.function();
+        }
+        else
         {
             ARC_PROFILE_SCOPE("Job");
             job.function();
@@ -99,7 +123,7 @@ namespace arc
         {
             if (tryPop(job))
             {
-                execute(job);
+                execute(job, false);
                 continue;
             }
             // Nothing queued: the group's last jobs are running on other threads.
@@ -116,16 +140,41 @@ namespace arc
         Job job;
         while (true)
         {
+            bool background = false;
             {
                 std::unique_lock lock(m_mutex);
-                m_jobAvailable.wait(lock, [&] { return m_stopping || !m_queue.empty(); });
-                // Jobs still queued at shutdown run first, so their counters reach zero.
-                if (m_queue.empty())
-                    return;
-                job = std::move(m_queue.front());
-                m_queue.pop_front();
+                m_jobAvailable.wait(lock, [&] { return m_stopping || !m_queue.empty() || canStartBackground(); });
+                // Jobs still queued at shutdown run first, so their counters reach zero. A worker that
+                // leaves with background jobs queued leaves them to the workers running the others.
+                if (!m_queue.empty())
+                {
+                    job = std::move(m_queue.front());
+                    m_queue.pop_front();
+                }
+                else if (canStartBackground())
+                {
+                    job = std::move(m_background.front());
+                    m_background.pop_front();
+                    ++m_backgroundRunning;
+                    background = true;
+                }
+                else
+                {
+                    break;
+                }
             }
-            execute(job);
+            execute(job, background);
+            if (background)
+            {
+                {
+                    const std::scoped_lock lock(m_mutex);
+                    --m_backgroundRunning;
+                }
+                // A background job held back by the limit may start now.
+                m_jobAvailable.notify_one();
+            }
         }
+        if (m_onWorkerExit)
+            m_onWorkerExit();
     }
 }

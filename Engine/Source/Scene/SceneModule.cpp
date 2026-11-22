@@ -46,6 +46,13 @@ namespace arc
     void SceneModule::update(const FrameTime& time)
     {
         ARC_PROFILE_SCOPE("Scene update");
+        // Only in frames where a load finished: components still loading wait on one of those.
+        const ResourceManager& resources = m_assets.resources();
+        if (resources.finishedLoads() != m_seenFinishedLoads)
+        {
+            m_seenFinishedLoads = resources.finishedLoads();
+            m_loadingMeshes = updateModelLoads(*m_scene);
+        }
         m_scene->update(time);
     }
 
@@ -246,6 +253,11 @@ namespace arc
         return model ? &instantiateModel(*m_scene, model, parent) : nullptr;
     }
 
+    std::shared_ptr<const ModelRequest> SceneModule::requestModel(const std::string& path)
+    {
+        return m_assets.resources().requestModel(path);
+    }
+
     std::vector<std::shared_ptr<const Model>> SceneModule::loadedModels() const
     {
         return m_assets.resources().loadedModels();
@@ -285,6 +297,7 @@ namespace arc
         std::string error;
         SceneLoadOptions options;
         options.context.resources = &m_assets.resources();
+        options.context.loadModelsInBackground = true;
         // Clearing the old scene would release models the new one uses too, only to load them again.
         const std::vector<std::shared_ptr<const Model>> keepLoaded = loadedModels();
         if (!readScene(*m_scene, *text, options, &error))
@@ -293,7 +306,9 @@ namespace arc
             return false;
         }
         m_scenePath = path;
-        ARC_LOG_INFO("Opened '{}': {} objects in {:.1f} ms", path, m_scene->objectCount(), timer.elapsedMs());
+        m_loadingMeshes = updateModelLoads(*m_scene);
+        ARC_LOG_INFO("Opened '{}': {} objects in {:.1f} ms, {} meshes still loading", path, m_scene->objectCount(),
+                     timer.elapsedMs(), m_loadingMeshes);
         return true;
     }
 
@@ -318,6 +333,7 @@ namespace arc
     {
         SceneLoadOptions options;
         options.context.resources = &m_assets.resources();
+        options.context.loadModelsInBackground = true;
         std::string error;
         const std::vector<std::shared_ptr<const Model>> keepLoaded = loadedModels();
         if (!readScene(*m_scene, snapshot, options, &error))
@@ -325,6 +341,7 @@ namespace arc
             ARC_LOG_ERROR("Cannot restore the scene: {}", error);
             return false;
         }
+        m_loadingMeshes = updateModelLoads(*m_scene);
         return true;
     }
 
@@ -349,10 +366,12 @@ namespace arc
         }
         SceneLoadOptions options;
         options.context.resources = &m_assets.resources();
+        options.context.loadModelsInBackground = true;
         std::string error;
         GameObject* root = arc::instantiatePrefab(*m_scene, *text, parent, options, &error);
         if (!root)
             ARC_LOG_ERROR("Cannot place the prefab '{}': {}", path, error);
+        m_loadingMeshes = updateModelLoads(*m_scene);
         return root;
     }
 }
