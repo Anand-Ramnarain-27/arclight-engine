@@ -38,6 +38,7 @@ namespace arc
 
         [[nodiscard]] bool init() override;
         void update(const FrameTime& time) override;
+        void syncRender() override;
         void render() override;
         void shutdown() override;
 
@@ -48,6 +49,17 @@ namespace arc
             /// Shared, because the UV grid belongs to the resource manager.
             std::shared_ptr<rhi::Texture> texture;
             bool colorPerMipLevel = false;
+        };
+
+        /// What render() draws, copied from the settings in syncRender().
+        struct Frame
+        {
+            bool visible = false;
+            rhi::Texture* texture = nullptr;
+            float mipBias = 0.0f;
+            bool walls = false;
+            float wallDistance = 0.0f;
+            float wallSeparation = 0.0f;
         };
 
         [[nodiscard]] bool createTextures();
@@ -80,5 +92,6 @@ namespace arc
         bool m_zFightingTest = false;
         float m_wallDistance = 200.0f;     // World units down -Z from the origin.
         float m_wallSeparation = 0.02f;    // World units between the two walls.
+        Frame m_frame;
     };
 }

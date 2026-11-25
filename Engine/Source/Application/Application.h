@@ -34,6 +34,10 @@ namespace arc
         /// Threads in the job system besides the main thread. 0 means one per hardware thread but one.
         uint32_t workerThreads = 0;
 
+        /// Records and submits each frame on a render thread while the main thread updates the next.
+        /// Can be switched at run time with Renderer::setRenderThreadEnabled().
+        bool renderThread = true;
+
         /// Name the per-user folder that is mounted as user://, for example
         /// %APPDATA%/<organization>/<name>/ on Windows and ~/Library/Application Support/<organization>/<name>/ on macOS.
         std::string organization = "Arclight";
@@ -114,6 +118,8 @@ namespace arc
         void mountDefaultFolders();
         void pumpEvents();
         void runFrame(Clock::duration realDelta);
+        /// Where frames are recorded: on the render thread, or the main thread without one.
+        void renderFrame();
         void waitForFrameBudget(Clock::time_point frameStart) const;
 
         ApplicationDesc m_desc;

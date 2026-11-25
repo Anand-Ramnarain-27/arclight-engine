@@ -87,7 +87,17 @@ TEST_CASE("Render items point at the object's style for their material, when it 
     for (const RenderItem& item : list.opaque())
     {
         const int32_t material = model->primitives()[item.primitive].material;
-        CHECK(item.style == (material == 0 ? &styles[0] : nullptr));
+        if (material == 0)
+        {
+            REQUIRE(list.style(item));
+            CHECK(*list.style(item) == styles[0]);
+            // A copy, so the list stays valid while the object's styles change.
+            CHECK(list.style(item) != &styles[0]);
+        }
+        else
+        {
+            CHECK_FALSE(list.style(item));
+        }
     }
 }
 

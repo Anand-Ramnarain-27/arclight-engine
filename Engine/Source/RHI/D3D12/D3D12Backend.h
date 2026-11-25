@@ -15,6 +15,7 @@
 
 #include <array>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,6 +42,8 @@ namespace arc::rhi::d3d12
     ///   transient   One region per frame slot plus one for immediate submissions. Descriptors are
     ///               allocated linearly in contiguous runs and the whole region is reset at once.
     ///               For the descriptor tables a command list builds while it records.
+    /// The persistent part may be used from any thread, as resources are created and destroyed on
+    /// any; each transient region by one thread at a time.
     class D3D12DescriptorHeap
     {
     public:
@@ -74,7 +77,7 @@ namespace arc::rhi::d3d12
         [[nodiscard]] D3D12Descriptor allocateTransient(uint32_t region, uint32_t count);
 
         [[nodiscard]] ID3D12DescriptorHeap* native() const { return m_heap.Get(); }
-        [[nodiscard]] uint32_t persistentInUse() const { return m_persistentSlots.aliveCount(); }
+        [[nodiscard]] uint32_t persistentInUse() const;
 
     private:
         [[nodiscard]] D3D12Descriptor at(uint32_t index) const;
@@ -85,7 +88,8 @@ namespace arc::rhi::d3d12
         uint32_t m_stride = 0;
         uint32_t m_persistentCount = 0;
         uint32_t m_transientCountPerRegion = 0;
-        HandleAllocator<D3D12Descriptor> m_persistentSlots{0};
+        mutable std::mutex m_persistentMutex;
+        HandleAllocator<D3D12Descriptor> m_persistentSlots{0};   // Guarded by m_persistentMutex.
         std::vector<uint32_t> m_transientUsed;   // Per region.
         std::string m_name;
     };
@@ -401,7 +405,6 @@ namespace arc::rhi::d3d12
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
         [[nodiscard]] std::unique_ptr<ComputePipeline> createComputePipeline(const ComputePipelineDesc& desc) override;
-        void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;
         void endFrame(Swapchain& swapchain) override;
@@ -444,13 +447,11 @@ namespace arc::rhi::d3d12
         void reportDeviceRemoved() const;
 
     protected:
+        void submitImmediateImpl(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Buffer> createBufferImpl(const BufferDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Sampler> createSamplerImpl(const SamplerDesc& desc) override;
-        [[nodiscard]] uint32_t awaitingReleaseCount() const override
-        {
-            return static_cast<uint32_t>(m_deferredRelease.size());
-        }
+        [[nodiscard]] uint32_t awaitingReleaseCount() const override;
 
     private:
         struct FrameContext
@@ -474,16 +475,20 @@ namespace arc::rhi::d3d12
         [[nodiscard]] int64_t gpuClockNs() const;
         [[nodiscard]] uint64_t signal();
         void waitForFence(uint64_t value);
+        /// Destroys the retired objects the GPU has finished with.
+        void releaseCompleted();
 
         ComPtr<IDXGIFactory6> m_factory;
         ComPtr<IDXGIAdapter4> m_adapter;
         ComPtr<ID3D12Device> m_device;
         ComPtr<ID3D12CommandQueue> m_queue;
         ComPtr<ID3D12Fence> m_fence;
-        HANDLE m_fenceEvent = nullptr;
         uint64_t m_lastSignalledValue = 0;
 
-        // Fence values tag each retired object; see DeferredReleaseQueue.
+        // Fence values tag each retired object; see DeferredReleaseQueue. Resources are destroyed on
+        // any thread and frames recorded on one, so m_lifetimeMutex guards the queue, m_frameOpen and
+        // m_lastSignalledValue.
+        mutable std::mutex m_lifetimeMutex;
         DeferredReleaseQueue<ComPtr<ID3D12Pageable>> m_deferredRelease;
         bool m_frameOpen = false;   // Between beginFrame() and endFrame().
 

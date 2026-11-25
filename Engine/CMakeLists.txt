@@ -87,6 +87,8 @@ add_library(ArclightEngine STATIC
     Source/Renderer/Skybox.cpp
     Source/Renderer/RenderList.h
     Source/Renderer/RenderList.cpp
+    Source/Renderer/RenderThread.h
+    Source/Renderer/RenderThread.cpp
     Source/Renderer/MeshRenderer.h
     Source/Renderer/MeshRenderer.cpp
     Source/Renderer/ShaderLibrary.h

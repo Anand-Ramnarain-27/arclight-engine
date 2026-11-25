@@ -81,14 +81,15 @@ namespace arc
         commandList.setPipeline(*m_pipeline);
         commandList.setTexture(0, scene);
         commandList.setBuffer(kExposureStateSlot, autoExposure.stateBuffer());
+        const AutoExposure::Settings& exposureSettings = autoExposure.frameSettings();
         commandList.setConstants(1, ToneMapConstants{
-                                        .exposureScale = std::exp2(exposure),
-                                        .toneOperator = static_cast<uint32_t>(op),
-                                        .passThrough = passThrough ? 1u : 0u,
-                                        .autoExposure = autoExposure.enabled ? 1u : 0u,
-                                        .keyValue = autoExposure.keyValue,
-                                        .minAutoExposure = std::exp2(autoExposure.minEv),
-                                        .maxAutoExposure = std::exp2(autoExposure.maxEv),
+                                        .exposureScale = std::exp2(m_frame.exposure),
+                                        .toneOperator = static_cast<uint32_t>(m_frame.op),
+                                        .passThrough = m_frame.passThrough ? 1u : 0u,
+                                        .autoExposure = exposureSettings.enabled ? 1u : 0u,
+                                        .keyValue = exposureSettings.keyValue,
+                                        .minAutoExposure = std::exp2(exposureSettings.minEv),
+                                        .maxAutoExposure = std::exp2(exposureSettings.maxEv),
                                     });
         commandList.draw(3);
     }

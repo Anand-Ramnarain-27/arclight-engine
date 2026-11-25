@@ -132,6 +132,15 @@ namespace arc::profiler
 #endif
     }
 
+    void frameMarkNamed(const char* name)
+    {
+#if ARC_TRACY
+        ___tracy_emit_frame_mark(name);
+#else
+        (void)name;
+#endif
+    }
+
     const CpuFrame& lastCpuFrame()
     {
         return g_recorder.last;

@@ -108,7 +108,7 @@ namespace arc::rhi
         frame.frameNumber = frameNumber;
         frame.passCount = 0;
         frame.tracySession = m_tracyConnected && m_tracySyncedSession == m_tracySession ? m_tracySession : 0;
-        m_recording = m_supported && m_enabled;
+        m_recording = m_supported && enabled();
     }
 
     uint32_t GpuTimingRecorder::beginPass(std::string_view name)

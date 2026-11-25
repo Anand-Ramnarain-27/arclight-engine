@@ -3,6 +3,7 @@
 #include "RHI/RHITypes.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -77,8 +78,8 @@ namespace arc::rhi
         [[nodiscard]] bool supported() const { return m_supported; }
 
         /// Takes effect from the next frame.
-        void setEnabled(bool enabled) { m_enabled = enabled; }
-        [[nodiscard]] bool enabled() const { return m_enabled; }
+        void setEnabled(bool enabled) { m_enabled.store(enabled, std::memory_order_relaxed); }
+        [[nodiscard]] bool enabled() const { return m_enabled.load(std::memory_order_relaxed); }
 
         /// Hands over the timestamps of the frame that last used `slot`: two per pass, in the order
         /// the passes began, in nanoseconds of the GPU clock, with 0 for a timestamp that was not
@@ -121,7 +122,8 @@ namespace arc::rhi
         Backend m_backend = Backend::Null;
         uint32_t m_currentSlot = 0;
         bool m_supported = false;
-        bool m_enabled = true;
+        // Switched from any thread; read when a frame begins.
+        std::atomic<bool> m_enabled{true};
         bool m_recording = false;
 
         // Tracy sessions: bumped each time a profiler connects, so zones begun while none was

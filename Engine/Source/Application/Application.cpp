@@ -10,6 +10,12 @@
 
 namespace arc
 {
+    namespace
+    {
+        // Tracy tells frame sets apart by the name's address, so it is the same pointer every frame.
+        constexpr const char* kRenderFrameName = "Render";
+    }
+
     Application::Application(ApplicationDesc desc)
         : m_desc(std::move(desc))
     {
@@ -99,9 +105,32 @@ namespace arc
             }
         }
 
-        // render() and postRender() run even when no frame could begin, so modules with
-        // per-frame bookkeeping (ImGui must end every frame it starts) stay balanced.
-        const bool frameActive = m_renderer->beginFrame();
+        {
+            ARC_PROFILE_SCOPE("Extract");
+            for (auto& module : m_modules)
+            {
+                ARC_PROFILE_SCOPE_NAMED("Module extract", module->name());
+                module->extract();
+            }
+        }
+
+        m_renderer->waitForRenderThread();
+        {
+            ARC_PROFILE_SCOPE("Sync render");
+            m_renderer->syncRender();
+            for (auto& module : m_modules)
+            {
+                ARC_PROFILE_SCOPE_NAMED("Module sync", module->name());
+                module->syncRender();
+            }
+        }
+        m_renderer->submitFrame([this] { renderFrame(); });
+    }
+
+    void Application::renderFrame()
+    {
+        if (!m_renderer->beginFrame())
+            return;
         {
             ARC_PROFILE_SCOPE("Render");
             for (auto& module : m_modules)
@@ -109,8 +138,7 @@ namespace arc
                 ARC_PROFILE_SCOPE_NAMED("Module render", module->name());
                 module->render();
             }
-            if (frameActive)
-                m_renderer->finishScene();
+            m_renderer->finishScene();
         }
         {
             ARC_PROFILE_SCOPE("Post-render");
@@ -120,8 +148,9 @@ namespace arc
                 module->postRender();
             }
         }
-        if (frameActive)
-            m_renderer->endFrame();
+        m_renderer->endFrame();
+        if (m_renderer->renderThreadRunning())
+            profiler::frameMarkNamed(kRenderFrameName);
     }
 
     void Application::waitForFrameBudget(Clock::time_point frameStart) const
@@ -172,7 +201,7 @@ namespace arc
             return false;
 
         m_renderer = std::make_unique<Renderer>();
-        if (!m_renderer->init(*m_window, m_desc.device, m_desc.vsync))
+        if (!m_renderer->init(*m_window, m_desc.device, m_desc.vsync, m_desc.renderThread))
             return false;
 
         for (auto& module : m_modules)
@@ -198,7 +227,8 @@ namespace arc
             m_profilerLogSink = 0;
         }
 
-        // Modules may own GPU resources that in-flight frames still reference.
+        // Modules may own GPU resources that in-flight frames still reference, and the render thread
+        // may still be recording one.
         if (m_renderer)
             m_renderer->waitIdle();
 

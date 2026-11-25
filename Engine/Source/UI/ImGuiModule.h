@@ -18,8 +18,10 @@ namespace arc
     /// Owns the Dear ImGui context and its platform and renderer backends.
     ///
     /// Must be added before any module that draws ImGui. The frame begins in update(), so later
-    /// modules build their UI in update() or preRender(). The UI is drawn in postRender(), on top
-    /// of whatever the scene drew to the backbuffer.
+    /// modules build their UI in update() or preRender(). It ends in extract(), which copies the draw
+    /// data: ImGui reuses its own buffers in the next frame, which the main thread builds while the
+    /// render thread draws this one. syncRender() uploads the textures ImGui asked for, and the copy
+    /// is drawn in postRender(), on top of whatever the scene drew to the backbuffer.
     /// Docking is enabled; the dockspace itself belongs to whichever module owns the layout.
     class ImGuiModule final : public Module, public PlatformEventListener
     {
@@ -31,6 +33,8 @@ namespace arc
 
         [[nodiscard]] bool init() override;
         void update(const FrameTime& time) override;
+        void extract() override;
+        void syncRender() override;
         void postRender() override;
         /// Also used to clean up after a partial init() failure, so each step checks what exists.
         void shutdown() override;
@@ -38,11 +42,16 @@ namespace arc
         void onPlatformEvent(const SDL_Event& event) override;
 
         /// The ImTextureID for showing a device texture with ImGui::Image() this frame. The texture
-        /// must be Sampled and in the ShaderRead state when the UI is drawn (in postRender()).
+        /// must be Sampled and in the ShaderRead state when the UI is drawn (in postRender()), and
+        /// stay alive until then. Main thread.
         [[nodiscard]] uint64_t textureId(rhi::Texture& texture);
 
     private:
+        struct DrawDataCopy;
+
         std::unique_ptr<ImGuiRenderBackend> m_renderBackend;
+        std::unique_ptr<DrawDataCopy> m_next;      // Built by extract().
+        std::unique_ptr<DrawDataCopy> m_drawing;   // Drawn by postRender().
         bool m_frameStarted = false;
         bool m_platformBackendReady = false;
         bool m_rendererBackendReady = false;

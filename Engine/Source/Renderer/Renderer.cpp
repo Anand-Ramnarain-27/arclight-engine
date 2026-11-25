@@ -3,6 +3,7 @@
 #include "Core/Assert.h"
 #include "Core/Log.h"
 #include "Core/Profiler.h"
+#include "Core/Time.h"
 #include "Platform/Window.h"
 #include "RHI/Buffer.h"
 #include "RHI/BufferUtils.h"
@@ -15,6 +16,7 @@
 #include "RHI/TextureUtils.h"
 #include "Renderer/AutoExposure.h"
 #include "Renderer/GeometryPool.h"
+#include "Renderer/RenderThread.h"
 #include "Renderer/ShaderLibrary.h"
 #include "Renderer/ToneMapper.h"
 
@@ -122,11 +124,16 @@ namespace arc
         shutdown();
     }
 
-    bool Renderer::init(Window& window, const rhi::DeviceDesc& deviceDesc, bool vsync)
+    bool Renderer::init(Window& window, const rhi::DeviceDesc& deviceDesc, bool vsync, bool renderThread)
     {
+        m_mainThread = std::this_thread::get_id();
+        m_renderThreadWanted = renderThread;
         m_device = rhi::Device::create(deviceDesc);
         if (!m_device)
             return false;
+        // An immediate submission may move a resource that a frame draws with, such as a geometry
+        // pool buffer being filled, through other states, while the render thread reads its state.
+        m_device->setBeforeImmediateSubmit([this] { waitForRenderThread(); });
 
         const rhi::AdapterInfo& adapter = m_device->adapterInfo();
         ARC_LOG_INFO("GPU: {} ({}, {} MB{})", adapter.name, rhi::backendName(adapter.backend),
@@ -182,6 +189,7 @@ namespace arc
 
     void Renderer::shutdown()
     {
+        m_renderThread.reset();
         ARC_ASSERT(!isFrameActive(), "Renderer shut down in the middle of a frame");
         if (m_device)
             m_device->waitIdle();
@@ -198,8 +206,61 @@ namespace arc
 
     void Renderer::waitIdle()
     {
+        waitForRenderThread();
         if (m_device)
             m_device->waitIdle();
+    }
+
+    void Renderer::waitForRenderThread()
+    {
+        if (!m_renderThread || m_renderThread->isCurrent())
+            return;
+        // A wait from any other thread would not keep the render thread idle: only the main thread
+        // hands it work.
+        ARC_ASSERT(std::this_thread::get_id() == m_mainThread, "Only the main thread may wait for the render thread");
+        ARC_PROFILE_SCOPE("Wait for render thread");
+        m_renderThread->wait();
+    }
+
+    void Renderer::syncRender()
+    {
+        ARC_PROFILE_SCOPE("Sync renderer");
+        if (m_renderThread)
+            m_recordMs = m_renderThread->lastWorkMilliseconds();
+        if (m_renderThreadWanted != (m_renderThread != nullptr))
+        {
+            m_renderThread = m_renderThreadWanted ? std::make_unique<RenderThread>("Render") : nullptr;
+            ARC_LOG_INFO("Frames are recorded on {}", m_renderThread ? "the render thread" : "the main thread");
+        }
+
+        if (m_pendingSize)
+        {
+            const Extent2D size = *m_pendingSize;
+            const Extent2D current = m_swapchain->desc().size;
+            if (size.width > 0 && size.height > 0 && (size.width != current.width || size.height != current.height))
+            {
+                if (m_swapchain->resize(size))
+                    ARC_LOG_TRACE("Swapchain resized to {}x{} px", size.width, size.height);
+            }
+            m_pendingSize.reset();
+        }
+
+        m_frameCamera = m_sceneCamera;
+        m_toneMapper->sync();
+        m_autoExposure->sync();
+        m_gpuTimings = m_device->gpuTimings();
+    }
+
+    void Renderer::submitFrame(std::function<void()> work)
+    {
+        if (m_renderThread)
+        {
+            m_renderThread->submit(std::move(work));
+            return;
+        }
+        const Stopwatch timer;
+        work();
+        m_recordMs = timer.elapsedMs();
     }
 
     void Renderer::waitUntilReady()
@@ -212,19 +273,6 @@ namespace arc
     {
         ARC_PROFILE_SCOPE("Begin GPU frame");
         ARC_ASSERT(!isFrameActive());
-
-        if (m_pendingSize)
-        {
-            const Extent2D size = *m_pendingSize;
-            const Extent2D current = m_swapchain->desc().size;
-            if (size.width > 0 && size.height > 0 && (size.width != current.width || size.height != current.height))
-            {
-                if (!m_swapchain->resize(size))
-                    return false;
-                ARC_LOG_TRACE("Swapchain resized to {}x{} px", size.width, size.height);
-            }
-            m_pendingSize.reset();
-        }
 
         const Extent2D size = m_swapchain->desc().size;
         if (size.width == 0 || size.height == 0)
@@ -302,7 +350,7 @@ namespace arc
         pass.color.clearColor = m_sceneClearColor;
         pass.depth.texture = m_sceneDepth.get();
         pass.depth.load = m_sceneCleared ? rhi::LoadOp::Load : rhi::LoadOp::Clear;
-        pass.depth.clearDepth = m_sceneCamera.clearDepth();
+        pass.depth.clearDepth = m_frameCamera.clearDepth();
         pass.debugName = debugName;
         commandList().beginRenderPass(pass);
 
@@ -368,12 +416,13 @@ namespace arc
 
     void Renderer::setSceneSize(Extent2D pixelSize)
     {
-        ARC_ASSERT(!isFrameActive(), "The scene target cannot be resized while a frame is being recorded");
+        ARC_ASSERT(std::this_thread::get_id() == m_mainThread, "The scene target is resized on the main thread");
         if (pixelSize.width == 0 || pixelSize.height == 0)
             return;
         if (m_displayTarget && m_displayTarget->desc().size.width == pixelSize.width &&
             m_displayTarget->desc().size.height == pixelSize.height)
             return;
+        waitForRenderThread();
 
         // Frames in flight may still read the old targets; the device keeps them until they finish.
         m_sceneTarget = m_device->createTexture({
@@ -402,9 +451,9 @@ namespace arc
         const float aspect = size.height > 0 ? static_cast<float>(size.width) / static_cast<float>(size.height) : 1.0f;
 
         ViewConstants constants;
-        constants.viewProjection = m_sceneCamera.projection(aspect) * m_sceneCamera.view();
+        constants.viewProjection = m_frameCamera.projection(aspect) * m_frameCamera.view();
         constants.inverseViewProjection = inverse(constants.viewProjection);
-        constants.cameraPosition = m_sceneCamera.position;
+        constants.cameraPosition = m_frameCamera.position;
         return constants;
     }
 
@@ -415,6 +464,7 @@ namespace arc
 
     void Renderer::setVSync(bool enabled)
     {
+        waitForRenderThread();
         m_swapchain->setVSync(enabled);
     }
 

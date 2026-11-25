@@ -4,9 +4,12 @@
 #include "RHI/RHITypes.h"
 #include "Renderer/ModelData.h"
 
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -52,6 +55,12 @@ namespace arc
     /// Freed ranges are reused only once no frame in flight can still be reading them: free() tags
     /// them with the device's frame number, and collect() returns them to the allocators after
     /// kMaxFramesInFlight more frames have begun.
+    ///
+    /// Models are created and destroyed on the main thread while the render thread draws, so
+    /// allocate(), free(), collect() and stats() are safe from any thread. A block's buffers never
+    /// move once it exists, so vertexBuffer() and indexBuffer() take no lock. upload() fills buffers
+    /// that frames read, and so must not run beside a frame being recorded, as with any
+    /// Device::submitImmediate().
     class GeometryPool
     {
     public:
@@ -103,6 +112,9 @@ namespace arc
         [[nodiscard]] rhi::Device& device() const { return m_device; }
         [[nodiscard]] Stats stats() const;
 
+        /// RenderList sort keys hold the block in 6 bits.
+        static constexpr uint32_t kMaxBlocks = 64;
+
     private:
         struct Block
         {
@@ -124,10 +136,16 @@ namespace arc
                                        GeometryAllocation& allocation);
         [[nodiscard]] bool addBlock(const Desc& capacities);
         void release(const GeometryAllocation& allocation);
+        [[nodiscard]] const Block& block(uint32_t index) const;
 
         rhi::Device& m_device;
         Desc m_desc;
-        std::vector<Block> m_blocks;
+        // Blocks are published by storing the count after the block, and never removed, so a reader
+        // that sees the count also sees the block. The allocators inside them, m_pendingFrees and
+        // m_liveAllocations are guarded by m_mutex.
+        std::array<std::unique_ptr<Block>, kMaxBlocks> m_blocks;
+        std::atomic<uint32_t> m_blockCount{0};
+        mutable std::mutex m_mutex;
         std::vector<PendingFree> m_pendingFrees;
         uint32_t m_liveAllocations = 0;
     };

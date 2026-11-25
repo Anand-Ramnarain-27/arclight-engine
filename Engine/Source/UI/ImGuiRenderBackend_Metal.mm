@@ -27,6 +27,8 @@ namespace arc
             // is called from render() instead.
             void newFrame() override {}
 
+            void updateTexture(ImTextureData& texture) override { ImGui_ImplMetal_UpdateTexture(&texture); }
+
             void render(rhi::CommandList& commandList, ImDrawData* drawData) override
             {
                 auto& metalCommandList = static_cast<rhi::metal::MetalCommandList&>(commandList);

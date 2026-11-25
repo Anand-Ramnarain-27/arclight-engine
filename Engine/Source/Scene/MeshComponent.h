@@ -68,6 +68,9 @@ namespace arc
         /// loaded, so the path is still saved.
         void setToonRamp(uint32_t material, std::string path, std::shared_ptr<const TextureAsset> texture);
         [[nodiscard]] const std::string& toonRampPath(uint32_t material) const;
+        /// Adds the ramp textures this component's styles draw with, so a frame drawn on the render
+        /// thread can keep them alive while the component changes.
+        void collectToonRamps(std::vector<std::shared_ptr<const TextureAsset>>& ramps) const;
 
         void save(ComponentData& data) const override;
         void load(const ComponentData& data, const ComponentLoadContext& context) override;

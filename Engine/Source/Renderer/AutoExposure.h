@@ -31,6 +31,9 @@ namespace arc
     /// The tone-mapping pass reads the adapted luminance from the state buffer, so the exposure never
     /// goes through the CPU. The CPU gets a copy of the histogram kMaxFramesInFlight frames later, for
     /// the editor. Owned by the Renderer.
+    ///
+    /// The settings below and what the queries return are the main thread's; record() and
+    /// collectReadback() run where frames are recorded, and sync() trades between the two.
     class AutoExposure
     {
     public:
@@ -57,6 +60,25 @@ namespace arc
         /// Copies what the GPU measured in the frame that last used `frameSlot`. The GPU must have
         /// finished that frame (Device::beginFrame() has waited for it).
         void collectReadback(uint32_t frameSlot);
+
+        /// Main thread, while no frame is being recorded: hands the settings to the next frame, and
+        /// takes the newest measurement for the queries below.
+        void sync();
+
+        struct Settings
+        {
+            bool enabled = false;
+            float keyValue = 0.18f;
+            float minEv = -10.0f;
+            float maxEv = 10.0f;
+            float darkenSpeed = 3.0f;
+            float brightenSpeed = 1.0f;
+            float minLogLuminance = -12.0f;
+            float maxLogLuminance = 16.0f;
+        };
+
+        /// The settings of the frame being recorded, as of the last sync(), for the tone mapper.
+        [[nodiscard]] const Settings& frameSettings() const { return m_frame; }
 
         /// The state buffer the tone-mapping pass reads at t4: a StructuredBuffer<uint>.
         [[nodiscard]] rhi::Buffer& stateBuffer() { return *m_state; }
@@ -88,7 +110,7 @@ namespace arc
         float maxLogLuminance = 16.0f;
 
         /// Jumps straight to the next measured average instead of adapting, as on a camera cut.
-        void resetAdaptation() { m_reset = true; }
+        void resetAdaptation() { m_resetRequested = true; }
 
     private:
         std::unique_ptr<rhi::ComputePipeline> m_histogramPipeline;
@@ -98,10 +120,22 @@ namespace arc
         std::array<std::unique_ptr<rhi::Buffer>, rhi::kMaxFramesInFlight> m_readback;
         std::array<bool, rhi::kMaxFramesInFlight> m_readbackPending{};
 
+        struct Measurement
+        {
+            std::array<uint32_t, kBinCount> histogram{};
+            float frameLuminance = 0.0f;
+            float adaptedLuminance = 0.0f;
+        };
+
+        // The main thread's.
         std::array<uint32_t, kBinCount> m_histogram{};
         float m_frameLuminance = 0.0f;
         float m_adaptedLuminance = 0.0f;
+        bool m_resetRequested = false;
 
+        // The recording thread's.
+        Settings m_frame;
+        Measurement m_measured;
         std::optional<Clock::time_point> m_lastMeasurement;
         bool m_reset = true;
     };

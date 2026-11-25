@@ -54,11 +54,14 @@ namespace arc
 
         [[nodiscard]] bool init() override;
         void update(const FrameTime& time) override;
+        void extract() override;
+        void syncRender() override;
         void shutdown() override;
 
         void onPlatformEvent(const SDL_Event& event) override;
 
-        /// Draws over the scene: the grid, then the selection outline. Called by EditorOverlayModule.
+        /// Draws over the scene: the grid, then the selection outline. Called by EditorOverlayModule,
+        /// where frames are recorded.
         void renderSceneOverlays();
 
     private:

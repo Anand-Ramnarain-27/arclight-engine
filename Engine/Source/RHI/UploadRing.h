@@ -2,6 +2,7 @@
 
 #include "RHI/RHITypes.h"
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string_view>
@@ -28,6 +29,7 @@ namespace arc::rhi
     /// submissions. A frame allocates linearly from its own region, and the region is reset when
     /// that frame slot comes round again, after the device has waited for the GPU to finish it.
     /// So nothing the GPU may still be reading is ever overwritten, and allocating is a pointer bump.
+    /// A region is used by one thread at a time; different regions may be used at once.
     ///
     /// The buffer also starts with kMaxConstantBufferSize bytes of zeros that are never handed out,
     /// bound to constant slots nothing has set so that shaders read zero rather than garbage.
@@ -61,6 +63,7 @@ namespace arc::rhi
         std::unique_ptr<Buffer> m_buffer;
         uint64_t m_regionSize = 0;
         std::vector<uint64_t> m_used;   // Per region, in bytes.
-        bool m_reportedOverflow = false;
+        // The immediate region is used on another thread than the frame regions.
+        std::atomic<bool> m_reportedOverflow{false};
     };
 }

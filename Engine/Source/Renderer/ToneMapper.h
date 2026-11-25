@@ -35,6 +35,8 @@ namespace arc
 
     /// Draws the HDR scene into an LDR target: exposure, a tone curve, and sRGB encoding, as one
     /// full-screen triangle (Engine/Shaders/ToneMap.hlsl). Owned by the Renderer.
+    ///
+    /// The settings below are the main thread's; draw() uses the copy that sync() last made.
     class ToneMapper
     {
     public:
@@ -53,6 +55,9 @@ namespace arc
         /// the auto exposure's state buffer.
         void draw(rhi::CommandList& commandList, rhi::Texture& scene, AutoExposure& autoExposure) const;
 
+        /// Main thread, while no frame is being recorded: the settings take effect for the next one.
+        void sync() { m_frame = {op, exposure, passThrough}; }
+
         ToneMapOperator op = ToneMapOperator::KhronosPbrNeutral;
         /// Stops: each +1 doubles the brightness before the curve. With auto exposure, the
         /// compensation added to what it chose.
@@ -62,6 +67,14 @@ namespace arc
         bool passThrough = false;
 
     private:
+        struct Settings
+        {
+            ToneMapOperator op = ToneMapOperator::KhronosPbrNeutral;
+            float exposure = 0.0f;
+            bool passThrough = false;
+        };
+
         std::unique_ptr<rhi::Pipeline> m_pipeline;
+        Settings m_frame;
     };
 }

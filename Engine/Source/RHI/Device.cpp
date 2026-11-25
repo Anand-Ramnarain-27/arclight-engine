@@ -251,6 +251,7 @@ namespace arc::rhi
         if (buffer)
         {
             buffer->m_owner = this;
+            const std::scoped_lock lock(m_registryMutex);
             buffer->m_handle = m_buffers.insert(buffer.get());
         }
         return buffer;
@@ -263,6 +264,7 @@ namespace arc::rhi
         if (texture)
         {
             texture->m_owner = this;
+            const std::scoped_lock lock(m_registryMutex);
             texture->m_handle = m_textures.insert(texture.get());
         }
         return texture;
@@ -275,6 +277,7 @@ namespace arc::rhi
         if (sampler)
         {
             sampler->m_owner = this;
+            const std::scoped_lock lock(m_registryMutex);
             sampler->m_handle = m_samplers.insert(sampler.get());
         }
         return sampler;
@@ -282,45 +285,68 @@ namespace arc::rhi
 
     Buffer* Device::find(BufferHandle handle) const
     {
+        const std::scoped_lock lock(m_registryMutex);
         Buffer* const* buffer = m_buffers.get(handle);
         return buffer ? *buffer : nullptr;
     }
 
     Texture* Device::find(TextureHandle handle) const
     {
+        const std::scoped_lock lock(m_registryMutex);
         Texture* const* texture = m_textures.get(handle);
         return texture ? *texture : nullptr;
     }
 
     Sampler* Device::find(SamplerHandle handle) const
     {
+        const std::scoped_lock lock(m_registryMutex);
         Sampler* const* sampler = m_samplers.get(handle);
         return sampler ? *sampler : nullptr;
     }
 
     Device::ResourceCounts Device::resourceCounts() const
     {
-        return {m_buffers.size(), m_textures.size(), m_samplers.size(), awaitingReleaseCount()};
+        ResourceCounts counts;
+        {
+            const std::scoped_lock lock(m_registryMutex);
+            counts = {m_buffers.size(), m_textures.size(), m_samplers.size()};
+        }
+        counts.awaitingRelease = awaitingReleaseCount();
+        return counts;
+    }
+
+    void Device::submitImmediate(const std::function<void(CommandList&)>& record)
+    {
+        if (m_beforeImmediateSubmit)
+            m_beforeImmediateSubmit();
+        const std::scoped_lock lock(m_immediateMutex);
+        submitImmediateImpl(record);
     }
 
     // Each resource removes itself from its device's registry. The backend's destructor has
     // already run by now and has handed the GPU object to the deferred release queue if needed.
     Buffer::~Buffer()
     {
-        if (m_owner)
-            m_owner->m_buffers.remove(m_handle);
+        if (!m_owner)
+            return;
+        const std::scoped_lock lock(m_owner->m_registryMutex);
+        m_owner->m_buffers.remove(m_handle);
     }
 
     Texture::~Texture()
     {
-        if (m_owner)
-            m_owner->m_textures.remove(m_handle);
+        if (!m_owner)
+            return;
+        const std::scoped_lock lock(m_owner->m_registryMutex);
+        m_owner->m_textures.remove(m_handle);
     }
 
     Sampler::~Sampler()
     {
-        if (m_owner)
-            m_owner->m_samplers.remove(m_handle);
+        if (!m_owner)
+            return;
+        const std::scoped_lock lock(m_owner->m_registryMutex);
+        m_owner->m_samplers.remove(m_handle);
     }
 
     std::unique_ptr<Device> Device::create(const DeviceDesc& desc)

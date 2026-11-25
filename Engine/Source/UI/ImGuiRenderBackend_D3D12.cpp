@@ -30,7 +30,9 @@ namespace arc
                 ImGui_ImplDX12_InitInfo info;
                 info.Device = m_device.native();
                 info.CommandQueue = m_device.queue();
-                info.NumFramesInFlight = static_cast<int>(rhi::kMaxFramesInFlight);
+                // One more than the device's: the main thread, which asks for textures to be destroyed,
+                // runs a frame ahead of the render thread that draws them.
+                info.NumFramesInFlight = static_cast<int>(rhi::kMaxFramesInFlight + 1);
                 info.RTVFormat = m_rtvFormat;
                 info.DSVFormat = DXGI_FORMAT_UNKNOWN;
                 info.UserData = &m_device;
@@ -66,6 +68,8 @@ namespace arc
                 ImGui_ImplDX12_NewFrame();
             }
 
+            void updateTexture(ImTextureData& texture) override { ImGui_ImplDX12_UpdateTexture(&texture); }
+
             void render(rhi::CommandList& commandList, ImDrawData* drawData) override
             {
                 auto& d3dCommandList = static_cast<rhi::d3d12::D3D12CommandList&>(commandList);
@@ -94,7 +98,8 @@ namespace arc
                                                              static_cast<rhi::d3d12::D3D12Texture&>(texture).srv,
                                                              D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
                 }
-                entry.lastUsedFrame = m_device.frameNumber();
+                // The UI built now is drawn in the frame after the one the render thread may be recording.
+                entry.lastUsedFrame = m_device.frameNumber() + 1;
                 return entry.descriptor.gpu.ptr;
             }
 
@@ -107,7 +112,7 @@ namespace arc
             };
 
             // A copy is freed once its texture is gone and the last frame that drew it has finished
-            // on the GPU. During frame N's update, frame N - kMaxFramesInFlight - 1 is the newest
+            // on the GPU. While frame N is being recorded, frame N - kMaxFramesInFlight is the newest
             // one guaranteed complete.
             void releaseStaleTextureIds()
             {

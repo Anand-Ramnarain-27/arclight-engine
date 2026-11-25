@@ -68,14 +68,15 @@ namespace arc
 
     void EditorGrid::render(Renderer& renderer)
     {
-        rhi::Pipeline* pipeline = m_pipelines[renderer.sceneCamera().reversedZ].get();
-        if (!visible || !pipeline || !renderer.isFrameActive() || !renderer.beginOverlayPass("Grid"))
+        rhi::Pipeline* pipeline = m_pipelines[renderer.frameCamera().reversedZ].get();
+        if (!m_frame.visible || !pipeline || !renderer.isFrameActive() || !renderer.beginOverlayPass("Grid"))
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
         commandList.setPipeline(*pipeline);
         commandList.setConstants(0, renderer.sceneViewConstants());
-        commandList.setConstants(1, GridConstants{cellSize, majorEvery, fadeDistance, opacity});
+        commandList.setConstants(
+            1, GridConstants{m_frame.cellSize, m_frame.majorEvery, m_frame.fadeDistance, m_frame.opacity});
         commandList.draw(3);
         renderer.endOverlayPass();
     }

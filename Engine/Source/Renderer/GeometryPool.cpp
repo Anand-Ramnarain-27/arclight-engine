@@ -15,13 +15,19 @@ namespace arc
 
     GeometryPool::~GeometryPool()
     {
+        const std::scoped_lock lock(m_mutex);
         if (m_liveAllocations > 0)
             ARC_LOG_ERROR("Geometry pool destroyed with {} allocations still alive", m_liveAllocations);
     }
 
     bool GeometryPool::addBlock(const Desc& capacities)
     {
-        const auto index = m_blocks.size();
+        const uint32_t index = m_blockCount.load(std::memory_order_relaxed);
+        if (index == kMaxBlocks)
+        {
+            ARC_LOG_ERROR("The geometry pool already has its {} blocks", kMaxBlocks);
+            return false;
+        }
         const auto create = [&](uint64_t size, rhi::BufferUsage usage, std::string_view kind) {
             return m_device.createBuffer({
                 .size = size,
@@ -30,20 +36,21 @@ namespace arc
                 .debugName = std::format("Geometry Pool {} {}", index, kind),
             });
         };
-        Block block{
+        auto block = std::make_unique<Block>(Block{
             .vertices = create(uint64_t{capacities.vertexCapacity} * sizeof(MeshVertex), rhi::BufferUsage::Vertex, "Vertices"),
             .indices16 = create(uint64_t{capacities.index16Capacity} * sizeof(uint16_t), rhi::BufferUsage::Index, "Indices16"),
             .indices32 = create(uint64_t{capacities.index32Capacity} * sizeof(uint32_t), rhi::BufferUsage::Index, "Indices32"),
             .vertexRanges = RangeAllocator(capacities.vertexCapacity),
             .index16Ranges = RangeAllocator(capacities.index16Capacity),
             .index32Ranges = RangeAllocator(capacities.index32Capacity),
-        };
-        if (!block.vertices || !block.indices16 || !block.indices32)
+        });
+        if (!block->vertices || !block->indices16 || !block->indices32)
         {
             ARC_LOG_ERROR("Could not create geometry pool block {}", index);
             return false;
         }
-        m_blocks.push_back(std::move(block));
+        m_blocks[index] = std::move(block);
+        m_blockCount.store(index + 1, std::memory_order_release);
         return true;
     }
 
@@ -73,10 +80,12 @@ namespace arc
     std::optional<GeometryAllocation> GeometryPool::allocate(uint32_t vertexCount, uint32_t index16Count,
                                                              uint32_t index32Count, std::string_view debugName)
     {
+        const std::scoped_lock lock(m_mutex);
         GeometryAllocation allocation;
-        for (uint32_t i = 0; i < m_blocks.size(); ++i)
+        const uint32_t blocks = m_blockCount.load(std::memory_order_relaxed);
+        for (uint32_t i = 0; i < blocks; ++i)
         {
-            if (tryAllocate(m_blocks[i], vertexCount, index16Count, index32Count, allocation))
+            if (tryAllocate(*m_blocks[i], vertexCount, index16Count, index32Count, allocation))
             {
                 allocation.block = i;
                 ++m_liveAllocations;
@@ -92,10 +101,11 @@ namespace arc
         };
         if (!addBlock(capacities))
             return std::nullopt;
-        ARC_LOG_TRACE("Geometry pool: block {} added for '{}'", m_blocks.size() - 1, debugName);
-        const bool fits = tryAllocate(m_blocks.back(), vertexCount, index16Count, index32Count, allocation);
+        const uint32_t added = m_blockCount.load(std::memory_order_relaxed) - 1;
+        ARC_LOG_TRACE("Geometry pool: block {} added for '{}'", added, debugName);
+        const bool fits = tryAllocate(*m_blocks[added], vertexCount, index16Count, index32Count, allocation);
         ARC_ASSERT(fits);
-        allocation.block = static_cast<uint32_t>(m_blocks.size() - 1);
+        allocation.block = added;
         ++m_liveAllocations;
         return allocation;
     }
@@ -103,30 +113,31 @@ namespace arc
     bool GeometryPool::upload(const GeometryAllocation& allocation, std::span<const MeshVertex> vertices,
                               std::span<const uint16_t> indices16, std::span<const uint32_t> indices32)
     {
-        ARC_ASSERT(allocation.isValid() && allocation.block < m_blocks.size());
+        ARC_ASSERT(allocation.isValid());
         ARC_ASSERT(vertices.size() == allocation.vertices.count && indices16.size() == allocation.indices16.count &&
                    indices32.size() == allocation.indices32.count);
-        const Block& block = m_blocks[allocation.block];
+        const Block& target = block(allocation.block);
         const auto copy = [this](rhi::Buffer& buffer, std::span<const std::byte> bytes, uint64_t offset) {
             return bytes.empty() || rhi::uploadBuffer(m_device, buffer, bytes, offset);
         };
-        return copy(*block.vertices, std::as_bytes(vertices), uint64_t{allocation.vertices.offset} * sizeof(MeshVertex)) &&
-               copy(*block.indices16, std::as_bytes(indices16), uint64_t{allocation.indices16.offset} * sizeof(uint16_t)) &&
-               copy(*block.indices32, std::as_bytes(indices32), uint64_t{allocation.indices32.offset} * sizeof(uint32_t));
+        return copy(*target.vertices, std::as_bytes(vertices), uint64_t{allocation.vertices.offset} * sizeof(MeshVertex)) &&
+               copy(*target.indices16, std::as_bytes(indices16), uint64_t{allocation.indices16.offset} * sizeof(uint16_t)) &&
+               copy(*target.indices32, std::as_bytes(indices32), uint64_t{allocation.indices32.offset} * sizeof(uint32_t));
     }
 
     void GeometryPool::free(const GeometryAllocation& allocation)
     {
         if (!allocation.isValid())
             return;
-        ARC_ASSERT(allocation.block < m_blocks.size());
+        ARC_ASSERT(allocation.block < m_blockCount.load(std::memory_order_acquire));
+        const std::scoped_lock lock(m_mutex);
         m_pendingFrees.push_back({allocation, m_device.frameNumber()});
         --m_liveAllocations;
     }
 
     void GeometryPool::release(const GeometryAllocation& allocation)
     {
-        Block& block = m_blocks[allocation.block];
+        Block& block = *m_blocks[allocation.block];
         if (allocation.vertices.count > 0)
             block.vertexRanges.free(allocation.vertices.offset, allocation.vertices.count);
         if (allocation.indices16.count > 0)
@@ -139,6 +150,9 @@ namespace arc
     {
         // A range freed at frame number T may be read by the frame being recorded then, frame T.
         // Beginning frame T + kMaxFramesInFlight waits for frame T's slot, so by then it is done.
+        // free() on another thread reads the frame number while a frame is recorded, when it is
+        // the number of that frame or, if just submitted, one more: either is late enough.
+        const std::scoped_lock lock(m_mutex);
         std::erase_if(m_pendingFrees, [&](const PendingFree& pending) {
             if (frameNumber < pending.frameNumber + rhi::kMaxFramesInFlight)
                 return false;
@@ -147,23 +161,33 @@ namespace arc
         });
     }
 
-    rhi::Buffer& GeometryPool::vertexBuffer(uint32_t block) const
+    const GeometryPool::Block& GeometryPool::block(uint32_t index) const
     {
-        return *m_blocks[block].vertices;
+        ARC_ASSERT(index < m_blockCount.load(std::memory_order_acquire), "Geometry pool block {} does not exist", index);
+        return *m_blocks[index];
     }
 
-    rhi::Buffer& GeometryPool::indexBuffer(uint32_t block, rhi::IndexFormat format) const
+    rhi::Buffer& GeometryPool::vertexBuffer(uint32_t index) const
     {
-        return format == rhi::IndexFormat::UInt16 ? *m_blocks[block].indices16 : *m_blocks[block].indices32;
+        return *block(index).vertices;
+    }
+
+    rhi::Buffer& GeometryPool::indexBuffer(uint32_t index, rhi::IndexFormat format) const
+    {
+        const Block& found = block(index);
+        return format == rhi::IndexFormat::UInt16 ? *found.indices16 : *found.indices32;
     }
 
     GeometryPool::Stats GeometryPool::stats() const
     {
-        Stats stats{.blocks = static_cast<uint32_t>(m_blocks.size()),
+        const std::scoped_lock lock(m_mutex);
+        const uint32_t blocks = m_blockCount.load(std::memory_order_relaxed);
+        Stats stats{.blocks = blocks,
                     .allocations = m_liveAllocations,
                     .pendingFrees = static_cast<uint32_t>(m_pendingFrees.size())};
-        for (const Block& block : m_blocks)
+        for (uint32_t i = 0; i < blocks; ++i)
         {
+            const Block& block = *m_blocks[i];
             stats.vertexBytesUsed += uint64_t{block.vertexRanges.used()} * sizeof(MeshVertex);
             stats.vertexBytesCapacity += uint64_t{block.vertexRanges.capacity()} * sizeof(MeshVertex);
             stats.indexBytesUsed += uint64_t{block.index16Ranges.used()} * sizeof(uint16_t) +

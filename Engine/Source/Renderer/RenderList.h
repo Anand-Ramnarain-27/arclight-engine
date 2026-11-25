@@ -42,13 +42,15 @@ namespace arc
     /// One primitive to draw: one draw call.
     struct RenderItem
     {
+        static constexpr uint32_t kNoStyle = ~0u;
+
         const Model* model = nullptr;
         uint32_t primitive = 0;   // Into model->primitives().
         uint32_t transform = 0;   // Into RenderList::transforms().
         uint32_t lod = 0;         // Into model->primitiveLods()[primitive].levels.
-        /// The object's style for the primitive's material; null for the material as it is. Owned by
-        /// whoever added the mesh, and must outlive the list's use.
-        const MaterialStyle* style = nullptr;
+        /// The object's style for the primitive's material, into RenderList::styles(); kNoStyle for
+        /// the material as it is.
+        uint32_t style = kNoStyle;
         /// Opaque items are drawn in ascending key order; see RenderList::sort().
         uint64_t sortKey = 0;
         /// World units along the camera's forward axis to the primitive's bounds centre.
@@ -64,6 +66,9 @@ namespace arc
     /// distance, front to back, so nearer surfaces fill the depth buffer first and hide what is
     /// behind before it is shaded. Blended items are sorted back to front instead, which blending
     /// needs to look right, whatever that costs in state changes.
+    ///
+    /// The list keeps copies of the styles it was given, so it can be drawn on the render thread
+    /// while the objects they came from change. The models it points to must outlive its use.
     class RenderList
     {
     public:
@@ -86,6 +91,11 @@ namespace arc
         [[nodiscard]] std::span<const RenderItem> opaque() const { return m_opaque; }
         [[nodiscard]] std::span<const RenderItem> blended() const { return m_blended; }
         [[nodiscard]] std::span<const RenderTransform> transforms() const { return m_transforms; }
+        /// The item's style, or null for none.
+        [[nodiscard]] const MaterialStyle* style(const RenderItem& item) const
+        {
+            return item.style == RenderItem::kNoStyle ? nullptr : &m_styles[item.style];
+        }
         [[nodiscard]] bool empty() const { return m_opaque.empty() && m_blended.empty(); }
 
         /// Key layout, high bits first: pipeline state (2 bits: double-sided, mirrored) | geometry
@@ -96,5 +106,6 @@ namespace arc
         std::vector<RenderItem> m_opaque;
         std::vector<RenderItem> m_blended;
         std::vector<RenderTransform> m_transforms;
+        std::vector<MaterialStyle> m_styles;
     };
 }

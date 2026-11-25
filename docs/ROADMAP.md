@@ -83,7 +83,7 @@ Stylized rendering is a second material model alongside PBR, chosen per material
 - Compute shaders and storage (unordered-access) resources on both backends, with auto exposure from a luminance histogram as the first user.
 - Job system with a thread pool: texture encoding, mesh simplification and culling run on it.
 - Asynchronous asset loading: models are read or cooked as background jobs and uploaded on the main thread within a per-frame budget; scenes open at once and their meshes appear as they load.
-- Game/render thread synchronisation.
+- Game/render thread split: the main thread updates a frame while a render thread records and submits the one before, with per-frame copies handed over at one sync point and resource creation and destruction made thread-safe in the RHI.
 
 ## Advanced rendering
 

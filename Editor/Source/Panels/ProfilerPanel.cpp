@@ -133,7 +133,7 @@ namespace arc
         m_cpuFrameSum += cpuMs;
         ++m_cpuFrames;
 
-        const rhi::GpuFrameTimings& gpu = m_app.renderer().device().gpuTimings();
+        const rhi::GpuFrameTimings& gpu = m_app.renderer().gpuTimings();
         if (gpu.valid && gpu.frameNumber != m_lastGpuFrame)
         {
             m_lastGpuFrame = gpu.frameNumber;
@@ -214,8 +214,20 @@ namespace arc
                 ImGui::SetTooltip("Two GPU timestamps per render pass, read back %u frames later.", rhi::kMaxFramesInFlight);
         }
 
+        Renderer& renderer = m_app.renderer();
+        bool renderThread = renderer.renderThreadEnabled();
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Render thread", &renderThread))
+            renderer.setRenderThreadEnabled(renderThread);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Records and submits each frame on a thread of its own while the main thread updates the "
+                              "next. Off, the main thread records it after the update, one after the other.");
+
         ImGui::TextDisabled("Jobs: %u workers, %llu jobs in the last frame. Work on the workers shows in Tracy.",
                             m_app.jobs().workerCount(), static_cast<unsigned long long>(m_jobsLastFrame));
+        ImGui::TextDisabled("Recording and submitting the frame: %.2f ms on the %s thread%s",
+                            renderer.recordMilliseconds(), renderer.renderThreadRunning() ? "render" : "main",
+                            renderer.renderThreadRunning() ? "; the main thread's tree shows only its wait." : ".");
 
         if (!profiler::tracyEnabled())
             ImGui::TextDisabled("Tracy: not built in (ARCLIGHT_TRACY is OFF)");
@@ -327,7 +339,7 @@ namespace arc
         }
 
         // The newest frame as it ran: on tile-based GPUs (Apple), passes overlap.
-        const rhi::GpuFrameTimings& frame = device.gpuTimings();
+        const rhi::GpuFrameTimings& frame = m_app.renderer().gpuTimings();
         if (frame.valid && frame.frameMs > 0.0)
         {
             ImGui::TextDisabled("Frame %llu, %.3f ms from the first pass's start to the last pass's end",

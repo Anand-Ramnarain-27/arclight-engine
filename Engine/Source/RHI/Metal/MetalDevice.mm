@@ -479,7 +479,7 @@ namespace arc::rhi::metal
         return std::make_unique<MetalComputePipeline>(desc, state);
     }
 
-    void MetalDevice::submitImmediate(const std::function<void(CommandList&)>& record)
+    void MetalDevice::submitImmediateImpl(const std::function<void(CommandList&)>& record)
     {
         @autoreleasepool
         {
@@ -567,9 +567,8 @@ namespace arc::rhi::metal
         if (m_nsPerGpuTick > 0.0 && timing.startTracySession())
             timing.syncClock(gpuClockNs());
 
-        if (m_captureRequested)
+        if (m_captureRequested.exchange(false))
         {
-            m_captureRequested = false;
             if (!gpuCaptureTool().empty())
                 startCapture();
         }

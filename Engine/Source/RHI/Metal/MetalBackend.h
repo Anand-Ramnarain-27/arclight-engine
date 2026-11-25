@@ -278,7 +278,6 @@ namespace arc::rhi::metal
         [[nodiscard]] std::unique_ptr<Shader> createShader(const ShaderDesc& desc) override;
         [[nodiscard]] std::unique_ptr<Pipeline> createPipeline(const PipelineDesc& desc) override;
         [[nodiscard]] std::unique_ptr<ComputePipeline> createComputePipeline(const ComputePipelineDesc& desc) override;
-        void submitImmediate(const std::function<void(CommandList&)>& record) override;
         [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) override;
         [[nodiscard]] CommandList& beginFrame(Swapchain& swapchain) override;
         void endFrame(Swapchain& swapchain) override;
@@ -292,6 +291,7 @@ namespace arc::rhi::metal
         [[nodiscard]] UploadRing& uploadRing() { return *m_uploadRing; }
 
     protected:
+        void submitImmediateImpl(const std::function<void(CommandList&)>& record) override;
         // No deferred release on Metal: command buffers from [MTLCommandQueue commandBuffer] retain
         // every resource their encoders reference until they complete, so dropping the engine's
         // reference early is safe.
@@ -320,7 +320,7 @@ namespace arc::rhi::metal
 
         id<MTLCommandBuffer> m_lastSubmitted = nil;
         void* m_frameAutoreleasePool = nullptr;
-        bool m_captureRequested = false;
+        std::atomic<bool> m_captureRequested{false};
         bool m_capturing = false;
         MetalCommandList m_commandList;
         AdapterInfo m_adapterInfo;

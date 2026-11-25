@@ -77,6 +77,10 @@ namespace arc::profiler
     /// Ends the main thread's current frame and starts the next, and marks the frame boundary in
     /// Tracy. Must be called on the main thread with no zone open.
     void frameMark();
+    /// The end of a frame in a second set of frames in Tracy, such as the render thread's, which
+    /// lags the main thread's. Any thread. `name` must have static storage duration: Tracy tells the
+    /// sets apart by the pointer.
+    void frameMarkNamed(const char* name);
 
     /// The last frame completed by frameMark(). Only valid on the main thread.
     [[nodiscard]] const CpuFrame& lastCpuFrame();

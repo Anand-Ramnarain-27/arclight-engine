@@ -10,6 +10,10 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 
+#include <cstring>
+#include <utility>
+#include <vector>
+
 namespace arc
 {
     namespace
@@ -25,6 +29,73 @@ namespace arc
             return false;
         }
     }
+
+    // ImDrawData points into ImGui's own draw lists, which the next NewFrame() starts filling again.
+    // This copy has lists of its own, kept from frame to frame so their memory is reused.
+    struct ImGuiModule::DrawDataCopy
+    {
+        DrawDataCopy() = default;
+        DrawDataCopy(const DrawDataCopy&) = delete;
+        DrawDataCopy& operator=(const DrawDataCopy&) = delete;
+
+        ~DrawDataCopy()
+        {
+            for (ImDrawList* list : lists)
+                IM_DELETE(list);
+        }
+
+        void copy(const ImDrawData& source)
+        {
+            data.Clear();
+            while (lists.size() < static_cast<size_t>(source.CmdLists.Size))
+                lists.push_back(IM_NEW(ImDrawList)(nullptr));
+            for (int i = 0; i < source.CmdLists.Size; ++i)
+            {
+                const ImDrawList& from = *source.CmdLists[i];
+                ImDrawList& to = *lists[static_cast<size_t>(i)];
+                copyVector(to.CmdBuffer, from.CmdBuffer);
+                copyVector(to.IdxBuffer, from.IdxBuffer);
+                copyVector(to.VtxBuffer, from.VtxBuffer);
+                to.Flags = from.Flags;
+                data.CmdLists.push_back(&to);
+            }
+            data.Valid = source.Valid;
+            data.FrameCount = source.FrameCount;
+            data.TotalIdxCount = source.TotalIdxCount;
+            data.TotalVtxCount = source.TotalVtxCount;
+            data.DisplayPos = source.DisplayPos;
+            data.DisplaySize = source.DisplaySize;
+            data.FramebufferScale = source.FramebufferScale;
+            data.OwnerViewport = source.OwnerViewport;
+            // Texture updates happen in syncRender(), on the main thread, never while drawing.
+            data.Textures = nullptr;
+            pending = true;
+        }
+
+        // A command may name a texture by its ImTextureData, whose ID is only known once the texture
+        // has been uploaded and which the main thread keeps changing; the ID itself is all the
+        // render thread needs.
+        void resolveTextureIds()
+        {
+            for (ImDrawList* list : data.CmdLists)
+                for (ImDrawCmd& command : list->CmdBuffer)
+                    if (command.TexRef._TexData)
+                        command.TexRef = ImTextureRef(command.TexRef.GetTexID());
+        }
+
+        template <typename T>
+        static void copyVector(ImVector<T>& to, const ImVector<T>& from)
+        {
+            // resize() keeps the capacity, where ImVector's assignment frees it first.
+            to.resize(from.Size);
+            if (from.Size > 0)
+                std::memcpy(to.Data, from.Data, from.size_in_bytes());
+        }
+
+        ImDrawData data;
+        std::vector<ImDrawList*> lists;
+        bool pending = false;   // Copied and not drawn yet.
+    };
 
     ImGuiModule::ImGuiModule(Application& app) : Module(app) {}
 
@@ -88,21 +159,44 @@ namespace arc
         app().input().setCaptured(io.WantCaptureKeyboard, io.WantCaptureMouse);
     }
 
-    void ImGuiModule::postRender()
+    void ImGuiModule::extract()
     {
-        ARC_PROFILE_SCOPE("ImGui render");
         if (!m_frameStarted)
             return;
         m_frameStarted = false;
+        {
+            ARC_PROFILE_SCOPE("ImGui render");
+            ImGui::Render();
+        }
+        ARC_PROFILE_SCOPE("Copy ImGui draw data");
+        if (!m_next)
+            m_next = std::make_unique<DrawDataCopy>();
+        m_next->copy(*ImGui::GetDrawData());
+    }
 
-        // Always called, even without a frame to draw into, so every NewFrame() is matched.
-        ImGui::Render();
-
-        Renderer& renderer = app().renderer();
-        if (!renderer.isFrameActive() || !renderer.beginBackbufferPass("ImGui"))
+    void ImGuiModule::syncRender()
+    {
+        for (ImTextureData* texture : ImGui::GetPlatformIO().Textures)
+            if (texture->Status != ImTextureStatus_OK)
+                m_renderBackend->updateTexture(*texture);
+        if (!m_next || !m_next->pending)
             return;
+        m_next->resolveTextureIds();
+        std::swap(m_next, m_drawing);
+        if (m_next)
+            m_next->pending = false;
+    }
 
-        m_renderBackend->render(renderer.commandList(), ImGui::GetDrawData());
+    void ImGuiModule::postRender()
+    {
+        ARC_PROFILE_SCOPE("Record ImGui");
+        if (!m_drawing || !m_drawing->pending)
+            return;
+        m_drawing->pending = false;
+        Renderer& renderer = app().renderer();
+        if (!renderer.beginBackbufferPass("ImGui"))
+            return;
+        m_renderBackend->render(renderer.commandList(), &m_drawing->data);
         renderer.endBackbufferPass();
     }
 
@@ -111,6 +205,8 @@ namespace arc
         app().removeEventListener(*this);
         app().input().setCaptured(false, false);
 
+        m_next.reset();
+        m_drawing.reset();
         if (m_rendererBackendReady)
             m_renderBackend->shutdown();
         m_renderBackend.reset();

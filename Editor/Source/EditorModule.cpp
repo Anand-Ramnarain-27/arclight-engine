@@ -179,10 +179,21 @@ namespace arc
             m_camera.frame(hierarchyBounds(*selected), selected->transform().worldPosition());
     }
 
+    void EditorModule::extract()
+    {
+        m_outline.extract(m_selection.object());
+    }
+
+    void EditorModule::syncRender()
+    {
+        m_grid.sync();
+        m_outline.sync();
+    }
+
     void EditorModule::renderSceneOverlays()
     {
         m_grid.render(app().renderer());
-        m_outline.render(app().renderer(), m_selection.object());
+        m_outline.render(app().renderer());
     }
 
     void EditorModule::update(const FrameTime& /*time*/)
@@ -230,6 +241,8 @@ namespace arc
             ARC_LOG_WARN("No GPU capture tool attached; start the editor from RenderDoc, with --pix, or from Xcode");
             return;
         }
+        // A frame function: the render thread must not be beginning a frame meanwhile.
+        app().renderer().waitForRenderThread();
         device.captureNextFrame();
     }
 

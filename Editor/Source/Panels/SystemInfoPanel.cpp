@@ -60,6 +60,8 @@ namespace arc
             row("Platform", info.platform);
             row("CPU cores", std::format("{} logical", info.logicalCpuCores));
             row("Job workers", std::format("{} threads, plus the main thread", m_app.jobs().workerCount()));
+            row("Render thread", m_app.renderer().renderThreadRunning() ? "records and submits frames"
+                                                                         : "off: the main thread records frames");
             row("CPU features", features.empty() ? "none detected" : features);
             row("Cache line", std::format("{} bytes", info.cpuCacheLineBytes));
             row("RAM", std::format("{:.1f} GB", info.systemRamMB / 1024.0));

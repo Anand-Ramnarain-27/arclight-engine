@@ -4,6 +4,7 @@
 #include <memory>
 
 struct ImDrawData;
+struct ImTextureData;
 
 namespace arc
 {
@@ -27,15 +28,18 @@ namespace arc
         [[nodiscard]] virtual bool init() = 0;
         virtual void shutdown() = 0;
 
-        /// Called before ImGui::NewFrame().
+        /// Called before ImGui::NewFrame(), on the main thread.
         virtual void newFrame() = 0;
-
-        /// Records the draw data inside the current render pass.
+        /// Creates, updates or destroys the texture on the GPU as its status asks, and sets the new
+        /// status. On the main thread, while no frame is being recorded.
+        virtual void updateTexture(ImTextureData& texture) = 0;
+        /// Records the draw data inside the current render pass, on the thread recording frames. Its
+        /// textures are up to date and its commands name them by ImTextureID; it lists no textures to
+        /// update.
         virtual void render(rhi::CommandList& commandList, ImDrawData* drawData) = 0;
-
-        /// The ImTextureID that shows `texture` in ImGui::Image() this frame. The texture must have
-        /// been created by the device (it has a handle) with Sampled usage, and be in the
-        /// ShaderRead state when the UI is drawn.
+        /// The ImTextureID that shows `texture` in ImGui::Image() this frame, on the main thread. The
+        /// texture must have been created by the device (it has a handle) with Sampled usage, and be
+        /// in the ShaderRead state when the UI is drawn.
         [[nodiscard]] virtual uint64_t textureId(rhi::Texture& texture) = 0;
     };
 

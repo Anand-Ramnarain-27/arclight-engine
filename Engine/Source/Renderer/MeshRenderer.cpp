@@ -283,7 +283,7 @@ namespace arc
         ARC_PROFILE_SCOPE("Record mesh draws");
         RenderStats stats;
         rhi::CommandList& commandList = renderer.commandList();
-        const bool reversedZ = renderer.sceneCamera().reversedZ;
+        const bool reversedZ = renderer.frameCamera().reversedZ;
         const MaterialData defaultMaterial;
         commandList.setConstants(0, renderer.sceneViewConstants());
         commandList.setConstants(kLightingConstantsSlot, m_lightingConstants);
@@ -306,7 +306,7 @@ namespace arc
         std::array<const rhi::Texture*, kMaterialTextureSlots> textures{};
         const rhi::Sampler* sampler = nullptr;
         const MaterialData* material = nullptr;
-        const MaterialStyle* style = nullptr;
+        uint32_t style = RenderItem::kNoStyle;
         const rhi::Texture* ramp = nullptr;
 
         const auto drawQueue = [&](std::span<const RenderItem> items, bool blend) {
@@ -404,8 +404,9 @@ namespace arc
                     commandList.setSampler(0, *itemSampler);
                     sampler = itemSampler;
                 }
-                const bool toon = item.style && item.style->shading == ShadingModel::Toon;
-                rhi::Texture* itemRamp = toon && item.style->toon.ramp ? item.style->toon.ramp : m_whiteTexture.get();
+                const MaterialStyle* itemStyle = list.style(item);
+                const bool toon = itemStyle && itemStyle->shading == ShadingModel::Toon;
+                rhi::Texture* itemRamp = toon && itemStyle->toon.ramp ? itemStyle->toon.ramp : m_whiteTexture.get();
                 if (itemRamp != ramp)
                 {
                     commandList.setTexture(kToonRampSlot, *itemRamp);
@@ -414,7 +415,7 @@ namespace arc
                 }
                 if (&itemMaterial != material || item.style != style)
                 {
-                    commandList.setConstants(2, materialConstants(itemMaterial, item.style));
+                    commandList.setConstants(2, materialConstants(itemMaterial, itemStyle));
                     material = &itemMaterial;
                     style = item.style;
                     ++stats.constantUploads;
@@ -442,18 +443,19 @@ namespace arc
         ARC_PROFILE_SCOPE("Record outlines");
         RenderStats stats;
         rhi::CommandList& commandList = renderer.commandList();
-        const bool reversedZ = renderer.sceneCamera().reversedZ;
+        const bool reversedZ = renderer.frameCamera().reversedZ;
         const Extent2D viewport = renderer.sceneSize();
         bool begun = false;
         rhi::Pipeline* pipeline = nullptr;
         const rhi::Buffer* vertexBuffer = nullptr;
         const rhi::Buffer* indexBuffer = nullptr;
         uint32_t transform = std::numeric_limits<uint32_t>::max();
-        const OutlineStyle* outline = nullptr;
+        uint32_t outline = RenderItem::kNoStyle;
 
         for (const RenderItem& item : list.opaque())
         {
-            if (!item.style || !item.style->outline.enabled || item.style->outline.width <= 0.0f)
+            const MaterialStyle* itemStyle = list.style(item);
+            if (!itemStyle || !itemStyle->outline.enabled || itemStyle->outline.width <= 0.0f)
                 continue;
             if (!begun)
             {
@@ -497,15 +499,15 @@ namespace arc
                 transform = item.transform;
                 ++stats.constantUploads;
             }
-            if (&item.style->outline != outline)
+            if (item.style != outline)
             {
                 commandList.setConstants(2, OutlineConstants{
-                                                .color = item.style->outline.color,
-                                                .width = item.style->outline.width,
+                                                .color = itemStyle->outline.color,
+                                                .width = itemStyle->outline.width,
                                                 .viewportSize = {static_cast<float>(viewport.width),
                                                                  static_cast<float>(viewport.height)},
                                             });
-                outline = &item.style->outline;
+                outline = item.style;
                 ++stats.constantUploads;
             }
             commandList.drawIndexed(draw.indexCount, 1, draw.firstIndex, draw.baseVertex);

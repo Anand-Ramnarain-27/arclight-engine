@@ -140,7 +140,7 @@ namespace arc
     {
         if (!m_state)
             return;
-        if (!enabled)
+        if (!m_frame.enabled)
         {
             // When it is turned on again, the exposure starts from the scene as it is then.
             m_reset = true;
@@ -157,7 +157,7 @@ namespace arc
         m_lastMeasurement = now;
 
         const Extent2D size = scene.desc().size;
-        const float logRange = std::max(maxLogLuminance - minLogLuminance, 1.0f);
+        const float logRange = std::max(m_frame.maxLogLuminance - m_frame.minLogLuminance, 1.0f);
 
         commandList.barrier(*m_histogramBuffer, rhi::ResourceState::UnorderedAccess);
         commandList.barrier(*m_state, rhi::ResourceState::UnorderedAccess);
@@ -169,7 +169,7 @@ namespace arc
         commandList.setConstants(0, HistogramConstants{
                                         .sceneWidth = size.width,
                                         .sceneHeight = size.height,
-                                        .minLogLuminance = minLogLuminance,
+                                        .minLogLuminance = m_frame.minLogLuminance,
                                         .inverseLogLuminanceRange = 1.0f / logRange,
                                     });
         commandList.dispatch(rhi::groupCount(size.width, kHistogramGroup.x), rhi::groupCount(size.height, kHistogramGroup.y));
@@ -182,10 +182,10 @@ namespace arc
         commandList.setStorageBuffer(1, *m_state);
         commandList.setConstants(0, ExposureConstants{
                                         .pixelCount = size.width * size.height,
-                                        .minLogLuminance = minLogLuminance,
+                                        .minLogLuminance = m_frame.minLogLuminance,
                                         .logLuminanceRange = logRange,
-                                        .adaptBrighter = adaptationStep(darkenSpeed, seconds),
-                                        .adaptDarker = adaptationStep(brightenSpeed, seconds),
+                                        .adaptBrighter = adaptationStep(m_frame.darkenSpeed, seconds),
+                                        .adaptDarker = adaptationStep(m_frame.brightenSpeed, seconds),
                                         .resetAdaptation = m_reset ? 1u : 0u,
                                     });
         commandList.dispatch(1);
@@ -206,8 +206,27 @@ namespace arc
 
         std::array<uint32_t, kStateCount> state{};
         std::memcpy(state.data(), m_readback[frameSlot]->mappedData(), kStateBytes);
-        std::copy_n(state.begin(), kBinCount, m_histogram.begin());
-        m_adaptedLuminance = std::bit_cast<float>(state[kBinCount]);
-        m_frameLuminance = std::bit_cast<float>(state[kBinCount + 1]);
+        std::copy_n(state.begin(), kBinCount, m_measured.histogram.begin());
+        m_measured.adaptedLuminance = std::bit_cast<float>(state[kBinCount]);
+        m_measured.frameLuminance = std::bit_cast<float>(state[kBinCount + 1]);
+    }
+
+    void AutoExposure::sync()
+    {
+        m_frame = {
+            .enabled = enabled,
+            .keyValue = keyValue,
+            .minEv = minEv,
+            .maxEv = maxEv,
+            .darkenSpeed = darkenSpeed,
+            .brightenSpeed = brightenSpeed,
+            .minLogLuminance = minLogLuminance,
+            .maxLogLuminance = maxLogLuminance,
+        };
+        m_reset = m_reset || m_resetRequested;
+        m_resetRequested = false;
+        m_histogram = m_measured.histogram;
+        m_frameLuminance = m_measured.frameLuminance;
+        m_adaptedLuminance = m_measured.adaptedLuminance;
     }
 }

@@ -147,13 +147,15 @@ namespace arc
             .brdfLut = m_environment.brdfLut(),
             .sampler = m_environment.sampler(),
             .prefilteredMaxLod = EnvironmentMaps::prefilteredMaxLod(),
-            .intensity = intensity,
-            .rotation = rotation,
+            .intensity = m_frame.intensity,
+            .rotation = m_frame.rotation,
         };
     }
 
     bool Skybox::setFaces(Renderer& renderer, const std::array<Image, 6>& faces, std::string source)
     {
+        // The bake replaces the environment's textures, which a frame being recorded may draw with.
+        renderer.waitForRenderThread();
         // Full mip chains, so the bake can read each face at the resolution of each radiance mip.
         const uint32_t mipLevels = rhi::fullMipCount(faces[0].size);
         auto texture = renderer.device().createTexture({
@@ -208,6 +210,9 @@ namespace arc
             image = downsample(image);
 
         const std::vector<HdrImage> mips = generateMipChain(std::move(image));
+        // Decoded and filtered first, while the render thread may still be drawing; the bake below
+        // replaces the environment's textures.
+        renderer.waitForRenderThread();
         auto texture = renderer.device().createTexture({
             .size = mips[0].size,
             .format = rhi::Format::RGBA16_FLOAT,
@@ -270,10 +275,10 @@ namespace arc
     void Skybox::draw(Renderer& renderer)
     {
         ARC_PROFILE_SCOPE("Record sky");
-        const Camera& camera = renderer.sceneCamera();
+        const Camera& camera = renderer.frameCamera();
         rhi::Pipeline* pipeline = m_pipelines[camera.reversedZ].get();
         rhi::Texture* radiance = m_environment.radiance();
-        if (!visible || !pipeline || !radiance)
+        if (!m_frame.visible || !pipeline || !radiance)
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
@@ -281,8 +286,8 @@ namespace arc
         commandList.setPipeline(*pipeline);
         commandList.setConstants(0, renderer.sceneViewConstants());
         commandList.setConstants(1, SkyboxConstants{.farDepth = camera.reversedZ ? 0.0f : 1.0f,
-                                                     .intensity = intensity,
-                                                     .rotation = {std::cos(rotation), std::sin(rotation)}});
+                                                     .intensity = m_frame.intensity,
+                                                     .rotation = {std::cos(m_frame.rotation), std::sin(m_frame.rotation)}});
         commandList.setTexture(0, *radiance);
         commandList.setSampler(0, *m_sampler);
         commandList.draw(3);

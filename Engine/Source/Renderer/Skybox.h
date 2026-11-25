@@ -25,6 +25,10 @@ namespace arc
     ///
     /// Starts with a procedural sky, a gradient from horizon to zenith with a sun where the default
     /// light (defaultSunLight()) comes from; load() replaces it with an HDR image or six face images.
+    ///
+    /// visible, intensity and rotation are the main thread's; draw() and environmentLighting(), which
+    /// run where frames are recorded, use the copy sync() last made. Loading waits for the render
+    /// thread before it replaces the textures that frames draw with.
     class Skybox
     {
     public:
@@ -56,6 +60,9 @@ namespace arc
         /// Must be called inside a scene pass, after the opaque meshes.
         void draw(Renderer& renderer);
 
+        /// Main thread, while no frame is being recorded: the settings below take effect for the next.
+        void sync() { m_frame = {visible, intensity, rotation}; }
+
         [[nodiscard]] const std::string& source() const { return m_source; }
 
         /// The lighting made from the sky, for MeshRenderer::setLighting(). Its textures change when
@@ -83,5 +90,13 @@ namespace arc
         EnvironmentMaps m_environment;
         std::unique_ptr<rhi::Sampler> m_sampler;
         std::string m_source;
+
+        struct Settings
+        {
+            bool visible = true;
+            float intensity = 1.0f;
+            float rotation = 0.0f;
+        };
+        Settings m_frame;
     };
 }

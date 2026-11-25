@@ -67,9 +67,6 @@ namespace arc::rhi::d3d12
         m_timestampReadback.reset();
         m_deferredRelease.releaseAll();
 
-        if (m_fenceEvent)
-            CloseHandle(m_fenceEvent);
-
         if (m_messageCallbackCookie != 0)
         {
             ComPtr<ID3D12InfoQueue1> infoQueue;
@@ -169,13 +166,6 @@ namespace arc::rhi::d3d12
         if (!succeeded(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence"))
             return false;
         setDebugName(m_fence.Get(), "Frame Fence");
-
-        m_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!m_fenceEvent)
-        {
-            ARC_LOG_ERROR("CreateEvent failed for the frame fence");
-            return false;
-        }
 
         for (uint32_t i = 0; i < kMaxFramesInFlight; ++i)
         {
@@ -918,7 +908,7 @@ namespace arc::rhi::d3d12
         return std::make_unique<D3D12ComputePipeline>(*this, desc, std::move(state), m_rootSignature.Get());
     }
 
-    void D3D12Device::submitImmediate(const std::function<void(CommandList&)>& record)
+    void D3D12Device::submitImmediateImpl(const std::function<void(CommandList&)>& record)
     {
         // The previous immediate submission was waited for, so its transient descriptors are free.
         constexpr uint32_t kImmediateRegion = UploadRing::kImmediateRegion;
@@ -937,7 +927,7 @@ namespace arc::rhi::d3d12
         }
         m_immediateList.decayBufferStates();
         waitForFence(signal());
-        m_deferredRelease.release(m_fence->GetCompletedValue());
+        releaseCompleted();
     }
 
     std::unique_ptr<Swapchain> D3D12Device::createSwapchain(Window& window, const SwapchainDesc& desc)
@@ -953,8 +943,11 @@ namespace arc::rhi::d3d12
         // The allocator's memory is still referenced by the GPU until that frame's fence passes.
         FrameContext& frame = m_frames[frameSlot()];
         waitForFence(frame.fenceValue);
-        m_deferredRelease.release(m_fence->GetCompletedValue());
-        m_frameOpen = true;
+        {
+            const std::scoped_lock lock(m_lifetimeMutex);
+            m_deferredRelease.release(m_fence->GetCompletedValue());
+            m_frameOpen = true;
+        }
 
         resolveTimestamps();
         GpuTimingRecorder& timing = gpuTimingRecorder();
@@ -1001,8 +994,11 @@ namespace arc::rhi::d3d12
             reportDeviceRemoved();
 
         m_frames[frameSlot()].fenceValue = signal();
-        m_deferredRelease.stampOpenFrame(m_frames[frameSlot()].fenceValue);
-        m_frameOpen = false;
+        {
+            const std::scoped_lock lock(m_lifetimeMutex);
+            m_deferredRelease.stampOpenFrame(m_frames[frameSlot()].fenceValue);
+            m_frameOpen = false;
+        }
         advanceFrame();
     }
 
@@ -1012,13 +1008,26 @@ namespace arc::rhi::d3d12
             return;
         waitForFence(signal());
         // Objects retired during an open frame stay queued: that frame has not been submitted.
+        releaseCompleted();
+    }
+
+    void D3D12Device::releaseCompleted()
+    {
+        const std::scoped_lock lock(m_lifetimeMutex);
         m_deferredRelease.release(m_fence->GetCompletedValue());
+    }
+
+    uint32_t D3D12Device::awaitingReleaseCount() const
+    {
+        const std::scoped_lock lock(m_lifetimeMutex);
+        return static_cast<uint32_t>(m_deferredRelease.size());
     }
 
     void D3D12Device::retire(ComPtr<ID3D12Pageable> object)
     {
         if (!object)
             return;
+        const std::scoped_lock lock(m_lifetimeMutex);
         if (m_frameOpen)
             m_deferredRelease.retireAfterOpenFrame(std::move(object));
         else if (m_fence && m_fence->GetCompletedValue() < m_lastSignalledValue)
@@ -1029,6 +1038,8 @@ namespace arc::rhi::d3d12
 
     uint64_t D3D12Device::signal()
     {
+        // Held across the Signal call too, so values reach the queue in the order they were taken.
+        const std::scoped_lock lock(m_lifetimeMutex);
         const uint64_t value = ++m_lastSignalledValue;
         ARC_VERIFY(SUCCEEDED(m_queue->Signal(m_fence.Get(), value)));
         return value;
@@ -1039,8 +1050,9 @@ namespace arc::rhi::d3d12
         if (m_fence->GetCompletedValue() >= value)
             return;
 
-        ARC_VERIFY(SUCCEEDED(m_fence->SetEventOnCompletion(value, m_fenceEvent)));
-        WaitForSingleObject(m_fenceEvent, INFINITE);
+        // A null event makes the call block until the value is reached. Unlike a shared event, that
+        // is safe when the render thread and an immediate submission wait at the same time.
+        ARC_VERIFY(SUCCEEDED(m_fence->SetEventOnCompletion(value, nullptr)));
     }
 
     void D3D12Device::reportDeviceRemoved() const

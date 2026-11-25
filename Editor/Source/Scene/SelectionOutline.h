@@ -34,13 +34,17 @@ namespace arc
         [[nodiscard]] bool init(Renderer& renderer);
         void shutdown();
 
-        /// Resizes the mask to the scene targets. Must be called outside a frame, after the scene
-        /// target has its size for the frame.
+        /// Main thread: resizes the mask to the scene targets, after the scene target has its size for
+        /// the frame. Waits for the render thread first when it does.
         void prepare(Renderer& renderer);
-
-        /// Records both passes, or nothing when `selected` is null or has no visible mesh. Must be
-        /// called outside a render pass, after the scene has been drawn.
-        void render(Renderer& renderer, const GameObject* selected);
+        /// Main thread: collects the meshes of `selected` (null for none) and everything below it,
+        /// for the frame being built, holding their models until it has been drawn.
+        void extract(const GameObject* selected);
+        /// Main thread, while no frame is being recorded: hands what extract() collected to render().
+        void sync();
+        /// Records both passes, or nothing when no mesh was collected. Must be called outside a render
+        /// pass, after the scene has been drawn.
+        void render(Renderer& renderer);
 
         /// Written to the display target as is, after tone mapping: display-ready (sRGB-encoded).
         Vec4 color{1.0f, 0.55f, 0.1f, 1.0f};
@@ -49,10 +53,17 @@ namespace arc
 
     private:
         struct MaskItem;
+        struct Frame
+        {
+            std::vector<MaskItem> items;
+            Vec4 color;
+            int radius = 1;   // Pixels.
+        };
 
         std::unique_ptr<rhi::Pipeline> m_maskPipeline;
         std::unique_ptr<rhi::Pipeline> m_outlinePipeline;
         std::unique_ptr<rhi::Texture> m_mask;
-        std::vector<MaskItem> m_items;
+        std::unique_ptr<Frame> m_next;
+        std::unique_ptr<Frame> m_frame;
     };
 }

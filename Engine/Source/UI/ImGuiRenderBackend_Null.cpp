@@ -35,22 +35,26 @@ namespace arc
 
             void newFrame() override {}
 
+            void updateTexture(ImTextureData& texture) override
+            {
+                if (texture.Status == ImTextureStatus_WantCreate || texture.Status == ImTextureStatus_WantUpdates)
+                {
+                    texture.SetTexID(static_cast<ImTextureID>(1));
+                    texture.SetStatus(ImTextureStatus_OK);
+                }
+                else if (texture.Status == ImTextureStatus_WantDestroy && texture.UnusedFrames > 0)
+                {
+                    destroyTexture(&texture);
+                }
+            }
+
             void render(rhi::CommandList& /*commandList*/, ImDrawData* drawData) override
             {
-                if (!drawData->Textures)
-                    return;
-                for (ImTextureData* texture : *drawData->Textures)
-                {
-                    if (texture->Status == ImTextureStatus_WantCreate || texture->Status == ImTextureStatus_WantUpdates)
-                    {
-                        texture->SetTexID(static_cast<ImTextureID>(1));
-                        texture->SetStatus(ImTextureStatus_OK);
-                    }
-                    else if (texture->Status == ImTextureStatus_WantDestroy && texture->UnusedFrames > 0)
-                    {
-                        destroyTexture(texture);
-                    }
-                }
+                // Walks the commands as a real backend would, so a texture ID left unresolved shows up
+                // in the tests and headless runs.
+                for (const ImDrawList* list : drawData->CmdLists)
+                    for (const ImDrawCmd& command : list->CmdBuffer)
+                        ARC_ASSERT(!command.TexRef._TexData, "ImGui draw command still names its texture data");
             }
 
             uint64_t textureId(rhi::Texture& texture) override

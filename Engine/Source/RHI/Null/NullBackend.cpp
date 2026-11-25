@@ -416,7 +416,7 @@ namespace arc::rhi
                 return std::make_unique<NullComputePipeline>(desc);
             }
 
-            void submitImmediate(const std::function<void(CommandList&)>& record) override
+            void submitImmediateImpl(const std::function<void(CommandList&)>& record) override
             {
                 m_uploadRing.reset(UploadRing::kImmediateRegion);
                 NullCommandList commandList;

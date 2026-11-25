@@ -5,6 +5,7 @@
 #include "Renderer/Model.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 
 namespace arc
@@ -23,6 +24,9 @@ namespace arc
         {
             return value & ((uint64_t{1} << bits) - 1);
         }
+
+        // Materials past this many are copied once per primitive rather than once per mesh.
+        constexpr size_t kMaxCopiedStyles = 64;
     }
 
     void RenderList::clear()
@@ -30,6 +34,7 @@ namespace arc
         m_opaque.clear();
         m_blended.clear();
         m_transforms.clear();
+        m_styles.clear();
     }
 
     uint32_t LodPolicy::select(std::span<const float> errors, const Aabb& bounds, const Mat4& world) const
@@ -66,6 +71,10 @@ namespace arc
         m_transforms.push_back({world, determinant(world) < 0.0f});
 
         const MeshData& data = model.meshes()[mesh];
+        // One copy per material of the mesh, shared by its primitives, so drawing them in a row sets
+        // the material's constants once.
+        std::array<uint32_t, kMaxCopiedStyles> copied;
+        copied.fill(RenderItem::kNoStyle);
         for (uint32_t i = 0; i < data.primitiveCount; ++i)
         {
             const uint32_t primitive = data.firstPrimitive + i;
@@ -73,10 +82,23 @@ namespace arc
             const bool blended = material >= 0 && model.materials()[static_cast<size_t>(material)].alphaMode == AlphaMode::Blend;
             const PrimitiveLods& levels = model.primitiveLods()[primitive];
             const uint32_t lod = lods.select(std::span(levels.errors.data(), levels.count), model.primitives()[primitive].bounds, world);
-            const MaterialStyle* style = material >= 0 && static_cast<size_t>(material) < styles.size() &&
-                                                 !styles[static_cast<size_t>(material)].isDefault()
-                                             ? &styles[static_cast<size_t>(material)]
-                                             : nullptr;
+            uint32_t style = RenderItem::kNoStyle;
+            if (material >= 0 && static_cast<size_t>(material) < styles.size() &&
+                !styles[static_cast<size_t>(material)].isDefault())
+            {
+                const auto index = static_cast<size_t>(material);
+                if (index < copied.size() && copied[index] != RenderItem::kNoStyle)
+                {
+                    style = copied[index];
+                }
+                else
+                {
+                    style = static_cast<uint32_t>(m_styles.size());
+                    m_styles.push_back(styles[index]);
+                    if (index < copied.size())
+                        copied[index] = style;
+                }
+            }
             (blended ? m_blended : m_opaque)
                 .push_back({.model = &model, .primitive = primitive, .transform = transform, .lod = lod, .style = style});
         }
@@ -85,17 +107,19 @@ namespace arc
     void RenderList::append(const RenderList& other)
     {
         const auto offset = static_cast<uint32_t>(m_transforms.size());
+        const auto styleOffset = static_cast<uint32_t>(m_styles.size());
         m_transforms.insert(m_transforms.end(), other.m_transforms.begin(), other.m_transforms.end());
+        m_styles.insert(m_styles.end(), other.m_styles.begin(), other.m_styles.end());
+        const auto rebase = [&](RenderItem item) {
+            item.transform += offset;
+            if (item.style != RenderItem::kNoStyle)
+                item.style += styleOffset;
+            return item;
+        };
         for (const RenderItem& item : other.m_opaque)
-        {
-            m_opaque.push_back(item);
-            m_opaque.back().transform += offset;
-        }
+            m_opaque.push_back(rebase(item));
         for (const RenderItem& item : other.m_blended)
-        {
-            m_blended.push_back(item);
-            m_blended.back().transform += offset;
-        }
+            m_blended.push_back(rebase(item));
     }
 
     uint64_t RenderList::opaqueSortKey(const RenderItem& item, const RenderTransform& transform)

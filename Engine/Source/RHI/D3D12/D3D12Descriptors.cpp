@@ -49,7 +49,11 @@ namespace arc::rhi::d3d12
 
     D3D12Descriptor D3D12DescriptorHeap::allocate()
     {
-        const std::optional<Handle<D3D12Descriptor>> handle = m_persistentSlots.allocate();
+        std::optional<Handle<D3D12Descriptor>> handle;
+        {
+            const std::scoped_lock lock(m_persistentMutex);
+            handle = m_persistentSlots.allocate();
+        }
         if (!handle)
         {
             ARC_LOG_ERROR("Descriptor heap '{}' is full ({} persistent descriptors)", m_name, m_persistentCount);
@@ -66,6 +70,7 @@ namespace arc::rhi::d3d12
             return;
         // Descriptors live in CPU-only heaps (copied into tables while recording) or are owned by
         // ImGui, which waits for its own frames, so the slot can be reused straight away.
+        const std::scoped_lock lock(m_persistentMutex);
         const bool freed = m_persistentSlots.free(descriptor.handle);
         ARC_ASSERT(freed, "Descriptor {} of '{}' was already freed", descriptor.handle.index, m_name);
     }
@@ -77,9 +82,16 @@ namespace arc::rhi::d3d12
         ARC_ASSERT(cpu.ptr >= m_cpuStart.ptr && (cpu.ptr - m_cpuStart.ptr) / m_stride < m_persistentCount,
                    "Descriptor does not belong to the persistent part of '{}'", m_name);
         const auto index = static_cast<uint32_t>((cpu.ptr - m_cpuStart.ptr) / m_stride);
+        const std::scoped_lock lock(m_persistentMutex);
         const Handle<D3D12Descriptor> handle = m_persistentSlots.handleAt(index);
         ARC_ASSERT(!handle.isNull(), "Descriptor {} of '{}' was already freed", index, m_name);
         m_persistentSlots.free(handle);
+    }
+
+    uint32_t D3D12DescriptorHeap::persistentInUse() const
+    {
+        const std::scoped_lock lock(m_persistentMutex);
+        return m_persistentSlots.aliveCount();
     }
 
     void D3D12DescriptorHeap::resetTransient(uint32_t region)

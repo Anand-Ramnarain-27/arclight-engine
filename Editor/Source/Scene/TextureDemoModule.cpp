@@ -298,14 +298,31 @@ namespace arc
     void TextureDemoModule::update(const FrameTime& /*time*/)
     {
         drawWindow();
+        // Both replace objects the render thread may be drawing with.
         if (m_recreateTextures)
         {
             m_recreateTextures = false;
+            app().renderer().waitForRenderThread();
             if (!createTextures())
                 app().requestQuit();
         }
         if (m_samplersDirty)
+        {
+            app().renderer().waitForRenderThread();
             (void)rebuildSamplers();
+        }
+    }
+
+    void TextureDemoModule::syncRender()
+    {
+        m_frame = {
+            .visible = m_visible,
+            .texture = m_textures[m_selectedTexture].texture.get(),
+            .mipBias = m_mipBias,
+            .walls = m_zFightingTest,
+            .wallDistance = m_wallDistance,
+            .wallSeparation = m_wallSeparation,
+        };
     }
 
     void TextureDemoModule::drawWindow()
@@ -413,10 +430,11 @@ namespace arc
     void TextureDemoModule::render()
     {
         Renderer& renderer = app().renderer();
-        rhi::Pipeline* pipeline = m_pipelines[renderer.sceneCamera().reversedZ].get();
+        rhi::Pipeline* pipeline = m_pipelines[renderer.frameCamera().reversedZ].get();
         const Extent2D size = renderer.sceneSize();
-        if (!m_visible || !renderer.isFrameActive() || !pipeline || !m_groundSampler || !m_quadSampler || size.width == 0 ||
-            !renderer.beginScenePass("Texture Demo"))
+        const Frame& frame = m_frame;
+        if (!frame.visible || !frame.texture || !renderer.isFrameActive() || !pipeline || !m_groundSampler ||
+            !m_quadSampler || size.width == 0 || !renderer.beginScenePass("Texture Demo"))
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
@@ -426,19 +444,19 @@ namespace arc
         commandList.setConstants(0, renderer.sceneViewConstants());
         {
             const rhi::ScopedDebugGroup group(commandList, "Ground");
-            commandList.setTexture(0, *m_textures[m_selectedTexture].texture);
-            commandList.setConstants(1, groundConstants(m_mipBias));
+            commandList.setTexture(0, *frame.texture);
+            commandList.setConstants(1, groundConstants(frame.mipBias));
             commandList.setSampler(0, *m_groundSampler);
             commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
         }
-        if (m_zFightingTest)
+        if (frame.walls)
         {
             const rhi::ScopedDebugGroup group(commandList, "Z-Fighting Walls");
             commandList.setTexture(0, *m_farWallTexture);
-            commandList.setConstants(1, wallConstants(m_wallDistance));
+            commandList.setConstants(1, wallConstants(frame.wallDistance));
             commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
             commandList.setTexture(0, *m_nearWallTexture);
-            commandList.setConstants(1, wallConstants(m_wallDistance - m_wallSeparation));
+            commandList.setConstants(1, wallConstants(frame.wallDistance - frame.wallSeparation));
             commandList.drawIndexed(static_cast<uint32_t>(kIndices.size()));
         }
         {
@@ -447,7 +465,7 @@ namespace arc
             // without depth testing: it is a 2D overlay, not part of the 3D scene.
             const float aspect = static_cast<float>(size.width) / static_cast<float>(size.height);
             commandList.setPipeline(*m_overlayPipeline);
-            commandList.setTexture(0, *m_textures[m_selectedTexture].texture);
+            commandList.setTexture(0, *frame.texture);
             commandList.setConstants(0, ViewConstants{});
             commandList.setConstants(1, cornerQuadConstants(aspect));
             commandList.setSampler(0, *m_quadSampler);
@@ -462,6 +480,7 @@ namespace arc
         // still uses these.
         m_groundSampler.reset();
         m_quadSampler.reset();
+        m_frame = {};
         m_textures.clear();
         m_nearWallTexture.reset();
         m_farWallTexture.reset();

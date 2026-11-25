@@ -45,12 +45,17 @@ namespace arc
 
     struct SelectionOutline::MaskItem
     {
-        const Model* model = nullptr;
+        // Shared, so the model outlives an object deleted while the frame is drawn.
+        std::shared_ptr<const Model> model;
         uint32_t mesh = 0;
         Mat4 world;
     };
 
-    SelectionOutline::SelectionOutline() = default;
+    SelectionOutline::SelectionOutline()
+        : m_next(std::make_unique<Frame>())
+        , m_frame(std::make_unique<Frame>())
+    {
+    }
 
     // Defined here, where the RHI types are complete, for the unique_ptr destructors.
     SelectionOutline::~SelectionOutline() = default;
@@ -97,6 +102,8 @@ namespace arc
         m_maskPipeline.reset();
         m_outlinePipeline.reset();
         m_mask.reset();
+        m_next->items.clear();
+        m_frame->items.clear();
     }
 
     void SelectionOutline::prepare(Renderer& renderer)
@@ -106,7 +113,9 @@ namespace arc
             return;
         if (m_mask && m_mask->desc().size.width == size.width && m_mask->desc().size.height == size.height)
             return;
-        // Frames in flight may still read the old mask; the device keeps it until they finish.
+        // The render thread may be drawing into the old mask, and frames in flight on the GPU may
+        // still read it; the device keeps it until they finish.
+        renderer.waitForRenderThread();
         m_mask = renderer.device().createTexture({
             .size = size,
             .format = kMaskFormat,
@@ -115,13 +124,20 @@ namespace arc
         });
     }
 
-    void SelectionOutline::render(Renderer& renderer, const GameObject* selected)
+    void SelectionOutline::extract(const GameObject* selected)
     {
-        if (!selected || !m_mask || !m_maskPipeline || !m_outlinePipeline || !renderer.isFrameActive())
+        Frame& frame = *m_next;
+        frame.items.clear();
+        frame.color = color;
+        // The mask is in pixels, so the outline's width is too; scaling by the display scale keeps
+        // it the same width in points on high-DPI screens.
+        const float scale = ImGui::GetIO().DisplayFramebufferScale.y;
+        frame.radius = std::clamp(static_cast<int>(std::lround(static_cast<float>(thickness) * scale)), 1, kMaxThickness);
+        // An object under an inactive parent is not drawn, so it gets no outline either.
+        if (!selected || !selected->isActiveInHierarchy())
             return;
 
-        m_items.clear();
-        const auto collect = [this](const GameObject& object, const auto& self) -> void {
+        const auto collect = [&frame](const GameObject& object, const auto& self) -> void {
             if (!object.isActiveSelf())
                 return;
             for (const std::unique_ptr<Component>& component : object.components())
@@ -130,16 +146,25 @@ namespace arc
                     continue;
                 const auto& mesh = static_cast<const MeshComponent&>(*component);
                 if (mesh.hasMesh())
-                    m_items.push_back({mesh.model().get(), mesh.meshIndex(), object.transform().worldMatrix()});
+                    frame.items.push_back({mesh.model(), mesh.meshIndex(), object.transform().worldMatrix()});
             }
             for (const GameObject* child : object.children())
                 self(*child, self);
         };
-        // An object under an inactive parent is not drawn, so it gets no outline either.
-        if (!selected->isActiveInHierarchy())
-            return;
         collect(*selected, collect);
-        if (m_items.empty())
+    }
+
+    void SelectionOutline::sync()
+    {
+        std::swap(m_next, m_frame);
+        // The frame the render thread has finished with; its models can go.
+        m_next->items.clear();
+    }
+
+    void SelectionOutline::render(Renderer& renderer)
+    {
+        const Frame& frame = *m_frame;
+        if (frame.items.empty() || !m_mask || !m_maskPipeline || !m_outlinePipeline || !renderer.isFrameActive())
             return;
 
         rhi::CommandList& commandList = renderer.commandList();
@@ -151,7 +176,7 @@ namespace arc
         commandList.setConstants(0, renderer.sceneViewConstants());
         const rhi::Buffer* vertexBuffer = nullptr;
         const rhi::Buffer* indexBuffer = nullptr;
-        for (const MaskItem& item : m_items)
+        for (const MaskItem& item : frame.items)
         {
             commandList.setConstants(1, MaskDrawConstants{item.world});
             GeometryPool& geometry = item.model->geometry();
@@ -179,13 +204,9 @@ namespace arc
 
         if (!renderer.beginOverlayPass("Selection Outline"))
             return;
-        // The mask is in pixels, so the outline's width is too; scaling by the display scale keeps
-        // it the same width in points on high-DPI screens.
-        const float scale = ImGui::GetIO().DisplayFramebufferScale.y;
-        const int radius = std::clamp(static_cast<int>(std::lround(static_cast<float>(thickness) * scale)), 1, kMaxThickness);
         commandList.setPipeline(*m_outlinePipeline);
         commandList.setTexture(0, *m_mask);
-        commandList.setConstants(1, OutlineConstants{.color = color, .radius = radius});
+        commandList.setConstants(1, OutlineConstants{.color = frame.color, .radius = frame.radius});
         commandList.draw(3);
         renderer.endOverlayPass();
     }

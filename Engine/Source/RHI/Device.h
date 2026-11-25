@@ -4,8 +4,10 @@
 #include "RHI/GpuTiming.h"
 #include "RHI/RHITypes.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string_view>
 
 namespace arc
@@ -40,6 +42,16 @@ namespace arc::rhi
     /// Resource lifetime: buffers, textures and samplers are owned by whoever holds their
     /// unique_ptr, and may be destroyed at any time, including while frames in flight still use
     /// them. Each backend keeps the GPU object alive until the GPU has finished with it.
+    ///
+    /// Threads: creating and destroying resources, shaders and pipelines, find(), resourceCounts(),
+    /// submitImmediate() and the queries of fixed facts (adapterInfo(), gpuTimingSupported(),
+    /// gpuCaptureTool()) are safe from any thread. Everything else is used by one thread at a time,
+    /// normally the one that records frames: beginFrame(), endFrame() and the command list they hand
+    /// out, waitIdle(), captureNextFrame(), gpuTimings() and the swapchain. Another thread may use
+    /// them while that one is known to be idle, as the main thread does between handing frames to the
+    /// Renderer's render thread. Only frameSlot(), frameNumber() and the GPU timing switch may be read
+    /// at any time. A resource must not be destroyed while a frame being recorded uses it; its owner
+    /// keeps it alive until that frame has been submitted.
     class Device
     {
     public:
@@ -97,8 +109,14 @@ namespace arc::rhi
 
         /// Records commands into a one-off command list, submits it and blocks until the GPU has
         /// finished it. Meant for load-time work such as filling GPU-only buffers. If called while
-        /// a frame is being recorded, this work runs before that frame's commands.
-        virtual void submitImmediate(const std::function<void(CommandList&)>& record) = 0;
+        /// a frame is being recorded, this work runs before that frame's commands. Calls from several
+        /// threads take turns.
+        void submitImmediate(const std::function<void(CommandList&)>& record);
+        /// Runs at the start of every submitImmediate(), on the calling thread, before it takes its
+        /// turn. Immediate work changes the tracked state of the resources it touches, which a frame
+        /// being recorded on another thread may be reading, so the Renderer waits for its render
+        /// thread here. Set once, before other threads use the device.
+        void setBeforeImmediateSubmit(std::function<void()> hook) { m_beforeImmediateSubmit = std::move(hook); }
 
         /// One swapchain per window. Returns nullptr and logs on failure.
         [[nodiscard]] virtual std::unique_ptr<Swapchain> createSwapchain(Window& window, const SwapchainDesc& desc) = 0;
@@ -121,10 +139,11 @@ namespace arc::rhi
         virtual void captureNextFrame() {}
 
         /// Index of the current frame slot, in [0, kMaxFramesInFlight).
-        [[nodiscard]] uint32_t frameSlot() const { return m_frameSlot; }
+        [[nodiscard]] uint32_t frameSlot() const { return m_frameSlot.load(std::memory_order_acquire); }
 
-        /// Number of frames begun since the device was created.
-        [[nodiscard]] uint64_t frameNumber() const { return m_frameNumber; }
+        /// Number of frames submitted since the device was created, which is also the number of the
+        /// frame being recorded, if any. Read on another thread, it may be one behind.
+        [[nodiscard]] uint64_t frameNumber() const { return m_frameNumber.load(std::memory_order_acquire); }
 
         /// How long each render pass of the newest finished frame took on the GPU. Frame command lists
         /// time every pass, named by its debugName; submitImmediate() work is not timed.
@@ -140,6 +159,8 @@ namespace arc::rhi
     protected:
         Device() = default;
 
+        virtual void submitImmediateImpl(const std::function<void(CommandList&)>& record) = 0;
+
         // Backend implementations of the create functions. The description has been validated.
         [[nodiscard]] virtual std::unique_ptr<Buffer> createBufferImpl(const BufferDesc& desc) = 0;
         [[nodiscard]] virtual std::unique_ptr<Texture> createTextureImpl(const TextureDesc& desc) = 0;
@@ -153,8 +174,8 @@ namespace arc::rhi
 
         void advanceFrame()
         {
-            m_frameSlot = (m_frameSlot + 1) % kMaxFramesInFlight;
-            ++m_frameNumber;
+            m_frameSlot.store((frameSlot() + 1) % kMaxFramesInFlight, std::memory_order_release);
+            m_frameNumber.fetch_add(1, std::memory_order_acq_rel);
         }
 
     private:
@@ -163,11 +184,15 @@ namespace arc::rhi
         friend class Sampler;
         friend class Texture;
 
-        uint32_t m_frameSlot = 0;
-        uint64_t m_frameNumber = 0;
+        std::atomic<uint32_t> m_frameSlot{0};
+        std::atomic<uint64_t> m_frameNumber{0};
         GpuTimingRecorder m_gpuTiming;
+        std::function<void()> m_beforeImmediateSubmit;
+        std::mutex m_immediateMutex;
 
-        // Every live resource created through this device, for find() and the leak report.
+        // Every live resource created through this device, for find() and the leak report. Resources
+        // come and go on any thread, so the pools are guarded by m_registryMutex.
+        mutable std::mutex m_registryMutex;
         HandlePool<Buffer*, Buffer> m_buffers;
         HandlePool<Texture*, Texture> m_textures;
         HandlePool<Sampler*, Sampler> m_samplers;

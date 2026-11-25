@@ -60,10 +60,9 @@ namespace arc::rhi
         const uint64_t start = alignUp(m_used[region], alignment);
         if (start + size > m_regionSize)
         {
-            if (!m_reportedOverflow)
+            if (!m_reportedOverflow.exchange(true, std::memory_order_relaxed))
                 ARC_LOG_ERROR("Upload ring '{}' is full ({} bytes per frame); data is being dropped",
                               m_buffer->desc().debugName, m_regionSize);
-            m_reportedOverflow = true;
             return {};
         }
         m_used[region] = start + size;

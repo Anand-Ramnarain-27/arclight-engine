@@ -14,7 +14,9 @@
 #include "Scene/MeshComponent.h"
 #include "Scene/ModelInstantiation.h"
 
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace arc
 {
@@ -37,7 +39,8 @@ namespace arc
     {
         // The Application waits for the GPU before shutting modules down, and the device must
         // still exist when the models' buffers and textures are released.
-        m_renderList.clear();
+        m_next = {};
+        m_frame = {};
         m_scene = std::make_unique<Scene>();
         m_skybox.shutdown();
         m_meshRenderer.shutdown();
@@ -117,10 +120,14 @@ namespace arc
                 }
             }
             batch.list.addMesh(*mesh.model(), mesh.meshIndex(), world, lods, mesh.materialStyles());
+            // Consecutive meshes are mostly of the same model; duplicates left are removed after the join.
+            if (batch.models.empty() || batch.models.back() != mesh.model())
+                batch.models.push_back(mesh.model());
+            mesh.collectToonRamps(batch.ramps);
         }
     }
 
-    void SceneModule::cullAndCollect(const Frustum& frustum, const LodPolicy& lods)
+    void SceneModule::cullAndCollect(const Frustum& frustum, const LodPolicy& lods, FrameData& frame)
     {
         m_cullNodes.clear();
         for (const GameObject* root : m_scene->roots())
@@ -173,20 +180,30 @@ namespace arc
         parallelFor(candidates, kBatchSize, [&](uint32_t first, uint32_t end) {
             CullBatch& batch = m_cullBatches[first / kBatchSize];
             batch.list.clear();
+            batch.models.clear();
+            batch.ramps.clear();
             batch.meshesTested = 0;
             batch.meshesCulled = 0;
             for (uint32_t c = first; c < end; ++c)
                 addMeshes(*m_drawCandidates[c].object, m_drawCandidates[c].test ? &frustum : nullptr, lods, batch);
         });
-        for (const CullBatch& batch : m_cullBatches)
+        for (CullBatch& batch : m_cullBatches)
         {
-            m_renderList.append(batch.list);
+            frame.renderList.append(batch.list);
+            std::move(batch.models.begin(), batch.models.end(), std::back_inserter(frame.models));
+            std::move(batch.ramps.begin(), batch.ramps.end(), std::back_inserter(frame.ramps));
             m_cullingStats.meshesTested += batch.meshesTested;
             m_cullingStats.meshesCulled += batch.meshesCulled;
         }
+        const auto byAddress = [](const auto& a, const auto& b) { return a.get() < b.get(); };
+        const auto sameAddress = [](const auto& a, const auto& b) { return a.get() == b.get(); };
+        std::sort(frame.models.begin(), frame.models.end(), byAddress);
+        frame.models.erase(std::unique(frame.models.begin(), frame.models.end(), sameAddress), frame.models.end());
+        std::sort(frame.ramps.begin(), frame.ramps.end(), byAddress);
+        frame.ramps.erase(std::unique(frame.ramps.begin(), frame.ramps.end(), sameAddress), frame.ramps.end());
     }
 
-    void SceneModule::render()
+    void SceneModule::extract()
     {
         Renderer& renderer = app().renderer();
         const Camera& camera = renderer.sceneCamera();
@@ -206,35 +223,61 @@ namespace arc
             .forcedLevel = forcedLod,
         };
 
-        m_renderList.clear();
+        FrameData& frame = m_next;
+        frame.renderList.clear();
+        frame.models.clear();
+        frame.ramps.clear();
         {
             ARC_PROFILE_SCOPE("Cull and collect");
-            cullAndCollect(m_cullCamera.frustum(m_cullAspect), lods);
+            cullAndCollect(m_cullCamera.frustum(m_cullAspect), lods, frame);
         }
-        m_renderList.sort(camera.position, camera.forward(), sortDraws);
+        frame.renderList.sort(camera.position, camera.forward(), sortDraws);
 
         {
             ARC_PROFILE_SCOPE("Collect lights");
-            m_lights.clear();
-            m_sceneLightCount = collectLights(*m_scene, m_lights);
+            frame.lights.clear();
+            m_sceneLightCount = collectLights(*m_scene, frame.lights);
             m_usedDefaultLight = m_sceneLightCount == 0 && lighting.defaultLight;
             if (m_usedDefaultLight)
-                m_lights.push_back(defaultSunLight());
-            const EnvironmentLighting environment = m_skybox.environmentLighting();
-            m_meshRenderer.setLighting(renderer, m_lights, lighting, &environment);
+                frame.lights.push_back(defaultSunLight());
         }
+        frame.lighting = lighting;
+        frame.debugView = debugView;
+        frame.drawSky = m_skybox.visible;
         renderer.toneMapper().passThrough = MeshRenderer::isDataView(debugView);
+    }
 
-        m_stats = {};
-        const bool drawSky = m_skybox.visible;
-        if ((m_renderList.empty() && !drawSky) || !renderer.isFrameActive() || !renderer.beginScenePass("Scene"))
+    void SceneModule::syncRender()
+    {
+        std::swap(m_next, m_frame);
+        // m_next now holds the frame the render thread has finished with, and nothing reads it until
+        // the next extract(), so what it kept alive can go now.
+        m_next.models.clear();
+        m_next.ramps.clear();
+        m_skybox.sync();
+        m_stats = m_frameStats;
+    }
+
+    void SceneModule::render()
+    {
+        Renderer& renderer = app().renderer();
+        const FrameData& frame = m_frame;
+        {
+            ARC_PROFILE_SCOPE("Upload lights");
+            const EnvironmentLighting environment = m_skybox.environmentLighting();
+            m_meshRenderer.setLighting(renderer, frame.lights, frame.lighting, &environment);
+        }
+
+        m_frameStats = {};
+        if ((frame.renderList.empty() && !frame.drawSky) || !renderer.beginScenePass("Scene"))
             return;
-        const RenderStats opaque = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Opaque, debugView) +
-                                   m_meshRenderer.drawOutlines(renderer, m_renderList);
+        const RenderList& list = frame.renderList;
+        const RenderStats opaque = m_meshRenderer.draw(renderer, list, MeshRenderer::Queue::Opaque, frame.debugView) +
+                                   m_meshRenderer.drawOutlines(renderer, list);
         m_skybox.draw(renderer);
-        const RenderStats blended = m_meshRenderer.draw(renderer, m_renderList, MeshRenderer::Queue::Blended, debugView);
+        const RenderStats blended = m_meshRenderer.draw(renderer, list, MeshRenderer::Queue::Blended, frame.debugView);
         renderer.endScenePass();
-        m_stats = opaque + blended;
+        m_frameStats = opaque + blended;
     }
 
     std::shared_ptr<const Model> SceneModule::loadModel(const std::string& path)

@@ -59,6 +59,9 @@ namespace arc
         /// Removes the objects destroyed this frame, after every module's update() and before
         /// anything is drawn.
         void preRender() override;
+        /// Culls the scene, chooses levels of detail, sorts the draws and collects the lights.
+        void extract() override;
+        void syncRender() override;
         void render() override;
         void shutdown() override;
 
@@ -126,8 +129,9 @@ namespace arc
 
         [[nodiscard]] Skybox& skybox() { return m_skybox; }
 
-        /// What the last frame drew.
+        /// What the last frame drew, as of its hand-over to the render thread: one frame behind.
         [[nodiscard]] const RenderStats& renderStats() const { return m_stats; }
+        /// The last frame's culling, which happens on the main thread.
         [[nodiscard]] const CullingStats& cullingStats() const { return m_cullingStats; }
 
         /// Enabled lights on active objects in the last frame. Only the first kMaxLights are shaded.
@@ -156,20 +160,38 @@ namespace arc
         struct CullBatch
         {
             RenderList list;
+            std::vector<std::shared_ptr<const Model>> models;
+            std::vector<std::shared_ptr<const TextureAsset>> ramps;
             uint32_t meshesTested = 0;
             uint32_t meshesCulled = 0;
         };
 
+        /// What one frame draws: built by extract(), handed to render() by syncRender().
+        struct FrameData
+        {
+            RenderList renderList;
+            std::vector<GpuLight> lights;
+            LightingSettings lighting;
+            MeshRenderer::DebugView debugView = MeshRenderer::DebugView::Lit;
+            bool drawSky = true;
+            // What the list draws, held until the frame has been recorded: the objects that own them
+            // may be destroyed on the main thread meanwhile.
+            std::vector<std::shared_ptr<const Model>> models;
+            std::vector<std::shared_ptr<const TextureAsset>> ramps;
+        };
+
         uint32_t buildCullNode(const GameObject& object);
         static void addMeshes(const GameObject& object, const Frustum* frustum, const LodPolicy& lods, CullBatch& batch);
-        void cullAndCollect(const Frustum& frustum, const LodPolicy& lods);
+        void cullAndCollect(const Frustum& frustum, const LodPolicy& lods, FrameData& frame);
 
         AssetModule& m_assets;
         std::unique_ptr<Scene> m_scene;
         std::string m_scenePath;
         MeshRenderer m_meshRenderer;
-        RenderList m_renderList;
+        FrameData m_next;    // Being built on the main thread.
+        FrameData m_frame;   // Being drawn on the render thread.
         RenderStats m_stats;
+        RenderStats m_frameStats;   // Written by render().
         Skybox m_skybox;
         std::vector<CullNode> m_cullNodes;
         std::vector<DrawCandidate> m_drawCandidates;
@@ -179,7 +201,6 @@ namespace arc
         float m_cullAspect = 1.0f;
         uint64_t m_seenFinishedLoads = 0;
         uint32_t m_loadingMeshes = 0;
-        std::vector<GpuLight> m_lights;
         uint32_t m_sceneLightCount = 0;
         bool m_usedDefaultLight = false;
     };

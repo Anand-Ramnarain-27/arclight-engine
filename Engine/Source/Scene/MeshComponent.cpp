@@ -86,6 +86,13 @@ namespace arc
         return material < m_ramps.size() ? m_ramps[material].path : none;
     }
 
+    void MeshComponent::collectToonRamps(std::vector<std::shared_ptr<const TextureAsset>>& ramps) const
+    {
+        for (const Ramp& ramp : m_ramps)
+            if (ramp.texture)
+                ramps.push_back(ramp.texture);
+    }
+
     void MeshComponent::save(ComponentData& data) const
     {
         if (m_asset)
